@@ -337,3 +337,53 @@ fn ctrl_s_saves_and_reports_success_or_failure() {
     assert!(app.status().starts_with("Save failed:"), "{}", app.status());
     assert!(app.workbook.is_dirty());
 }
+
+#[test]
+fn quitting_a_clean_workbook_is_immediate() {
+    let (_file, mut app) = app_with("");
+    ctrl(&mut app, KeyCode::Char('q'));
+    assert!(app.should_quit());
+
+    let (_file, mut app) = app_with("");
+    ctrl(&mut app, KeyCode::Char('c'));
+    assert!(app.should_quit());
+}
+
+#[test]
+fn quitting_with_unsaved_edits_asks_first() {
+    let (file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+
+    ctrl(&mut app, KeyCode::Char('q'));
+    assert!(!app.should_quit());
+    assert_eq!(app.mode(), Mode::ConfirmQuit);
+
+    press(&mut app, KeyCode::Char('x'));
+    assert_eq!(app.mode(), Mode::ConfirmQuit, "other keys keep asking");
+    assert_eq!(app.current_sheet().cell(a1("A2")), Cell::default());
+
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(app.mode(), Mode::Navigate);
+    assert!(!app.should_quit());
+
+    ctrl(&mut app, KeyCode::Char('q'));
+    press(&mut app, KeyCode::Char('d'));
+    assert!(app.should_quit());
+    let on_disk = Workbook::open(&file.path).unwrap();
+    assert_eq!(on_disk.sheets[0].cell(a1("A1")), Cell::default(), "discarded");
+}
+
+#[test]
+fn save_and_quit_stays_open_if_the_save_fails() {
+    let (file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+    ctrl(&mut app, KeyCode::Char('q'));
+    std::fs::write(&file.path, b"changed").unwrap();
+
+    press(&mut app, KeyCode::Char('s'));
+
+    assert!(!app.should_quit());
+    assert!(app.status().starts_with("Save failed:"), "{}", app.status());
+
+    std::fs::remove_file(&file.path).unwrap();
+}

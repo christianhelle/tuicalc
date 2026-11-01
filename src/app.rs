@@ -11,6 +11,8 @@ use crate::xlsx::Workbook;
 pub enum Mode {
     Navigate,
     Edit,
+    /// Waiting for the user to decide what happens to unsaved edits.
+    ConfirmQuit,
 }
 
 /// Plain characters, plus AltGr combinations, which Windows reports as Ctrl+Alt.
@@ -42,6 +44,7 @@ pub struct App {
     status: String,
     undo: Vec<Change>,
     redo: Vec<Change>,
+    should_quit: bool,
 }
 
 impl App {
@@ -57,6 +60,7 @@ impl App {
             status: String::new(),
             undo: Vec::new(),
             redo: Vec::new(),
+            should_quit: false,
         }
     }
 
@@ -75,6 +79,10 @@ impl App {
     /// The latest message for the user.
     pub fn status(&self) -> &str {
         &self.status
+    }
+
+    pub fn should_quit(&self) -> bool {
+        self.should_quit
     }
 
     pub fn mode(&self) -> Mode {
@@ -100,6 +108,7 @@ impl App {
         match self.mode {
             Mode::Navigate => self.navigate_key(key),
             Mode::Edit => self.edit_key(key),
+            Mode::ConfirmQuit => self.confirm_quit_key(key),
         }
     }
 
@@ -108,6 +117,13 @@ impl App {
         match key.code {
             KeyCode::Char(c) if is_text_input(key) => {
                 self.begin_edit(vec![c]);
+            }
+            KeyCode::Char('q' | 'c') if ctrl => {
+                if self.workbook.is_dirty() {
+                    self.mode = Mode::ConfirmQuit;
+                } else {
+                    self.should_quit = true;
+                }
             }
             KeyCode::Char('s') if ctrl => {
                 self.save();
@@ -164,6 +180,18 @@ impl App {
     pub fn file_name(&self) -> String {
         let path = self.workbook.path();
         path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned()
+    }
+
+    fn confirm_quit_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('s' | 'S') => {
+                self.mode = Mode::Navigate;
+                self.should_quit = self.save();
+            }
+            KeyCode::Char('d' | 'D') => self.should_quit = true,
+            KeyCode::Esc => self.mode = Mode::Navigate,
+            _ => {}
+        }
     }
 
     fn undo(&mut self) {
