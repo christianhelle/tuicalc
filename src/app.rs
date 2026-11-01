@@ -175,6 +175,69 @@ impl App {
         self.current_sheet().has_cell(at)
     }
 
+    fn repeat_motion(&mut self, times: i64, step: fn(&Self) -> Option<CellRef>) {
+        for _ in 0..times {
+            match step(self) {
+                Some(next) => self.cursor = next,
+                None => break,
+            }
+        }
+    }
+
+    /// The last column worth searching on this sheet.
+    fn last_column(&self) -> u32 {
+        self.current_sheet().extent().map_or(0, |extent| extent.col)
+    }
+
+    fn filled_in_row(&self, col: u32) -> bool {
+        self.is_filled(CellRef { col, row: self.cursor.row })
+    }
+
+    /// `w`: the first cell of the next run of filled cells in this row.
+    fn next_run_start(&self) -> Option<CellRef> {
+        let last = self.last_column();
+        let mut col = self.cursor.col;
+        while col <= last && self.filled_in_row(col) {
+            col += 1;
+        }
+        while col <= last && !self.filled_in_row(col) {
+            col += 1;
+        }
+        (col <= last).then_some(CellRef { col, row: self.cursor.row })
+    }
+
+    /// `e`: the last cell of this run, or of the next one when already at the end.
+    fn next_run_end(&self) -> Option<CellRef> {
+        let last = self.last_column();
+        let mut col = self.cursor.col + 1;
+        while col <= last && !self.filled_in_row(col) {
+            col += 1;
+        }
+        if col > last {
+            return None;
+        }
+        while col < last && self.filled_in_row(col + 1) {
+            col += 1;
+        }
+        Some(CellRef { col, row: self.cursor.row })
+    }
+
+    /// `b`: the first cell of this run, or of the previous one when already at the start.
+    fn previous_run_start(&self) -> Option<CellRef> {
+        let mut col = self.cursor.col;
+        while col > 0 && !self.filled_in_row(col - 1) {
+            col -= 1;
+        }
+        if col == 0 {
+            return None;
+        }
+        col -= 1;
+        while col > 0 && self.filled_in_row(col - 1) {
+            col -= 1;
+        }
+        Some(CellRef { col, row: self.cursor.row })
+    }
+
     /// Moves the cursor if the key is a motion, and says whether it was.
     fn motion(&mut self, key: KeyEvent, count: Option<u32>) -> bool {
         let ctrl = is_ctrl(key);
@@ -196,6 +259,9 @@ impl App {
                 let last = self.current_sheet().extent().map_or(0, |extent| extent.row);
                 self.cursor.row = count.map_or(last, |row| row.saturating_sub(1));
             }
+            KeyCode::Char('w') if !ctrl => self.repeat_motion(n, Self::next_run_start),
+            KeyCode::Char('e') if !ctrl => self.repeat_motion(n, Self::next_run_end),
+            KeyCode::Char('b') if !ctrl => self.repeat_motion(n, Self::previous_run_start),
             KeyCode::Char('h') if !ctrl => self.move_by(-n, 0),
             KeyCode::Char('l') if !ctrl => self.move_by(n, 0),
             KeyCode::Char('k') if !ctrl => self.move_by(0, -n),

@@ -667,3 +667,27 @@ fn gg_and_g_go_to_rows_and_keep_the_column() {
     keys(&mut app, "j");
     assert_eq!(app.cursor(), a1("B4"), "and the prefix is gone");
 }
+
+#[test]
+fn word_motions_treat_runs_of_filled_cells_as_words() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "w");
+    assert_eq!(app.cursor(), a1("D1"));
+    keys(&mut app, "w");
+    assert_eq!(app.cursor(), a1("G1"));
+    keys(&mut app, "w");
+    assert_eq!(app.cursor(), a1("G1"), "nothing further along");
+    keys(&mut app, "b");
+    assert_eq!(app.cursor(), a1("D1"));
+    keys(&mut app, "b");
+    assert_eq!(app.cursor(), a1("A1"));
+    keys(&mut app, "b");
+    assert_eq!(app.cursor(), a1("A1"));
+    keys(&mut app, "e");
+    assert_eq!(app.cursor(), a1("B1"));
+    keys(&mut app, "e");
+    assert_eq!(app.cursor(), a1("E1"));
+    keys(&mut app, "0");
+    keys(&mut app, "2w");
+    assert_eq!(app.cursor(), a1("G1"));
+}
