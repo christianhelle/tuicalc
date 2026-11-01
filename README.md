@@ -3,8 +3,11 @@
 View and edit Excel `.xlsx` workbooks from the terminal.
 
 ```
-cargo run --release -- path/to/book.xlsx
+cargo install --path .
+tcalc path/to/book.xlsx
 ```
+
+The project is tuicalc, and the command is `tcalc`, which is quicker to type.
 
 ## Keys
 

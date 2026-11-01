@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Viewing workbooks: `tuicalc <file.xlsx>` shows a sheet as a grid, with the
+- Viewing workbooks: `tcalc <file.xlsx>` shows a sheet as a grid, with the
   cursor's address and full contents in a formula bar above it. Numbers show as
   many digits as fit, as in Excel's General format, and dates show as
   `YYYY-MM-DD`, in workbooks of either date system. Text is cut to the terminal
