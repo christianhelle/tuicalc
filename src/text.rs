@@ -57,10 +57,15 @@ pub fn edit_text(cell: &Cell, date1904: bool) -> String {
 }
 
 /// The text shown in the grid for a cell.
-pub fn display_text(cell: &Cell, _date1904: bool, _width: usize) -> String {
+pub fn display_text(cell: &Cell, date1904: bool, width: usize) -> String {
     match &cell.value {
-        CellValue::Empty => String::new(),
-        CellValue::Number(number) => number.to_string(),
+        CellValue::Empty => match &cell.formula {
+            // A newly typed formula has no result until a spreadsheet engine computes one.
+            Some(formula) => format!("={formula}"),
+            None => String::new(),
+        },
+        CellValue::Number(number) if cell.is_date => date_text(*number, date1904, width),
+        CellValue::Number(number) => number_text(*number, width),
         CellValue::Text(text) => text.clone(),
         CellValue::Bool(flag) => if *flag { "TRUE" } else { "FALSE" }.to_string(),
         CellValue::Error(text) => text.clone(),
@@ -70,4 +75,49 @@ pub fn display_text(cell: &Cell, _date1904: bool, _width: usize) -> String {
 /// Numbers sit against the right edge of their column, as in Excel.
 pub fn is_right_aligned(cell: &Cell) -> bool {
     matches!(cell.value, CellValue::Number(_))
+}
+
+/// The longest significant-digit count Excel shows in a General cell.
+const GENERAL_PRECISION: usize = 11;
+
+fn date_text(serial: f64, date1904: bool, width: usize) -> String {
+    let full = date::format_serial(serial, date1904);
+    if full.len() <= width {
+        return full;
+    }
+    // The date matters more than the time when both cannot fit.
+    let date = full.split(' ').next().unwrap_or(&full);
+    if date.len() <= width { date.to_string() } else { "#".repeat(width) }
+}
+
+/// Formats a number with as many significant digits as fit, like Excel's General format.
+fn number_text(number: f64, width: usize) -> String {
+    (1..=GENERAL_PRECISION)
+        .rev()
+        .map(|precision| general_format(number, precision))
+        .find(|text| text.len() <= width)
+        .unwrap_or_else(|| "#".repeat(width))
+}
+
+fn general_format(number: f64, precision: usize) -> String {
+    if number == 0.0 {
+        return "0".to_string();
+    }
+    let magnitude = number.abs();
+    if !(1e-4..1e11).contains(&magnitude) {
+        let text = format!("{:.*e}", precision - 1, number);
+        let (mantissa, exponent) = text.split_once('e').unwrap_or((&text, "0"));
+        return format!("{}e{exponent}", trim_fraction(mantissa));
+    }
+    let integer_digits = magnitude.log10().floor() as i32 + 1;
+    let decimals = (precision as i32 - integer_digits).max(0) as usize;
+    trim_fraction(&format!("{number:.decimals$}")).to_string()
+}
+
+fn trim_fraction(text: &str) -> &str {
+    if text.contains('.') {
+        text.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        text
+    }
 }

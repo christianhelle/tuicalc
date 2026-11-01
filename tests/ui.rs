@@ -74,3 +74,39 @@ fn draws_column_and_row_headers_with_aligned_values() {
     assert_eq!(drawn_cell(row, 0), "name       ");
     assert_eq!(drawn_cell(row, 1), "         42");
 }
+
+#[test]
+fn numbers_show_as_many_significant_digits_as_fit() {
+    let (_file, mut app) = app_with(
+        r#"<row r="1"><c r="A1"><v>0.30000000000000004</v></c><c r="B1"><v>-0.333333333333333</v></c><c r="C1"><v>1E+20</v></c></row><row r="2"><c r="A2"><v>123456</v></c><c r="B2"><v>0.00001</v></c><c r="C2"><v>12345678901234</v></c></row>"#,
+    );
+
+    let screen = render(&mut app, 44, 10);
+
+    let row = grid_line(&screen, 1);
+    assert_eq!(drawn_cell(row, 0).trim(), "0.3");
+    assert_eq!(drawn_cell(row, 1).trim(), "-0.33333333");
+    assert_eq!(drawn_cell(row, 2).trim(), "1e20");
+    let row = grid_line(&screen, 2);
+    assert_eq!(drawn_cell(row, 0).trim(), "123456");
+    assert_eq!(drawn_cell(row, 1).trim(), "1e-5");
+    assert_eq!(drawn_cell(row, 2).trim(), "1.234568e13");
+}
+
+#[test]
+fn shows_booleans_errors_formula_results_and_dates() {
+    let styles = r#"<styleSheet><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="22"/></cellXfs></styleSheet>"#;
+    let rows = r##"<row r="1"><c r="A1" t="b"><v>1</v></c><c r="B1" t="e"><v>#REF!</v></c><c r="C1"><f>B2*2</f><v>8</v></c></row><row r="2"><c r="A2"><f>NEW()</f></c><c r="B2" s="1"><v>45000</v></c><c r="C2" s="1"><v>45000.5</v></c></row>"##;
+    let (_file, mut app) = app_from(&single_sheet(&sheet(rows), &[("xl/styles.xml", styles)]));
+
+    let screen = render(&mut app, 44, 10);
+
+    let row = grid_line(&screen, 1);
+    assert_eq!(drawn_cell(row, 0).trim(), "TRUE");
+    assert_eq!(drawn_cell(row, 1).trim(), "#REF!");
+    assert_eq!(drawn_cell(row, 2).trim(), "8");
+    let row = grid_line(&screen, 2);
+    assert_eq!(drawn_cell(row, 0).trim(), "=NEW()");
+    assert_eq!(drawn_cell(row, 1).trim(), "2023-03-15");
+    assert_eq!(drawn_cell(row, 2).trim(), "2023-03-15", "the time does not fit the column");
+}
