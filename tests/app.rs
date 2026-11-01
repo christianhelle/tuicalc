@@ -76,3 +76,23 @@ fn tab_and_enter_move_the_cursor() {
     press(&mut app, KeyCode::Enter);
     assert_eq!(app.cursor(), a1("B2"));
 }
+
+#[test]
+fn paging_and_jumping() {
+    let (_file, mut app) = app_with(r#"<row r="5"><c r="D5"><v>1</v></c></row>"#);
+    app.set_viewport(5, 10);
+
+    press(&mut app, KeyCode::PageDown);
+    assert_eq!(app.cursor(), a1("A11"));
+    press(&mut app, KeyCode::PageUp);
+    assert_eq!(app.cursor(), a1("A1"));
+
+    ctrl(&mut app, KeyCode::End);
+    assert_eq!(app.cursor(), a1("D5"));
+    press(&mut app, KeyCode::Home);
+    assert_eq!(app.cursor(), a1("A5"));
+    press(&mut app, KeyCode::End);
+    assert_eq!(app.cursor(), a1("D5"));
+    ctrl(&mut app, KeyCode::Home);
+    assert_eq!(app.cursor(), a1("A1"));
+}
