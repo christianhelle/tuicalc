@@ -369,3 +369,21 @@ fn the_selection_is_highlighted_with_the_cursor_marked_inside_it() {
     assert!(!at(2, 0).modifier.contains(Modifier::REVERSED));
     assert!(!at(0, 2).modifier.contains(Modifier::REVERSED));
 }
+
+#[test]
+fn unfinished_commands_show_at_the_right_of_the_status_line() {
+    let (_file, mut app) = app_with("");
+    for c in "2d3".chars() {
+        press(&mut app, KeyCode::Char(c));
+    }
+    let screen = render(&mut app, 100, 10);
+    assert!(screen[9].trim_end().ends_with(" 2d3"), "{}", screen[9]);
+
+    press(&mut app, KeyCode::Char('g'));
+    let screen = render(&mut app, 100, 10);
+    assert!(screen[9].trim_end().ends_with(" 6dg"), "{}", screen[9]);
+
+    press(&mut app, KeyCode::Esc);
+    let screen = render(&mut app, 100, 10);
+    assert!(!screen[9].trim_end().ends_with('g'), "{}", screen[9]);
+}

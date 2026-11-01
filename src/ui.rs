@@ -150,6 +150,7 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     } else {
         app.status()
     };
+    let pending = app.pending_keys();
     let line = format!("-- {name} -- {}{marker} | {message}", app.file_name());
     buffer.set_stringn(
         area.x,
@@ -158,6 +159,11 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         usize::from(area.width),
         Style::default(),
     );
+    let width = pending.chars().count() as u16;
+    if width > 0 && width < area.width {
+        let x = area.right() - width;
+        buffer.set_stringn(x - 1, area.y, format!(" {pending}"), usize::from(width) + 1, Style::default());
+    }
 }
 
 fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {

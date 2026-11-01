@@ -132,6 +132,18 @@ impl App {
         self.scroll_to_cursor();
     }
 
+    /// The keys of a command still being typed, as vim's `showcmd` shows them.
+    pub fn pending_keys(&self) -> String {
+        let count = self.operator_count.or(self.count).map_or(String::new(), |n| n.to_string());
+        let operator = self.operator.map_or(String::new(), |(operator, _)| operator.to_string());
+        let inner = match (self.operator_count, self.count) {
+            (Some(_), Some(n)) => n.to_string(),
+            _ => String::new(),
+        };
+        let prefix = self.pending.map_or(String::new(), |prefix| prefix.to_string());
+        format!("{count}{operator}{inner}{prefix}")
+    }
+
     /// The latest message for the user.
     pub fn status(&self) -> &str {
         &self.status
