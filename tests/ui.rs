@@ -280,7 +280,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
 
     let screen = render(&mut app, 80, 10);
     assert!(
-        screen[9].starts_with("book.xlsx | F2 edit"),
+        screen[9].starts_with("-- NORMAL -- book.xlsx | i insert"),
         "{}",
         screen[9]
     );
@@ -288,16 +288,16 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     press(&mut app, KeyCode::Char('s'));
     press(&mut app, KeyCode::Char('1'));
     let screen = render(&mut app, 80, 10);
-    assert!(screen[9].contains("Enter confirm"), "{}", screen[9]);
+    assert!(screen[9].starts_with("-- INSERT -- book.xlsx | Esc done"), "{}", screen[9]);
 
     press(&mut app, KeyCode::Enter);
     let screen = render(&mut app, 80, 10);
-    assert!(screen[9].starts_with("book.xlsx* |"), "{}", screen[9]);
+    assert!(screen[9].starts_with("-- NORMAL -- book.xlsx* |"), "{}", screen[9]);
 
     app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
     let screen = render(&mut app, 80, 10);
     assert!(
-        screen[9].starts_with("book.xlsx | Saved book.xlsx"),
+        screen[9].contains("book.xlsx | Saved book.xlsx"),
         "{}",
         screen[9]
     );
@@ -320,4 +320,16 @@ fn draws_at_any_terminal_size_without_panicking() {
             render(&mut app, width, height);
         }
     }
+}
+
+#[test]
+fn the_status_line_names_the_mode() {
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('v'));
+    let screen = render(&mut app, 80, 10);
+    assert!(screen[9].starts_with("-- VISUAL -- book.xlsx | d delete"), "{}", screen[9]);
+
+    press(&mut app, KeyCode::Char('V'));
+    let screen = render(&mut app, 80, 10);
+    assert!(screen[9].starts_with("-- V-LINE -- "), "{}", screen[9]);
 }

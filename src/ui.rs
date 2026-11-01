@@ -118,7 +118,8 @@ fn draw_tabs(buffer: &mut Buffer, area: Rect, app: &App) {
     }
 }
 
-const HELP: &str = "F2 edit | Ctrl+S save | Ctrl+Z undo | F6 sheet | Ctrl+Q quit";
+const HELP: &str = "i insert | v visual | : command | u undo | gt sheet | :w save | :q quit";
+const VISUAL_HELP: &str = "d delete | y yank | c change | o other corner | Esc back";
 const CONFIRM_QUIT: &str = "Unsaved changes: [s]ave and quit, [d]iscard, Esc to stay";
 
 fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
@@ -126,13 +127,20 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         return;
     }
     let marker = if app.workbook.is_dirty() { "*" } else { "" };
-    let message = match app.mode() {
-        Mode::ConfirmQuit => CONFIRM_QUIT,
-        _ if !app.status().is_empty() => app.status(),
-        Mode::Insert => "Enter confirm | Esc cancel",
-        Mode::Normal | Mode::Visual | Mode::VisualRow | Mode::Command => HELP,
+    let (name, hint) = match app.mode() {
+        Mode::Normal => ("NORMAL", HELP),
+        Mode::Insert => ("INSERT", "Esc done | Enter next | Ctrl+C cancel"),
+        Mode::Visual => ("VISUAL", VISUAL_HELP),
+        Mode::VisualRow => ("V-LINE", VISUAL_HELP),
+        Mode::ConfirmQuit => ("NORMAL", CONFIRM_QUIT),
+        Mode::Command => ("COMMAND", ""),
     };
-    let line = format!("{}{marker} | {message}", app.file_name());
+    let message = if app.status().is_empty() || app.mode() == Mode::ConfirmQuit {
+        hint
+    } else {
+        app.status()
+    };
+    let line = format!("-- {name} -- {}{marker} | {message}", app.file_name());
     buffer.set_stringn(
         area.x,
         area.y,
