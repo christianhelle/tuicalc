@@ -33,3 +33,22 @@ impl CellRef {
         Some(Self { col: col - 1, row: row - 1 })
     }
 }
+
+/// The letters naming a zero-based column.
+pub fn column_name(col: u32) -> String {
+    let mut remaining = col + 1;
+    let mut letters = Vec::new();
+    while remaining > 0 {
+        remaining -= 1;
+        letters.push(b'A' + (remaining % 26) as u8);
+        remaining /= 26;
+    }
+    letters.reverse();
+    String::from_utf8(letters).expect("column letters are ascii")
+}
+
+impl std::fmt::Display for CellRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", column_name(self.col), self.row + 1)
+    }
+}

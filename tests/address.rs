@@ -14,3 +14,10 @@ fn rejects_malformed_and_out_of_range_references() {
         assert_eq!(CellRef::parse(bad), None, "{bad}");
     }
 }
+
+#[test]
+fn formats_columns_and_references_as_a1() {
+    assert_eq!(CellRef { col: 0, row: 0 }.to_string(), "A1");
+    assert_eq!(CellRef { col: 27, row: 99 }.to_string(), "AB100");
+    assert_eq!(tuicalc::address::column_name(16383), "XFD");
+}
