@@ -133,7 +133,13 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     }
     if app.mode() == Mode::Command {
         let line = format!(":{}", app.buffer());
-        buffer.set_stringn(area.x, area.y, line, usize::from(area.width), Style::default());
+        buffer.set_stringn(
+            area.x,
+            area.y,
+            line,
+            usize::from(area.width),
+            Style::default(),
+        );
         return;
     }
     let marker = if app.workbook.is_dirty() { "*" } else { "" };
@@ -162,7 +168,13 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     let width = pending.chars().count() as u16;
     if width > 0 && width < area.width {
         let x = area.right() - width;
-        buffer.set_stringn(x - 1, area.y, format!(" {pending}"), usize::from(width) + 1, Style::default());
+        buffer.set_stringn(
+            x - 1,
+            area.y,
+            format!(" {pending}"),
+            usize::from(width) + 1,
+            Style::default(),
+        );
     }
 }
 

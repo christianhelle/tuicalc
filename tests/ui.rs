@@ -288,11 +288,19 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     press(&mut app, KeyCode::Char('s'));
     press(&mut app, KeyCode::Char('1'));
     let screen = render(&mut app, 80, 10);
-    assert!(screen[9].starts_with("-- INSERT -- book.xlsx | Esc done"), "{}", screen[9]);
+    assert!(
+        screen[9].starts_with("-- INSERT -- book.xlsx | Esc done"),
+        "{}",
+        screen[9]
+    );
 
     press(&mut app, KeyCode::Enter);
     let screen = render(&mut app, 80, 10);
-    assert!(screen[9].starts_with("-- NORMAL -- book.xlsx* |"), "{}", screen[9]);
+    assert!(
+        screen[9].starts_with("-- NORMAL -- book.xlsx* |"),
+        "{}",
+        screen[9]
+    );
 
     app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
     let screen = render(&mut app, 80, 10);
@@ -327,7 +335,11 @@ fn the_status_line_names_the_mode() {
     let (_file, mut app) = app_with("");
     press(&mut app, KeyCode::Char('v'));
     let screen = render(&mut app, 80, 10);
-    assert!(screen[9].starts_with("-- VISUAL -- book.xlsx | d delete"), "{}", screen[9]);
+    assert!(
+        screen[9].starts_with("-- VISUAL -- book.xlsx | d delete"),
+        "{}",
+        screen[9]
+    );
 
     press(&mut app, KeyCode::Char('V'));
     let screen = render(&mut app, 80, 10);
@@ -344,7 +356,9 @@ fn the_command_line_takes_over_the_status_line() {
     let mut terminal = terminal_for(&mut app, 40, 10);
 
     let buffer = terminal.backend().buffer();
-    let line: String = (0..40).map(|x| buffer[(x, 9)].symbol().to_string()).collect();
+    let line: String = (0..40)
+        .map(|x| buffer[(x, 9)].symbol().to_string())
+        .collect();
     assert_eq!(line.trim_end(), ":wq");
     let position = terminal.get_cursor_position().unwrap();
     assert_eq!((position.x, position.y), (3, 9));
@@ -364,7 +378,12 @@ fn the_selection_is_highlighted_with_the_cursor_marked_inside_it() {
     assert!(at(0, 0).modifier.contains(Modifier::REVERSED));
     assert!(at(1, 0).modifier.contains(Modifier::REVERSED));
     assert!(at(0, 1).modifier.contains(Modifier::REVERSED));
-    assert!(at(1, 1).modifier.contains(Modifier::REVERSED | Modifier::BOLD), "the cursor");
+    assert!(
+        at(1, 1)
+            .modifier
+            .contains(Modifier::REVERSED | Modifier::BOLD),
+        "the cursor"
+    );
     assert!(!at(0, 0).modifier.contains(Modifier::BOLD));
     assert!(!at(2, 0).modifier.contains(Modifier::REVERSED));
     assert!(!at(0, 2).modifier.contains(Modifier::REVERSED));

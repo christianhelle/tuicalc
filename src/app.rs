@@ -134,13 +134,20 @@ impl App {
 
     /// The keys of a command still being typed, as vim's `showcmd` shows them.
     pub fn pending_keys(&self) -> String {
-        let count = self.operator_count.or(self.count).map_or(String::new(), |n| n.to_string());
-        let operator = self.operator.map_or(String::new(), |(operator, _)| operator.to_string());
+        let count = self
+            .operator_count
+            .or(self.count)
+            .map_or(String::new(), |n| n.to_string());
+        let operator = self
+            .operator
+            .map_or(String::new(), |(operator, _)| operator.to_string());
         let inner = match (self.operator_count, self.count) {
             (Some(_), Some(n)) => n.to_string(),
             _ => String::new(),
         };
-        let prefix = self.pending.map_or(String::new(), |prefix| prefix.to_string());
+        let prefix = self
+            .pending
+            .map_or(String::new(), |prefix| prefix.to_string());
         format!("{count}{operator}{inner}{prefix}")
     }
 
@@ -237,7 +244,10 @@ impl App {
     }
 
     fn filled_in_row(&self, col: u32) -> bool {
-        self.is_filled(CellRef { col, row: self.cursor.row })
+        self.is_filled(CellRef {
+            col,
+            row: self.cursor.row,
+        })
     }
 
     /// `w`: the first cell of the next run of filled cells in this row.
@@ -250,7 +260,10 @@ impl App {
         while col <= last && !self.filled_in_row(col) {
             col += 1;
         }
-        (col <= last).then_some(CellRef { col, row: self.cursor.row })
+        (col <= last).then_some(CellRef {
+            col,
+            row: self.cursor.row,
+        })
     }
 
     /// `e`: the last cell of this run, or of the next one when already at the end.
@@ -266,7 +279,10 @@ impl App {
         while col < last && self.filled_in_row(col + 1) {
             col += 1;
         }
-        Some(CellRef { col, row: self.cursor.row })
+        Some(CellRef {
+            col,
+            row: self.cursor.row,
+        })
     }
 
     /// `b`: the first cell of this run, or of the previous one when already at the start.
@@ -282,11 +298,17 @@ impl App {
         while col > 0 && self.filled_in_row(col - 1) {
             col -= 1;
         }
-        Some(CellRef { col, row: self.cursor.row })
+        Some(CellRef {
+            col,
+            row: self.cursor.row,
+        })
     }
 
     fn filled_in_column(&self, row: u32) -> bool {
-        self.is_filled(CellRef { col: self.cursor.col, row })
+        self.is_filled(CellRef {
+            col: self.cursor.col,
+            row,
+        })
     }
 
     /// `}`: the empty cell below the next run of filled cells in this column.
@@ -302,7 +324,10 @@ impl App {
         while row <= last && self.filled_in_column(row) {
             row += 1;
         }
-        Some(CellRef { col: self.cursor.col, row })
+        Some(CellRef {
+            col: self.cursor.col,
+            row,
+        })
     }
 
     /// `{`: the empty cell above the previous run of filled cells, or the top of the sheet.
@@ -317,7 +342,10 @@ impl App {
         while row > 0 && self.filled_in_column(row) {
             row -= 1;
         }
-        Some(CellRef { col: self.cursor.col, row })
+        Some(CellRef {
+            col: self.cursor.col,
+            row,
+        })
     }
 
     /// Moves the view and the cursor by the same number of rows.
@@ -354,16 +382,28 @@ impl App {
             KeyCode::Char('}') if !ctrl => self.repeat_motion(n, Self::next_gap),
             KeyCode::Char('{') if !ctrl => self.repeat_motion(n, Self::previous_gap),
             KeyCode::Char('H') if !ctrl => {
-                let offset = count.unwrap_or(1).saturating_sub(1).min(self.viewport.1 - 1);
+                let offset = count
+                    .unwrap_or(1)
+                    .saturating_sub(1)
+                    .min(self.viewport.1 - 1);
                 self.cursor.row = self.scroll.row + offset;
             }
-            KeyCode::Char('M') if !ctrl => self.cursor.row = self.scroll.row + (self.viewport.1 - 1) / 2,
+            KeyCode::Char('M') if !ctrl => {
+                self.cursor.row = self.scroll.row + (self.viewport.1 - 1) / 2
+            }
             KeyCode::Char('L') if !ctrl => {
-                let offset = count.unwrap_or(1).saturating_sub(1).min(self.viewport.1 - 1);
+                let offset = count
+                    .unwrap_or(1)
+                    .saturating_sub(1)
+                    .min(self.viewport.1 - 1);
                 self.cursor.row = self.scroll.row + self.viewport.1 - 1 - offset;
             }
-            KeyCode::Char('d') if ctrl => self.scroll_with_cursor(n * i64::from(self.viewport.1 / 2)),
-            KeyCode::Char('u') if ctrl => self.scroll_with_cursor(-n * i64::from(self.viewport.1 / 2)),
+            KeyCode::Char('d') if ctrl => {
+                self.scroll_with_cursor(n * i64::from(self.viewport.1 / 2))
+            }
+            KeyCode::Char('u') if ctrl => {
+                self.scroll_with_cursor(-n * i64::from(self.viewport.1 / 2))
+            }
             KeyCode::Char('f') if ctrl => self.scroll_with_cursor(n * i64::from(self.viewport.1)),
             KeyCode::Char('b') if ctrl => self.scroll_with_cursor(-n * i64::from(self.viewport.1)),
             KeyCode::Char('h') if !ctrl => self.move_by(-n, 0),
@@ -406,7 +446,11 @@ impl App {
             return false;
         }
         let digit = c.to_digit(10).unwrap_or(0);
-        let count = self.count.unwrap_or(0).saturating_mul(10).saturating_add(digit);
+        let count = self
+            .count
+            .unwrap_or(0)
+            .saturating_mul(10)
+            .saturating_add(digit);
         self.count = Some(count.min(MAX_ROWS));
         true
     }
@@ -422,12 +466,24 @@ impl App {
         let rows = (a.row.min(b.row), a.row.max(b.row));
         match self.mode {
             Mode::Visual => Some((
-                CellRef { col: a.col.min(b.col), row: rows.0 },
-                CellRef { col: a.col.max(b.col), row: rows.1 },
+                CellRef {
+                    col: a.col.min(b.col),
+                    row: rows.0,
+                },
+                CellRef {
+                    col: a.col.max(b.col),
+                    row: rows.1,
+                },
             )),
             Mode::VisualRow => Some((
-                CellRef { col: 0, row: rows.0 },
-                CellRef { col: MAX_COLS - 1, row: rows.1 },
+                CellRef {
+                    col: 0,
+                    row: rows.0,
+                },
+                CellRef {
+                    col: MAX_COLS - 1,
+                    row: rows.1,
+                },
             )),
             _ => None,
         }
@@ -441,8 +497,14 @@ impl App {
         };
         let target = self.cursor;
         let (first, mut last) = (
-            CellRef { col: origin.col.min(target.col), row: origin.row.min(target.row) },
-            CellRef { col: origin.col.max(target.col), row: origin.row.max(target.row) },
+            CellRef {
+                col: origin.col.min(target.col),
+                row: origin.row.min(target.row),
+            },
+            CellRef {
+                col: origin.col.max(target.col),
+                row: origin.row.max(target.row),
+            },
         );
         if exclusive && target.col != origin.col {
             last.col -= 1;
@@ -456,7 +518,10 @@ impl App {
         let row = self.cursor.row;
         let bottom = row.saturating_add(count - 1).min(MAX_ROWS - 1);
         let first = CellRef { col: 0, row };
-        let last = CellRef { col: MAX_COLS - 1, row: bottom };
+        let last = CellRef {
+            col: MAX_COLS - 1,
+            row: bottom,
+        };
         self.operate(operator, first, last, true, self.cursor);
     }
 
@@ -466,7 +531,14 @@ impl App {
         };
         let rows = self.mode == Mode::VisualRow;
         self.mode = Mode::Normal;
-        let at = if rows { CellRef { col: self.cursor.col, row: first.row } } else { first };
+        let at = if rows {
+            CellRef {
+                col: self.cursor.col,
+                row: first.row,
+            }
+        } else {
+            first
+        };
         self.operate(operator, first, last, rows, at);
     }
 
@@ -492,7 +564,12 @@ impl App {
             .map(|at| (at, self.current_sheet().cell(at)))
             .collect();
         let count = cells.len();
-        self.register = Some(Register { first, last, rows, cells });
+        self.register = Some(Register {
+            first,
+            last,
+            rows,
+            cells,
+        });
         count
     }
 
@@ -503,8 +580,14 @@ impl App {
             return;
         };
         let target = match (register.rows, before) {
-            (true, true) => CellRef { col: 0, row: self.cursor.row },
-            (true, false) => CellRef { col: 0, row: (self.cursor.row + 1).min(MAX_ROWS - 1) },
+            (true, true) => CellRef {
+                col: 0,
+                row: self.cursor.row,
+            },
+            (true, false) => CellRef {
+                col: 0,
+                row: (self.cursor.row + 1).min(MAX_ROWS - 1),
+            },
             (false, _) => self.cursor,
         };
         let cols = i64::from(target.col) - i64::from(register.first.col);
@@ -512,8 +595,10 @@ impl App {
         let shifted = |at: CellRef| {
             let col = i64::from(at.col) + cols;
             let row = i64::from(at.row) + rows;
-            (col < i64::from(MAX_COLS) && row < i64::from(MAX_ROWS))
-                .then_some(CellRef { col: col as u32, row: row as u32 })
+            (col < i64::from(MAX_COLS) && row < i64::from(MAX_ROWS)).then_some(CellRef {
+                col: col as u32,
+                row: row as u32,
+            })
         };
         let bottom_right = CellRef {
             col: (i64::from(register.last.col) + cols).min(i64::from(MAX_COLS) - 1) as u32,
@@ -530,12 +615,18 @@ impl App {
             let is_date = self.current_sheet().cell(to).is_date;
             let pasted = match &cell.formula {
                 Some(formula) => Cell::formula(translate(formula, cols, rows)),
-                None => Cell { is_date: is_date && matches!(cell.value, CellValue::Number(_)), ..cell.clone() },
+                None => Cell {
+                    is_date: is_date && matches!(cell.value, CellValue::Number(_)),
+                    ..cell.clone()
+                },
             };
             edits.insert(to, pasted);
         }
         if self.apply_edits(edits.into_iter().collect()) {
-            self.cursor = CellRef { col: self.cursor.col, row: target.row };
+            self.cursor = CellRef {
+                col: self.cursor.col,
+                row: target.row,
+            };
             if !register.rows {
                 self.cursor = target;
             }
@@ -561,7 +652,9 @@ impl App {
             return;
         }
         match (key.code, self.mode) {
-            (KeyCode::Esc, _) | (KeyCode::Char('v'), Mode::Visual) | (KeyCode::Char('V'), Mode::VisualRow) => {
+            (KeyCode::Esc, _)
+            | (KeyCode::Char('v'), Mode::Visual)
+            | (KeyCode::Char('V'), Mode::VisualRow) => {
                 self.mode = Mode::Normal;
             }
             (KeyCode::Char('c'), _) if is_ctrl(key) => self.mode = Mode::Normal,
@@ -593,7 +686,9 @@ impl App {
             ('Z', KeyCode::Char('Q')) => self.should_quit = true,
             ('z', KeyCode::Char('z')) => self.scroll.row = self.cursor.row.saturating_sub(rows / 2),
             ('z', KeyCode::Char('t')) => self.scroll.row = self.cursor.row,
-            ('z', KeyCode::Char('b')) => self.scroll.row = (self.cursor.row + 1).saturating_sub(rows),
+            ('z', KeyCode::Char('b')) => {
+                self.scroll.row = (self.cursor.row + 1).saturating_sub(rows)
+            }
             _ => {}
         }
         is_motion
@@ -627,7 +722,11 @@ impl App {
                 KeyCode::Char('h' | 'l' | 'w' | 'b') | KeyCode::Left | KeyCode::Right
             );
             let backward = matches!(key.code, KeyCode::Char('h' | 'b') | KeyCode::Left);
-            if backward && self.operator.is_some_and(|(_, origin)| origin == self.cursor) {
+            if backward
+                && self
+                    .operator
+                    .is_some_and(|(_, origin)| origin == self.cursor)
+            {
                 self.operator = None;
                 return;
             }
@@ -673,21 +772,33 @@ impl App {
             KeyCode::Char('r') if ctrl => self.redo(),
             KeyCode::Char('x') if !ctrl => {
                 let n = count.unwrap_or(1) - 1;
-                let last = CellRef { col: (self.cursor.col + n).min(MAX_COLS - 1), ..self.cursor };
+                let last = CellRef {
+                    col: (self.cursor.col + n).min(MAX_COLS - 1),
+                    ..self.cursor
+                };
                 self.clear_cells(self.cursor, last);
             }
             KeyCode::Char('X') if !ctrl => {
                 let n = count.unwrap_or(1);
                 if self.cursor.col > 0 {
-                    let first = CellRef { col: self.cursor.col.saturating_sub(n), ..self.cursor };
-                    let last = CellRef { col: self.cursor.col - 1, ..self.cursor };
+                    let first = CellRef {
+                        col: self.cursor.col.saturating_sub(n),
+                        ..self.cursor
+                    };
+                    let last = CellRef {
+                        col: self.cursor.col - 1,
+                        ..self.cursor
+                    };
                     if self.clear_cells(first, last) {
                         self.cursor = first;
                     }
                 }
             }
             KeyCode::Char('D') if !ctrl => {
-                if let Some(col) = self.last_filled_column().filter(|col| *col >= self.cursor.col) {
+                if let Some(col) = self
+                    .last_filled_column()
+                    .filter(|col| *col >= self.cursor.col)
+                {
                     self.clear_cells(self.cursor, CellRef { col, ..self.cursor });
                 }
             }
@@ -708,7 +819,10 @@ impl App {
             KeyCode::Char('s') if !ctrl => self.begin_edit(Vec::new()),
             KeyCode::Char('S') if !ctrl => self.operate_on_rows('c', count.unwrap_or(1)),
             KeyCode::Char('C') if !ctrl => {
-                match self.last_filled_column().filter(|col| *col >= self.cursor.col) {
+                match self
+                    .last_filled_column()
+                    .filter(|col| *col >= self.cursor.col)
+                {
                     Some(col) => {
                         let last = CellRef { col, ..self.cursor };
                         self.operate('c', self.cursor, last, false, self.cursor);
@@ -785,7 +899,11 @@ impl App {
             self.status = "Nothing to undo".into();
             return;
         };
-        let cells = change.edits.iter().map(|edit| (edit.at, edit.before.clone())).collect();
+        let cells = change
+            .edits
+            .iter()
+            .map(|edit| (edit.at, edit.before.clone()))
+            .collect();
         self.restore(change.sheet, cells);
         self.redo.push(change);
     }
@@ -795,7 +913,11 @@ impl App {
             self.status = "Nothing to redo".into();
             return;
         };
-        let cells = change.edits.iter().map(|edit| (edit.at, edit.after.clone())).collect();
+        let cells = change
+            .edits
+            .iter()
+            .map(|edit| (edit.at, edit.after.clone()))
+            .collect();
         self.restore(change.sheet, cells);
         self.undo.push(change);
     }
@@ -934,7 +1056,10 @@ impl App {
 
     /// Applies edits as one undoable change, or none of them if any cell is read-only.
     fn apply_edits(&mut self, cells: Vec<(CellRef, Cell)>) -> bool {
-        if let Some((at, _)) = cells.iter().find(|(at, _)| self.current_sheet().is_locked(*at)) {
+        if let Some((at, _)) = cells
+            .iter()
+            .find(|(at, _)| self.current_sheet().is_locked(*at))
+        {
             self.status = format!("{at} is part of an array formula and is read-only");
             return false;
         }
@@ -947,7 +1072,10 @@ impl App {
             }
         }
         if !edits.is_empty() {
-            self.undo.push(Change { sheet: self.sheet, edits });
+            self.undo.push(Change {
+                sheet: self.sheet,
+                edits,
+            });
             self.redo.clear();
         }
         true

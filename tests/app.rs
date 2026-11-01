@@ -546,7 +546,8 @@ fn value(app: &App, at: &str) -> CellValue {
 
 #[test]
 fn i_and_a_edit_the_cell_with_the_caret_at_either_end() {
-    let (_file, mut app) = app_with(r#"<row r="1"><c r="A1" t="inlineStr"><is><t>word</t></is></c></row>"#);
+    let (_file, mut app) =
+        app_with(r#"<row r="1"><c r="A1" t="inlineStr"><is><t>word</t></is></c></row>"#);
 
     keys(&mut app, "i");
     assert_eq!(app.mode(), Mode::Insert);
@@ -566,7 +567,11 @@ fn s_replaces_the_cell_and_equals_starts_a_formula() {
     keys(&mut app, "s");
     assert_eq!(app.buffer(), "");
     press(&mut app, KeyCode::Enter);
-    assert_eq!(value(&app, "A1"), CellValue::Empty, "confirming nothing clears the cell");
+    assert_eq!(
+        value(&app, "A1"),
+        CellValue::Empty,
+        "confirming nothing clears the cell"
+    );
 
     keys(&mut app, "=");
     assert_eq!(app.buffer(), "=");
@@ -646,7 +651,11 @@ fn line_motions_find_the_row_ends() {
     keys(&mut app, "4|");
     assert_eq!(app.cursor(), a1("D1"));
     keys(&mut app, "10j$");
-    assert_eq!(app.cursor(), a1("D11"), "an empty row has no last cell to go to");
+    assert_eq!(
+        app.cursor(),
+        a1("D11"),
+        "an empty row has no last cell to go to"
+    );
     keys(&mut app, "^");
     assert_eq!(app.cursor(), a1("A11"));
 }
@@ -736,7 +745,11 @@ fn ctrl_keys_scroll_the_view_along_with_the_cursor() {
     ctrl(&mut app, KeyCode::Char('b'));
     assert_eq!((app.cursor(), app.scroll()), (a1("A1"), a1("A1")));
     ctrl(&mut app, KeyCode::Char('b'));
-    assert_eq!((app.cursor(), app.scroll()), (a1("A1"), a1("A1")), "stops at the top");
+    assert_eq!(
+        (app.cursor(), app.scroll()),
+        (a1("A1"), a1("A1")),
+        "stops at the top"
+    );
 }
 
 #[test]
@@ -807,7 +820,11 @@ fn a_clear_touching_a_read_only_cell_changes_nothing() {
     );
     keys(&mut app, "2x");
     assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
-    assert!(app.status().contains("B1 is part of an array formula"), "{}", app.status());
+    assert!(
+        app.status().contains("B1 is part of an array formula"),
+        "{}",
+        app.status()
+    );
 }
 
 #[test]
@@ -825,7 +842,11 @@ fn visual_mode_selects_the_rectangle_between_start_and_cursor() {
 
     keys(&mut app, "o");
     assert_eq!(app.cursor(), a1("C2"));
-    assert_eq!(app.selection(), Some((a1("B1"), a1("C2"))), "same corners, other end");
+    assert_eq!(
+        app.selection(),
+        Some((a1("B1"), a1("C2"))),
+        "same corners, other end"
+    );
 
     press(&mut app, KeyCode::Esc);
     assert_eq!(app.mode(), Mode::Normal);
@@ -890,7 +911,11 @@ fn yanked_blocks_paste_at_the_cursor_and_replace_what_they_land_on() {
     keys(&mut app, "vjly");
     assert_eq!(app.status(), "3 cells yanked");
     assert_eq!(app.mode(), Mode::Normal);
-    assert_eq!(value(&app, "A1"), CellValue::Number(1.0), "yanking changes nothing");
+    assert_eq!(
+        value(&app, "A1"),
+        CellValue::Number(1.0),
+        "yanking changes nothing"
+    );
 
     keys(&mut app, "wp");
     assert_eq!(app.cursor(), a1("D1"));
@@ -916,19 +941,26 @@ fn an_empty_cell_in_a_block_overwrites_what_it_lands_on() {
 
     keys(&mut app, "lp");
     assert_eq!(value(&app, "F1"), CellValue::Number(2.0));
-    assert_eq!(value(&app, "G1"), CellValue::Empty, "the empty C1 lands on it");
+    assert_eq!(
+        value(&app, "G1"),
+        CellValue::Empty,
+        "the empty C1 lands on it"
+    );
 }
 
 #[test]
 fn pasted_formulas_adjust_their_relative_references() {
-    let (_file, mut app) = app_with(
-        r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>A1+$A$1</f><v>2</v></c></row>"#,
-    );
+    let (_file, mut app) =
+        app_with(r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>A1+$A$1</f><v>2</v></c></row>"#);
     keys(&mut app, "lvy");
     keys(&mut app, "jlp");
     let pasted = app.current_sheet().cell(a1("C2"));
     assert_eq!(pasted.formula.as_deref(), Some("B2+$A$1"));
-    assert_eq!(pasted.value, CellValue::Empty, "the old result no longer applies");
+    assert_eq!(
+        pasted.value,
+        CellValue::Empty,
+        "the old result no longer applies"
+    );
 }
 
 #[test]
@@ -1039,12 +1071,20 @@ fn sideways_operators_leave_the_cell_the_motion_lands_on() {
     keys(&mut app, "u");
     keys(&mut app, "ldh");
     assert_eq!(value(&app, "A1"), CellValue::Empty);
-    assert_eq!(value(&app, "B1"), CellValue::Number(2.0), "the cursor's cell stays");
+    assert_eq!(
+        value(&app, "B1"),
+        CellValue::Number(2.0),
+        "the cursor's cell stays"
+    );
     assert_eq!(app.cursor(), a1("A1"));
 
     keys(&mut app, "u");
     keys(&mut app, "0de");
-    assert_eq!(value(&app, "B1"), CellValue::Empty, "e lands on the cell it includes");
+    assert_eq!(
+        value(&app, "B1"),
+        CellValue::Empty,
+        "e lands on the cell it includes"
+    );
 }
 
 #[test]
@@ -1058,7 +1098,11 @@ fn counts_multiply_across_an_operator_and_other_keys_cancel_it() {
     keys(&mut app, "dQ");
     assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
     keys(&mut app, "j");
-    assert_eq!(value(&app, "A2"), CellValue::Number(12.0), "the operator did not wait");
+    assert_eq!(
+        value(&app, "A2"),
+        CellValue::Number(12.0),
+        "the operator did not wait"
+    );
     press(&mut app, KeyCode::Char('d'));
     press(&mut app, KeyCode::Esc);
     keys(&mut app, "j");
@@ -1130,7 +1174,10 @@ fn w_saves_and_q_refuses_while_there_are_unsaved_edits() {
     assert_eq!(app.status(), "Saved book.xlsx");
     assert_eq!(app.mode(), Mode::Normal);
     let reloaded = Workbook::open(&file.path).unwrap();
-    assert_eq!(reloaded.sheets[0].cell(a1("A1")).value, CellValue::Number(5.0));
+    assert_eq!(
+        reloaded.sheets[0].cell(a1("A1")).value,
+        CellValue::Number(5.0)
+    );
 
     run(&mut app, "q");
     assert!(app.should_quit());
@@ -1151,7 +1198,11 @@ fn q_bang_discards_and_wq_saves_then_quits() {
         run(&mut app, command);
         assert!(app.should_quit(), "{command}");
         let saved = Workbook::open(&file.path).unwrap();
-        assert_eq!(saved.sheets[0].cell(a1("A1")).value, CellValue::Number(5.0), "{command}");
+        assert_eq!(
+            saved.sheets[0].cell(a1("A1")).value,
+            CellValue::Number(5.0),
+            "{command}"
+        );
     }
 }
 
@@ -1223,7 +1274,11 @@ fn prefixed_keys_that_are_not_motions_cancel_a_waiting_operator() {
     keys(&mut app, "dzz");
     assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
     keys(&mut app, "j");
-    assert_eq!(value(&app, "A2"), CellValue::Number(12.0), "nothing is left waiting");
+    assert_eq!(
+        value(&app, "A2"),
+        CellValue::Number(12.0),
+        "nothing is left waiting"
+    );
 }
 
 #[test]
