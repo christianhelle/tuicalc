@@ -67,10 +67,10 @@ pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), XlsxError> {
     Ok((sheets, date1904, Layout { workbook_part, sheet_parts }))
 }
 
-struct Relationship {
-    kind: String,
+pub struct Relationship {
+    pub kind: String,
     /// The target as a path from the package root.
-    target: String,
+    pub target: String,
 }
 
 fn read_part(archive: &mut Archive<'_>, name: &str) -> Result<Option<String>, XlsxError> {
@@ -92,23 +92,26 @@ fn find_workbook_part(archive: &mut Archive<'_>) -> Result<String, XlsxError> {
         .ok_or_else(|| XlsxError::Invalid("no workbook relationship".into()))
 }
 
+/// The path of the part holding `part`'s relationships.
+pub fn relationships_part(part: &str) -> String {
+    match part.rsplit_once('/') {
+        Some((directory, file)) => format!("{directory}/_rels/{file}.rels"),
+        None => format!("_rels/{part}.rels"),
+    }
+}
+
 fn read_relationships(
     archive: &mut Archive<'_>,
     part: &str,
 ) -> Result<HashMap<String, Relationship>, XlsxError> {
-    let (directory, file) = part.rsplit_once('/').unwrap_or(("", part));
-    let rels_name = if directory.is_empty() {
-        format!("_rels/{file}.rels")
-    } else {
-        format!("{directory}/_rels/{file}.rels")
-    };
-    match read_part(archive, &rels_name)? {
+    let directory = part.rsplit_once('/').map_or("", |(directory, _)| directory);
+    match read_part(archive, &relationships_part(part))? {
         Some(xml) => parse_relationships(&xml, directory),
         None => Ok(HashMap::new()),
     }
 }
 
-fn parse_relationships(
+pub fn parse_relationships(
     xml: &str,
     base_directory: &str,
 ) -> Result<HashMap<String, Relationship>, XlsxError> {

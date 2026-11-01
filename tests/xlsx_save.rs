@@ -186,11 +186,110 @@ fn editing_a_shared_formula_master_keeps_its_dependents_working() {
 #[test]
 fn unedited_sheets_keep_their_shared_formulas() {
     let rows = r#"<row r="1"><c r="B1"><f t="shared" ref="B1:B2" si="0">A1*2</f><v>2</v></c></row><row r="2"><c r="B2"><f t="shared" si="0"/><v>4</v></c></row>"#;
-    let saved = saved_sheet(rows, "A1", number(1.0));
-    assert!(saved.contains(r#"t="shared""#) == false, "edited sheet is expanded: {saved}");
-
     let file = write_temp(&single_sheet(&sheet(rows), &[]));
     let mut book = Workbook::open(&file.path).unwrap();
     book.save().unwrap();
     assert_eq!(read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap(), sheet(rows));
+}
+
+const FORMULA_ROWS: &str = r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>A1*2</f><v>2</v></c></row>"#;
+
+fn save_edit_with_workbook(workbook: &str) -> String {
+    let parts = [
+        ("[Content_Types].xml", CONTENT_TYPES),
+        ("_rels/.rels", ROOT_RELS),
+        ("xl/workbook.xml", workbook),
+        ("xl/_rels/workbook.xml.rels", WORKBOOK_RELS),
+    ];
+    let sheet_xml = sheet(FORMULA_ROWS);
+    let mut all = parts.to_vec();
+    all.push(("xl/worksheets/sheet1.xml", &sheet_xml));
+    let file = write_temp(&package(&all));
+    let mut book = Workbook::open(&file.path).unwrap();
+    book.sheets[0].set_cell(a1("A1"), number(5.0));
+    book.save().unwrap();
+    read_part(&file.path, "xl/workbook.xml").unwrap()
+}
+
+#[test]
+fn asks_excel_to_recalculate_when_a_workbook_with_formulas_changes() {
+    let existing = WORKBOOK.replace("</sheets>", r#"</sheets><calcPr calcId="191029"/>"#);
+    assert!(save_edit_with_workbook(&existing).contains(r#"<calcPr fullCalcOnLoad="1" calcId="191029"/>"#));
+
+    let saved = save_edit_with_workbook(WORKBOOK);
+    assert!(saved.contains(r#"</sheets><calcPr fullCalcOnLoad="1"/></workbook>"#), "{saved}");
+
+    let followed = WORKBOOK.replace("</sheets>", r#"</sheets><extLst/>"#);
+    let saved = save_edit_with_workbook(&followed);
+    assert!(saved.contains(r#"<calcPr fullCalcOnLoad="1"/><extLst/>"#), "schema order matters: {saved}");
+}
+
+#[test]
+fn leaves_the_workbook_part_alone_when_there_are_no_formulas() {
+    let (file, _) = edited(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#, "A1", number(2.0));
+    assert_eq!(read_part(&file.path, "xl/workbook.xml").unwrap(), WORKBOOK);
+}
+
+#[test]
+fn removes_the_calculation_chain_so_it_cannot_go_stale() {
+    let types = CONTENT_TYPES.replace(
+        "</Types>",
+        r#"<Override PartName="/xl/calcChain.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.calcChain+xml"/></Types>"#,
+    );
+    let rels = WORKBOOK_RELS.replace(
+        "</Relationships>",
+        r#"<Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain" Target="calcChain.xml"/></Relationships>"#,
+    );
+    let sheet_xml = sheet(FORMULA_ROWS);
+    let file = write_temp(&package(&[
+        ("[Content_Types].xml", &types),
+        ("_rels/.rels", ROOT_RELS),
+        ("xl/workbook.xml", WORKBOOK),
+        ("xl/_rels/workbook.xml.rels", &rels),
+        ("xl/worksheets/sheet1.xml", &sheet_xml),
+        ("xl/calcChain.xml", r#"<calcChain><c r="B1" i="1"/></calcChain>"#),
+    ]));
+    let mut book = Workbook::open(&file.path).unwrap();
+
+    book.sheets[0].set_cell(a1("B1"), number(7.0));
+    book.save().unwrap();
+
+    assert_eq!(read_part(&file.path, "xl/calcChain.xml"), None);
+    assert_eq!(read_part(&file.path, "[Content_Types].xml").unwrap(), CONTENT_TYPES);
+    assert_eq!(read_part(&file.path, "xl/_rels/workbook.xml.rels").unwrap(), WORKBOOK_RELS);
+}
+
+#[test]
+fn refuses_to_overwrite_a_file_changed_by_another_program() {
+    let file = write_temp(&single_sheet(&sheet(FORMULA_ROWS), &[]));
+    let mut book = Workbook::open(&file.path).unwrap();
+    let theirs = single_sheet(&sheet(""), &[]);
+    std::fs::write(&file.path, &theirs).unwrap();
+
+    book.sheets[0].set_cell(a1("A1"), number(5.0));
+    let message = book.save().unwrap_err().to_string();
+
+    assert!(message.contains("changed on disk"), "{message}");
+    assert_eq!(std::fs::read(&file.path).unwrap(), theirs);
+    assert!(book.is_dirty(), "the edit must not be lost");
+}
+
+#[test]
+fn saving_without_edits_leaves_the_file_untouched_and_saves_repeat() {
+    let bytes = single_sheet(&sheet(FORMULA_ROWS), &[]);
+    let file = write_temp(&bytes);
+    let mut book = Workbook::open(&file.path).unwrap();
+
+    book.save().unwrap();
+    assert_eq!(std::fs::read(&file.path).unwrap(), bytes);
+
+    book.sheets[0].set_cell(a1("A1"), number(5.0));
+    book.save().unwrap();
+    assert!(!book.is_dirty());
+    book.sheets[0].set_cell(a1("C1"), number(6.0));
+    book.save().unwrap();
+
+    let reloaded = Workbook::open(&file.path).unwrap();
+    assert_eq!(reloaded.sheets[0].cell(a1("A1")), number(5.0));
+    assert_eq!(reloaded.sheets[0].cell(a1("C1")), number(6.0));
 }

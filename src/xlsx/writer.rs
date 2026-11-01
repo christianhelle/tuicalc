@@ -11,7 +11,7 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use super::XlsxError;
-use super::reader::Layout;
+use super::reader::{self, Layout};
 use super::xml::{attr, local_name, starts_with_excel_escape, xml_error};
 use crate::address::CellRef;
 use crate::model::{Cell, CellValue, Sheet};
@@ -29,11 +29,35 @@ pub fn patch(source: &[u8], layout: &Layout, sheets: &[Sheet]) -> Result<Vec<u8>
         .map(|(part, sheet)| (part.as_str(), sheet))
         .collect();
 
+    let has_formulas = sheets.iter().any(Sheet::has_formulas);
+    let rels_part = reader::relationships_part(&layout.workbook_part);
+    let calc_chain = find_calc_chain(&mut archive, &rels_part)?;
+
     for index in 0..archive.len() {
         let name = archive.by_index_raw(index)?.name()?.to_string();
-        if let Some(sheet) = dirty_sheets.get(name.as_str()) {
+        let patched = if let Some(sheet) = dirty_sheets.get(name.as_str()) {
+            Some(patch_sheet(&read_text(&mut archive, index)?, sheet)?)
+        } else if name == layout.workbook_part && has_formulas {
+            Some(request_recalculation(&read_text(&mut archive, index)?)?)
+        } else if calc_chain.is_some() && name == rels_part {
             let xml = read_text(&mut archive, index)?;
-            let patched = patch_sheet(&xml, sheet)?;
+            Some(remove_elements(&xml, |element| {
+                local_name(element) == "Relationship"
+                    && attr(element, "Type").is_some_and(|kind| kind.ends_with(CALC_CHAIN))
+            })?)
+        } else if let (Some(chain), "[Content_Types].xml") = (&calc_chain, name.as_str()) {
+            let xml = read_text(&mut archive, index)?;
+            let part_name = format!("/{chain}");
+            Some(remove_elements(&xml, |element| {
+                attr(element, "PartName").as_deref() == Some(part_name.as_str())
+            })?)
+        } else {
+            None
+        };
+        if calc_chain.as_deref() == Some(name.as_str()) {
+            continue;
+        }
+        if let Some(patched) = patched {
             output.start_file(name, options)?;
             output.write_all(patched.as_bytes())?;
         } else {
@@ -41,6 +65,117 @@ pub fn patch(source: &[u8], layout: &Layout, sheets: &[Sheet]) -> Result<Vec<u8>
         }
     }
     Ok(output.finish()?.into_inner())
+}
+
+const CALC_CHAIN: &str = "/calcChain";
+
+/// The package path of the calculation chain, which lists every formula cell. Excel treats
+/// an entry whose cell no longer holds a formula as corruption, and rebuilds a missing chain.
+fn find_calc_chain(
+    archive: &mut ZipArchive<Cursor<&[u8]>>,
+    rels_part: &str,
+) -> Result<Option<String>, XlsxError> {
+    let Some(index) = archive.index_for_name(rels_part) else {
+        return Ok(None);
+    };
+    let xml = read_text(archive, index)?;
+    let directory = rels_part.split("_rels/").next().unwrap_or("").trim_end_matches('/');
+    let relationships = reader::parse_relationships(&xml, directory)?;
+    Ok(relationships
+        .into_values()
+        .find(|relationship| relationship.kind.ends_with(CALC_CHAIN))
+        .map(|relationship| relationship.target))
+}
+
+/// Copies XML, leaving out elements accepted by `unwanted`.
+fn remove_elements(
+    xml: &str,
+    unwanted: impl Fn(&BytesStart<'_>) -> bool,
+) -> Result<String, XlsxError> {
+    let mut out = String::with_capacity(xml.len());
+    let mut copied_to = 0;
+    let mut reader = Reader::from_str(xml);
+    loop {
+        let before = position(&reader);
+        match reader.read_event().map_err(xml_error)? {
+            Event::Empty(element) if unwanted(&element) => {
+                out.push_str(&xml[copied_to..before]);
+                copied_to = position(&reader);
+            }
+            Event::Start(element) if unwanted(&element) => {
+                reader.read_to_end(element.name()).map_err(xml_error)?;
+                out.push_str(&xml[copied_to..before]);
+                copied_to = position(&reader);
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    out.push_str(&xml[copied_to..]);
+    Ok(out)
+}
+
+/// Elements that follow `calcPr` in the workbook schema.
+const AFTER_CALC_PR: [&str; 9] = [
+    "oleSize",
+    "customWorkbookViews",
+    "pivotCaches",
+    "smartTagPr",
+    "smartTagTypes",
+    "webPublishing",
+    "fileRecoveryPr",
+    "webPublishObjects",
+    "extLst",
+];
+
+/// Cached results are stale after an edit, so ask Excel to recalculate when it next opens.
+fn request_recalculation(xml: &str) -> Result<String, XlsxError> {
+    let mut reader = Reader::from_str(xml);
+    let mut depth = 0;
+    let mut prefix = String::new();
+    loop {
+        let before = position(&reader);
+        let event = reader.read_event().map_err(xml_error)?;
+        let after = position(&reader);
+        match &event {
+            Event::Start(element) | Event::Empty(element) if depth == 0 => {
+                prefix = qualified_prefix(element);
+            }
+            Event::Start(element) | Event::Empty(element) if depth == 1 => {
+                let name = local_name(element);
+                if name == "calcPr" {
+                    return Ok(set_full_calc(xml, before, after, element));
+                }
+                if AFTER_CALC_PR.contains(&name.as_str()) {
+                    return Ok(insert_calc_pr(xml, before, &prefix));
+                }
+            }
+            Event::End(_) if depth == 1 => return Ok(insert_calc_pr(xml, before, &prefix)),
+            Event::Eof => return Ok(xml.to_string()),
+            _ => {}
+        }
+        match event {
+            Event::Start(_) => depth += 1,
+            Event::End(_) => depth -= 1,
+            _ => {}
+        }
+    }
+}
+
+fn insert_calc_pr(xml: &str, at: usize, prefix: &str) -> String {
+    let element = format!(r#"<{prefix}calcPr fullCalcOnLoad="1"/>"#);
+    format!("{}{element}{}", &xml[..at], &xml[at..])
+}
+
+fn set_full_calc(xml: &str, start: usize, end: usize, element: &BytesStart<'_>) -> String {
+    let tag = &xml[start..end];
+    if attr(element, "fullCalcOnLoad").is_some() {
+        let on = tag.replace(r#"fullCalcOnLoad="0""#, r#"fullCalcOnLoad="1""#);
+        let on = on.replace(r#"fullCalcOnLoad="false""#, r#"fullCalcOnLoad="1""#);
+        return format!("{}{on}{}", &xml[..start], &xml[end..]);
+    }
+    let name_end = start + 1 + element.name().as_ref().len();
+    format!("{} fullCalcOnLoad=\"1\"{}", &xml[..name_end], &xml[name_end..])
 }
 
 fn read_text(archive: &mut ZipArchive<Cursor<&[u8]>>, index: usize) -> Result<String, XlsxError> {
@@ -172,16 +307,14 @@ fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, XlsxError> {
                         patch.write_cells(&earlier);
                         let style = attr(element, "s");
                         let edit = patch.pending.remove(&at);
-                        let name = element.name().as_ref().to_string();
                         let mut end = after;
                         let mut shared = false;
                         if !empty {
                             let span = reader.read_to_end(element.name()).map_err(xml_error)?;
                             end = position(&reader);
-                            shared = xml[span.start as usize..span.end as usize]
-                                .contains(r#"t="shared""#);
+                            let inner = &xml[span.start as usize..span.end as usize];
+                            shared = inner.contains(r#"t="shared""#) || inner.contains("t='shared'");
                         }
-                        debug_assert!(name.ends_with('c'));
                         if let Some(cell) = edit.or_else(|| shared.then(|| sheet.cell(at))) {
                             patch.copy_until(before, end);
                             write_cell(&mut patch.out, &patch.prefix, at, style.as_deref(), &cell);

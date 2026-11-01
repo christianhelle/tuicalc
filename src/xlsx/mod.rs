@@ -17,6 +17,8 @@ pub enum XlsxError {
     Xml(String),
     /// A required part or relationship is absent.
     Invalid(String),
+    /// Another program modified the file after it was opened.
+    ChangedOnDisk,
 }
 
 impl fmt::Display for XlsxError {
@@ -26,6 +28,7 @@ impl fmt::Display for XlsxError {
             Self::Zip(error) => write!(f, "not a readable .xlsx package: {error}"),
             Self::Xml(message) => write!(f, "malformed XML: {message}"),
             Self::Invalid(message) => write!(f, "invalid workbook: {message}"),
+            Self::ChangedOnDisk => write!(f, "the file changed on disk since it was opened"),
         }
     }
 }
@@ -69,6 +72,12 @@ impl Workbook {
 
     /// Writes edits back to the file this workbook was opened from.
     pub fn save(&mut self) -> Result<(), XlsxError> {
+        if !self.is_dirty() {
+            return Ok(());
+        }
+        if std::fs::read(&self.path)? != self.source {
+            return Err(XlsxError::ChangedOnDisk);
+        }
         let patched = writer::patch(&self.source, &self.layout, &self.sheets)?;
         replace_file(&self.path, &patched)?;
         self.source = patched;

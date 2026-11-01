@@ -83,6 +83,10 @@ impl Sheet {
         })
     }
 
+    pub fn has_formulas(&self) -> bool {
+        self.cells.values().any(|cell| cell.formula.is_some())
+    }
+
     pub fn is_dirty(&self) -> bool {
         !self.dirty.is_empty()
     }
