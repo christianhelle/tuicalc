@@ -66,3 +66,13 @@ fn key_releases_do_nothing() {
 
     assert_eq!(app.cursor(), a1("A1"));
 }
+
+#[test]
+fn tab_and_enter_move_the_cursor() {
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Tab);
+    press(&mut app, KeyCode::Tab);
+    press(&mut app, KeyCode::BackTab);
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(app.cursor(), a1("B2"));
+}

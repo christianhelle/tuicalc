@@ -44,6 +44,9 @@ impl App {
             KeyCode::Right => self.move_by(1, 0),
             KeyCode::Up => self.move_by(0, -1),
             KeyCode::Down => self.move_by(0, 1),
+            KeyCode::Tab => self.move_by(1, 0),
+            KeyCode::BackTab => self.move_by(-1, 0),
+            KeyCode::Enter => self.move_by(0, 1),
             _ => {}
         }
     }
