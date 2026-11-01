@@ -8,20 +8,67 @@ cargo run --release -- path/to/book.xlsx
 
 ## Keys
 
+tuicalc starts in normal mode and works like vim, on a grid of cells. The status line names the
+current mode, and shows a command you haven't finished at its right edge.
+
+### Normal mode
+
+Most motions take a count, such as `5j` or `3w`. A "word" is a run of filled cells in the row, and
+a "paragraph" is a run of filled cells in the column.
+
 | Key | Action |
 | --- | --- |
-| Arrows, Tab, Shift+Tab, Enter | Move |
-| PgUp, PgDn, Home, End | Move by page or to the row's edge |
-| Ctrl+Home, Ctrl+End | Jump to A1 or the last used cell |
-| Any character | Replace the cell and start editing |
-| F2 | Edit the cell's contents |
-| Enter, Tab, Up, Down | Confirm the edit and move |
-| Esc | Cancel the edit |
-| Delete, Backspace | Clear the cell |
-| Ctrl+Z, Ctrl+Y | Undo, redo |
-| F6, Shift+F6, Ctrl+PgDn, Ctrl+PgUp | Next or previous sheet |
-| Ctrl+S | Save |
-| Ctrl+Q, Ctrl+C | Quit |
+| `h` `j` `k` `l`, arrows, `Tab`, `Shift+Tab`, `Enter` | Move |
+| `w` `b` `e` | Next run, start of this or the previous run, end of this or the next run |
+| `}` `{` | Next or previous gap in the column |
+| `0` `^` `$` `{n}\|` | First column, first filled cell, last filled cell, column n |
+| `gg` `G` `{n}G` | First row, last used row, row n |
+| `H` `M` `L` | Top, middle or bottom of the screen |
+| `Ctrl+D` `Ctrl+U` `Ctrl+F` `Ctrl+B` | Scroll half a page or a page, down or up |
+| `zt` `zz` `zb` | Put the cursor's row at the top, middle or bottom of the screen |
+| `gt` `gT` `{n}gt`, `F6`, `Shift+F6`, `Ctrl+PgDn`, `Ctrl+PgUp` | Next, previous or nth sheet |
+| `PgUp` `PgDn` `Home` `End`, `Ctrl+Home` `Ctrl+End` | Move by page, to the row's edge, to A1 or the last used cell |
+| `i` `a` `F2` | Edit the cell with the caret at the start or the end |
+| `s` `=` | Replace the cell, or start a formula |
+| `o` `O` | Edit the cell below or above |
+| `x` `X` `D`, `Delete` | Clear cells at the cursor, to its left, or to the row's end |
+| `d` `y` `c` + motion | Delete, yank or change the cells the motion covers, as in `d$`, `y3j` or `cw` |
+| `dd` `yy` `cc` `S` `C` | The same for whole rows, and `C` to the row's end |
+| `p` `P` | Paste, adjusting relative references in formulas |
+| `u` `Ctrl+R`, `Ctrl+Z` `Ctrl+Y` | Undo, redo |
+| `v` `Ctrl+V` `V` | Select cells or whole rows |
+| `:` | Start a command |
+| `ZZ` `ZQ`, `Ctrl+S`, `Ctrl+Q` `Ctrl+C` | Save and quit, quit without saving, save, quit |
+
+### Insert mode
+
+| Key | Action |
+| --- | --- |
+| `Esc` | Keep the text and stay on the cell |
+| `Enter`, `Tab`, `Shift+Tab`, `Up`, `Down` | Keep the text and move |
+| `Ctrl+C` | Drop the text |
+| `Left` `Right` `Home` `End` | Move the caret |
+| `Backspace` `Delete` `Ctrl+W` `Ctrl+U` | Delete a character, the word before the caret, or everything before it |
+
+### Visual modes
+
+Every motion extends the selection.
+
+| Key | Action |
+| --- | --- |
+| `d` `x` `Delete`, `y`, `c` `s` | Delete, yank or change the selection |
+| `o` | Jump to the selection's other corner |
+| `v` `V` | Switch between selecting cells and rows, or leave |
+| `Esc` `Ctrl+C` | Leave |
+
+### Commands
+
+| Command | Action |
+| --- | --- |
+| `:w` | Save |
+| `:q` `:q!` | Quit, refusing if there are unsaved edits, or discarding them |
+| `:wq` `:x` | Save and quit |
+| `:25` `:C7` | Go to a row or a cell |
 
 ## Entering values
 
@@ -46,6 +93,10 @@ file after it was opened.
 - **Column widths** are fixed in the grid. The formula bar shows a cell's full contents.
 - Array formula and data table regions are read-only.
 - New workbooks, Save As, and adding or removing sheets, rows or columns aren't supported yet.
+- Vim's modes work on the grid, so a cell's text is edited in insert mode only, without a normal
+  mode inside the cell. Search (`/`), `.`, macros, marks and named registers aren't supported yet.
+- Rows aren't inserted or removed, so `dd` clears a row and `p` overwrites the row below.
+- Pasted cells take the formatting of the cells they land on, not of the cells they came from.
 - Inserting a cell beside cells that omit their `r` attribute, which Excel never writes, can shift
   those cells.
 
@@ -57,3 +108,5 @@ cargo test
 
 Tests run against four public seams: workbook file I/O, the workbook model, app state driven by
 key events, and the screen rendered to an in-memory terminal.
+
+[`samples/`](samples/README.md) holds complex workbooks to try by hand, which the tests also use.
