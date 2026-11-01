@@ -349,3 +349,23 @@ fn the_command_line_takes_over_the_status_line() {
     let position = terminal.get_cursor_position().unwrap();
     assert_eq!((position.x, position.y), (3, 9));
 }
+
+#[test]
+fn the_selection_is_highlighted_with_the_cursor_marked_inside_it() {
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('v'));
+    press(&mut app, KeyCode::Char('j'));
+    press(&mut app, KeyCode::Char('l'));
+
+    let terminal = terminal_for(&mut app, 44, 12);
+    let buffer = terminal.backend().buffer();
+
+    let at = |col: u16, row: u16| &buffer[(8 + col * 12, 2 + row)];
+    assert!(at(0, 0).modifier.contains(Modifier::REVERSED));
+    assert!(at(1, 0).modifier.contains(Modifier::REVERSED));
+    assert!(at(0, 1).modifier.contains(Modifier::REVERSED));
+    assert!(at(1, 1).modifier.contains(Modifier::REVERSED | Modifier::BOLD), "the cursor");
+    assert!(!at(0, 0).modifier.contains(Modifier::BOLD));
+    assert!(!at(2, 0).modifier.contains(Modifier::REVERSED));
+    assert!(!at(0, 2).modifier.contains(Modifier::REVERSED));
+}
