@@ -46,6 +46,8 @@ impl From<zip::result::ZipError> for XlsxError {
 #[derive(Debug)]
 pub struct Workbook {
     pub sheets: Vec<Sheet>,
+    /// Whether date serials count from 1904 rather than 1900.
+    pub date1904: bool,
     path: PathBuf,
     #[allow(dead_code)]
     source: Vec<u8>,
@@ -57,8 +59,8 @@ impl Workbook {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, XlsxError> {
         let path = path.as_ref().to_path_buf();
         let source = std::fs::read(&path)?;
-        let (sheets, layout) = reader::read(&source)?;
-        Ok(Self { sheets, path, source, layout })
+        let (sheets, date1904, layout) = reader::read(&source)?;
+        Ok(Self { sheets, date1904, path, source, layout })
     }
 
     pub fn path(&self) -> &Path {

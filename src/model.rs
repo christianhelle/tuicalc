@@ -21,15 +21,17 @@ pub struct Cell {
     pub value: CellValue,
     /// Formula text without the leading `=`.
     pub formula: Option<String>,
+    /// Whether the cell's number format shows its number as a date.
+    pub is_date: bool,
 }
 
 impl Cell {
     pub fn value(value: CellValue) -> Self {
-        Self { value, formula: None }
+        Self { value, ..Self::default() }
     }
 
     pub fn formula(text: impl Into<String>) -> Self {
-        Self { value: CellValue::Empty, formula: Some(text.into()) }
+        Self { formula: Some(text.into()), ..Self::default() }
     }
 
     fn is_blank(&self) -> bool {

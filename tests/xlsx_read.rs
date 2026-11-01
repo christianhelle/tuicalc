@@ -136,3 +136,33 @@ fn marks_array_formula_regions_as_locked() {
     assert!(sheet.is_locked(a1("A2")));
     assert!(!sheet.is_locked(a1("A3")));
 }
+
+const DATE_STYLES: &str = r#"<styleSheet><numFmts count="2"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="&quot;day&quot;0.00"/></numFmts><cellXfs count="4"><xf numFmtId="0"/><xf numFmtId="14"/><xf numFmtId="164"/><xf numFmtId="165"/></cellXfs></styleSheet>"#;
+
+#[test]
+fn flags_cells_with_builtin_and_custom_date_formats() {
+    let book = open_rows(
+        r#"<row r="1"><c r="A1" s="0"><v>1</v></c><c r="B1" s="1"><v>1</v></c><c r="C1" s="2"><v>1</v></c><c r="D1" s="3"><v>1</v></c></row>"#,
+        &[("xl/styles.xml", DATE_STYLES)],
+    );
+
+    let is_date = |at| book.sheets[0].cell(a1(at)).is_date;
+    assert!(!is_date("A1"));
+    assert!(is_date("B1"));
+    assert!(is_date("C1"));
+    assert!(!is_date("D1"), "quoted format text is not a date token");
+}
+
+#[test]
+fn detects_the_1904_date_system() {
+    assert!(!open_rows("", &[]).date1904);
+
+    let workbook = WORKBOOK.replace("<sheets>", r#"<workbookPr date1904="1"/><sheets>"#);
+    let bytes = package(&[
+        ("_rels/.rels", ROOT_RELS),
+        ("xl/workbook.xml", &workbook),
+        ("xl/_rels/workbook.xml.rels", WORKBOOK_RELS),
+        ("xl/worksheets/sheet1.xml", &sheet("")),
+    ]);
+    assert!(Workbook::open(&write_temp(&bytes).path).unwrap().date1904);
+}

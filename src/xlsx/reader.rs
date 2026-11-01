@@ -16,6 +16,7 @@ use crate::model::{Cell, CellValue, Sheet};
 const OFFICE_DOCUMENT: &str = "/officeDocument";
 const WORKSHEET: &str = "/worksheet";
 const SHARED_STRINGS: &str = "/sharedStrings";
+const STYLES: &str = "/styles";
 
 /// Where the parts that saving needs live inside the package.
 #[derive(Debug, Clone)]
@@ -26,11 +27,18 @@ pub struct Layout {
 
 type Archive<'a> = ZipArchive<Cursor<&'a [u8]>>;
 
-pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, Layout), XlsxError> {
+pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), XlsxError> {
     let mut archive = ZipArchive::new(Cursor::new(source))?;
     let workbook_part = find_workbook_part(&mut archive)?;
     let relationships = read_relationships(&mut archive, &workbook_part)?;
-    let declared = read_sheet_list(&mut archive, &workbook_part)?;
+    let (declared, date1904) = read_sheet_list(&mut archive, &workbook_part)?;
+    let date_styles = match relationships.values().find(|r| r.kind.ends_with(STYLES)) {
+        Some(relationship) => match read_part(&mut archive, &relationship.target)? {
+            Some(xml) => read_date_styles(&xml)?,
+            None => Vec::new(),
+        },
+        None => Vec::new(),
+    };
     let shared_strings = match relationships.values().find(|r| r.kind.ends_with(SHARED_STRINGS)) {
         Some(relationship) => match read_part(&mut archive, &relationship.target)? {
             Some(xml) => read_shared_strings(&xml)?,
@@ -50,13 +58,13 @@ pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, Layout), XlsxError> {
         }
         let xml = read_part(&mut archive, &relationship.target)?
             .ok_or_else(|| XlsxError::Invalid(format!("missing {}", relationship.target)))?;
-        sheets.push(read_sheet(&name, &xml, &shared_strings)?);
+        sheets.push(read_sheet(&name, &xml, &shared_strings, &date_styles)?);
         sheet_parts.push(relationship.target.clone());
     }
     if sheets.is_empty() {
         return Err(XlsxError::Invalid("no worksheets".into()));
     }
-    Ok((sheets, Layout { workbook_part, sheet_parts }))
+    Ok((sheets, date1904, Layout { workbook_part, sheet_parts }))
 }
 
 struct Relationship {
@@ -148,11 +156,12 @@ fn resolve_target(base_directory: &str, target: &str) -> String {
 fn read_sheet_list(
     archive: &mut Archive<'_>,
     workbook_part: &str,
-) -> Result<Vec<(String, String)>, XlsxError> {
+) -> Result<(Vec<(String, String)>, bool), XlsxError> {
     let xml = read_part(archive, workbook_part)?
         .ok_or_else(|| XlsxError::Invalid(format!("missing {workbook_part}")))?;
     let mut reader = Reader::from_str(&xml);
     let mut sheets = Vec::new();
+    let mut date1904 = false;
     loop {
         match reader.read_event().map_err(xml_error)? {
             Event::Start(element) | Event::Empty(element) if local_name(&element) == "sheet" => {
@@ -160,10 +169,77 @@ fn read_sheet_list(
                     sheets.push((name, id));
                 }
             }
-            Event::Eof => return Ok(sheets),
+            Event::Start(element) | Event::Empty(element)
+                if local_name(&element) == "workbookPr" =>
+            {
+                date1904 = matches!(attr(&element, "date1904").as_deref(), Some("1" | "true"));
+            }
+            Event::Eof => return Ok((sheets, date1904)),
             _ => {}
         }
     }
+}
+
+/// Whether each entry of `cellXfs` uses a date format.
+fn read_date_styles(xml: &str) -> Result<Vec<bool>, XlsxError> {
+    let mut reader = Reader::from_str(xml);
+    let mut custom_formats: HashMap<u32, String> = HashMap::new();
+    let mut styles = Vec::new();
+    let mut in_cell_xfs = false;
+    loop {
+        match reader.read_event().map_err(xml_error)? {
+            Event::Start(element) | Event::Empty(element) => match local_name(&element).as_str() {
+                "numFmt" => {
+                    let id = attr(&element, "numFmtId").and_then(|id| id.parse().ok());
+                    if let (Some(id), Some(code)) = (id, attr(&element, "formatCode")) {
+                        custom_formats.insert(id, code);
+                    }
+                }
+                "cellXfs" => in_cell_xfs = true,
+                "xf" if in_cell_xfs => {
+                    let id: u32 = attr(&element, "numFmtId")
+                        .and_then(|id| id.parse().ok())
+                        .unwrap_or(0);
+                    styles.push(match custom_formats.get(&id) {
+                        Some(code) => is_date_format_code(code),
+                        None => is_builtin_date_format(id),
+                    });
+                }
+                _ => {}
+            },
+            Event::End(element) if AsRef::<str>::as_ref(&element.local_name()) == "cellXfs" => {
+                in_cell_xfs = false;
+            }
+            Event::Eof => return Ok(styles),
+            _ => {}
+        }
+    }
+}
+
+fn is_builtin_date_format(id: u32) -> bool {
+    matches!(id, 14..=22 | 27..=36 | 45..=47 | 50..=58)
+}
+
+/// Looks for date tokens outside quoted literals, escapes and `[...]` sections.
+fn is_date_format_code(code: &str) -> bool {
+    let mut chars = code.chars();
+    let mut has_date_token = false;
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                chars.by_ref().find(|&next| next == '"');
+            }
+            '\\' | '_' | '*' => {
+                chars.next();
+            }
+            '[' => {
+                chars.by_ref().find(|&next| next == ']');
+            }
+            'y' | 'Y' | 'm' | 'M' | 'd' | 'D' | 'h' | 'H' | 's' | 'S' => has_date_token = true,
+            _ => {}
+        }
+    }
+    has_date_token
 }
 
 /// Reads all `<si>` entries; rich text runs are joined and phonetic hints dropped.
@@ -214,6 +290,7 @@ struct Draft {
     value: String,
     inline: String,
     shared_index: Option<String>,
+    style: usize,
 }
 
 fn parse_range(text: &str) -> Option<(CellRef, CellRef)> {
@@ -248,11 +325,13 @@ impl Draft {
         Self {
             at: Some(at),
             kind: attr(element, "t").unwrap_or_default(),
+            style: attr(element, "s").and_then(|s| s.parse().ok()).unwrap_or(0),
             ..Self::default()
         }
     }
 
-    fn into_cell(self, shared_strings: &[String]) -> Cell {
+    fn into_cell(self, shared_strings: &[String], date_styles: &[bool]) -> Cell {
+        let is_date = date_styles.get(self.style).copied().unwrap_or(false);
         let value = match self.kind.as_str() {
             "s" => self
                 .value
@@ -270,11 +349,16 @@ impl Draft {
                 .parse()
                 .map_or_else(|_| CellValue::Text(self.value), CellValue::Number),
         };
-        Cell { value, formula: self.formula }
+        Cell { is_date: is_date && matches!(value, CellValue::Number(_)), value, formula: self.formula }
     }
 }
 
-fn read_sheet(name: &str, xml: &str, shared_strings: &[String]) -> Result<Sheet, XlsxError> {
+fn read_sheet(
+    name: &str,
+    xml: &str,
+    shared_strings: &[String],
+    date_styles: &[bool],
+) -> Result<Sheet, XlsxError> {
     let mut sheet = Sheet::new(name);
     let mut reader = Reader::from_str(xml);
     let mut draft = Draft::default();
@@ -332,7 +416,7 @@ fn read_sheet(name: &str, xml: &str, shared_strings: &[String]) -> Result<Sheet,
                     let mut finished = std::mem::take(&mut draft);
                     if let Some(at) = finished.at {
                         finished.resolve_formula(at, &mut shared_formulas);
-                        sheet.load_cell(at, finished.into_cell(shared_strings));
+                        sheet.load_cell(at, finished.into_cell(shared_strings, date_styles));
                     }
                 }
                 _ => {}
