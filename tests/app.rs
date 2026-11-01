@@ -867,3 +867,112 @@ fn every_motion_extends_a_visual_selection() {
     keys(&mut app, "2h");
     assert_eq!(app.selection(), Some((a1("A1"), a1("E1"))));
 }
+
+#[test]
+fn deleting_a_selection_clears_it_as_one_undo() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "vjld");
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(value(&app, "A1"), CellValue::Empty);
+    assert_eq!(value(&app, "B1"), CellValue::Empty);
+    assert_eq!(value(&app, "A2"), CellValue::Empty);
+    assert_eq!(value(&app, "A3"), CellValue::Number(13.0));
+    assert_eq!(app.cursor(), a1("A1"));
+
+    keys(&mut app, "u");
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+    assert_eq!(value(&app, "A2"), CellValue::Number(12.0));
+}
+
+#[test]
+fn yanked_blocks_paste_at_the_cursor_and_replace_what_they_land_on() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "vjly");
+    assert_eq!(app.status(), "3 cells yanked");
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0), "yanking changes nothing");
+
+    keys(&mut app, "wp");
+    assert_eq!(app.cursor(), a1("D1"));
+    assert_eq!(value(&app, "D1"), CellValue::Number(1.0));
+    assert_eq!(value(&app, "E1"), CellValue::Number(2.0));
+    assert_eq!(value(&app, "D2"), CellValue::Number(12.0));
+    assert_eq!(value(&app, "E2"), CellValue::Empty);
+
+    keys(&mut app, "u");
+    assert_eq!(value(&app, "D1"), CellValue::Number(4.0));
+    assert_eq!(value(&app, "D2"), CellValue::Empty);
+}
+
+#[test]
+fn an_empty_cell_in_a_block_overwrites_what_it_lands_on() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "lvly");
+    keys(&mut app, "lllp");
+    assert_eq!(app.cursor(), a1("E1"));
+    assert_eq!(value(&app, "E1"), CellValue::Number(2.0));
+    assert_eq!(value(&app, "F1"), CellValue::Empty);
+    assert_eq!(value(&app, "G1"), CellValue::Number(7.0));
+
+    keys(&mut app, "lp");
+    assert_eq!(value(&app, "F1"), CellValue::Number(2.0));
+    assert_eq!(value(&app, "G1"), CellValue::Empty, "the empty C1 lands on it");
+}
+
+#[test]
+fn pasted_formulas_adjust_their_relative_references() {
+    let (_file, mut app) = app_with(
+        r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>A1+$A$1</f><v>2</v></c></row>"#,
+    );
+    keys(&mut app, "lvy");
+    keys(&mut app, "jlp");
+    let pasted = app.current_sheet().cell(a1("C2"));
+    assert_eq!(pasted.formula.as_deref(), Some("B2+$A$1"));
+    assert_eq!(pasted.value, CellValue::Empty, "the old result no longer applies");
+}
+
+#[test]
+fn deleted_cells_can_be_pasted_and_pasting_with_nothing_yanked_says_so() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "p");
+    assert_eq!(app.status(), "Nothing to paste");
+
+    keys(&mut app, "vd");
+    keys(&mut app, "5jp");
+    assert_eq!(value(&app, "A6"), CellValue::Number(1.0));
+}
+
+#[test]
+fn whole_rows_paste_below_with_p_and_at_the_cursor_with_capital_p() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "lVy");
+    keys(&mut app, "9jp");
+    assert_eq!(value(&app, "A11"), CellValue::Number(1.0));
+    assert_eq!(value(&app, "G11"), CellValue::Number(7.0));
+    assert_eq!(app.cursor(), a1("B11"), "the column stays");
+
+    keys(&mut app, "P");
+    assert_eq!(value(&app, "D11"), CellValue::Number(4.0));
+}
+
+#[test]
+fn changing_a_selection_clears_it_and_starts_typing_in_its_first_cell() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "lvjc");
+    assert_eq!(app.mode(), Mode::Insert);
+    assert_eq!(app.cursor(), a1("B1"));
+    assert_eq!(value(&app, "B1"), CellValue::Empty);
+    keys(&mut app, "9");
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(value(&app, "B1"), CellValue::Number(9.0));
+}
+
+#[test]
+fn a_read_only_cell_in_a_selection_stops_the_delete() {
+    let (_file, mut app) = app_with(
+        r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f t="array" ref="B1">C1*2</f><v>2</v></c></row>"#,
+    );
+    keys(&mut app, "vld");
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+    assert!(app.status().contains("read-only"), "{}", app.status());
+}

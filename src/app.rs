@@ -1,9 +1,12 @@
 //! Application state: everything the keyboard can change.
 
+use std::collections::BTreeMap;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
-use crate::model::{Cell, Sheet};
+use crate::formula::translate;
+use crate::model::{Cell, CellValue, Sheet};
 use crate::text::{edit_text, parse_input};
 use crate::xlsx::Workbook;
 
@@ -44,6 +47,15 @@ struct Change {
     edits: Vec<CellEdit>,
 }
 
+/// Cells kept by a yank or a delete, for pasting.
+struct Register {
+    first: CellRef,
+    last: CellRef,
+    /// Whether whole rows were taken.
+    rows: bool,
+    cells: Vec<(CellRef, Cell)>,
+}
+
 pub struct App {
     pub workbook: Workbook,
     sheet: usize,
@@ -68,6 +80,7 @@ pub struct App {
     pending: Option<char>,
     /// Where the visual selection started.
     anchor: CellRef,
+    register: Option<Register>,
 }
 
 impl App {
@@ -79,6 +92,7 @@ impl App {
             count: None,
             pending: None,
             anchor: origin,
+            register: None,
             workbook,
             sheet: 0,
             cursor: CellRef { col: 0, row: 0 },
@@ -399,6 +413,89 @@ impl App {
         }
     }
 
+    fn operate_on_selection(&mut self, operator: char) {
+        let Some((first, last)) = self.selection() else {
+            return;
+        };
+        let rows = self.mode == Mode::VisualRow;
+        self.mode = Mode::Normal;
+        let at = if rows { CellRef { col: self.cursor.col, row: first.row } } else { first };
+        self.operate(operator, first, last, rows, at);
+    }
+
+    /// Runs `d`, `y` or `c` on a rectangle, leaving the cursor at `at`.
+    fn operate(&mut self, operator: char, first: CellRef, last: CellRef, rows: bool, at: CellRef) {
+        let yanked = self.yank(first, last, rows);
+        if operator != 'y' && !self.clear_cells(first, last) {
+            return;
+        }
+        self.cursor = at;
+        match operator {
+            'y' => self.status = format!("{yanked} cells yanked"),
+            'c' => self.begin_edit(Vec::new()),
+            _ => {}
+        }
+    }
+
+    /// Copies a rectangle into the register, and says how many cells had contents.
+    fn yank(&mut self, first: CellRef, last: CellRef, rows: bool) -> usize {
+        let cells: Vec<(CellRef, Cell)> = self
+            .filled_cells(first, last)
+            .into_iter()
+            .map(|at| (at, self.current_sheet().cell(at)))
+            .collect();
+        let count = cells.len();
+        self.register = Some(Register { first, last, rows, cells });
+        count
+    }
+
+    /// `p`: writes the register at the cursor, or below it for whole rows. `P` puts rows here.
+    fn paste(&mut self, before: bool) {
+        let Some(register) = self.register.take() else {
+            self.status = "Nothing to paste".into();
+            return;
+        };
+        let target = match (register.rows, before) {
+            (true, true) => CellRef { col: 0, row: self.cursor.row },
+            (true, false) => CellRef { col: 0, row: (self.cursor.row + 1).min(MAX_ROWS - 1) },
+            (false, _) => self.cursor,
+        };
+        let cols = i64::from(target.col) - i64::from(register.first.col);
+        let rows = i64::from(target.row) - i64::from(register.first.row);
+        let shifted = |at: CellRef| {
+            let col = i64::from(at.col) + cols;
+            let row = i64::from(at.row) + rows;
+            (col < i64::from(MAX_COLS) && row < i64::from(MAX_ROWS))
+                .then_some(CellRef { col: col as u32, row: row as u32 })
+        };
+        let bottom_right = CellRef {
+            col: (i64::from(register.last.col) + cols).min(i64::from(MAX_COLS) - 1) as u32,
+            row: (i64::from(register.last.row) + rows).min(i64::from(MAX_ROWS) - 1) as u32,
+        };
+        // Everything the block lands on is replaced, including by its empty cells.
+        let mut edits: BTreeMap<CellRef, Cell> = self
+            .filled_cells(target, bottom_right)
+            .into_iter()
+            .map(|at| (at, Cell::default()))
+            .collect();
+        for (at, cell) in &register.cells {
+            let Some(to) = shifted(*at) else { continue };
+            let is_date = self.current_sheet().cell(to).is_date;
+            let pasted = match &cell.formula {
+                Some(formula) => Cell::formula(translate(formula, cols, rows)),
+                None => Cell { is_date: is_date && matches!(cell.value, CellValue::Number(_)), ..cell.clone() },
+            };
+            edits.insert(to, pasted);
+        }
+        if self.apply_edits(edits.into_iter().collect()) {
+            self.cursor = CellRef { col: self.cursor.col, row: target.row };
+            if !register.rows {
+                self.cursor = target;
+            }
+        }
+        self.register = Some(register);
+    }
+
     fn visual_key(&mut self, key: KeyEvent) {
         if self.count_digit(key) {
             return;
@@ -424,6 +521,9 @@ impl App {
             (KeyCode::Char('v'), _) => self.mode = Mode::Visual,
             (KeyCode::Char('V'), _) => self.mode = Mode::VisualRow,
             (KeyCode::Char('o' | 'O'), _) => std::mem::swap(&mut self.anchor, &mut self.cursor),
+            (KeyCode::Char('d' | 'x') | KeyCode::Delete, _) => self.operate_on_selection('d'),
+            (KeyCode::Char('y'), _) => self.operate_on_selection('y'),
+            (KeyCode::Char('c' | 's'), _) => self.operate_on_selection('c'),
             _ => {}
         }
     }
@@ -487,6 +587,8 @@ impl App {
             KeyCode::Delete | KeyCode::Backspace => {
                 self.apply_edit(self.cursor, Cell::default());
             }
+            KeyCode::Char('p') if !ctrl => self.paste(false),
+            KeyCode::Char('P') if !ctrl => self.paste(true),
             KeyCode::Char('u') if !ctrl => self.undo(),
             KeyCode::Char('r') if ctrl => self.redo(),
             KeyCode::Char('x') if !ctrl => {
