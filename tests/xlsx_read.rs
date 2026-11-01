@@ -172,3 +172,22 @@ fn detects_the_1904_date_system() {
     ]);
     assert!(Workbook::open(&write_temp(&bytes).path).unwrap().date1904);
 }
+
+#[test]
+fn extension_elements_named_workbook_pr_do_not_reset_the_date_system() {
+    let workbook = WORKBOOK.replace(
+        "<sheets>",
+        r#"<workbookPr date1904="1"/><sheets>"#,
+    )
+    .replace(
+        "</sheets>",
+        r#"</sheets><extLst><ext><x15:workbookPr xmlns:x15="urn" chartTrackingRefBase="1"/></ext></extLst>"#,
+    );
+    let bytes = package(&[
+        ("_rels/.rels", ROOT_RELS),
+        ("xl/workbook.xml", &workbook),
+        ("xl/_rels/workbook.xml.rels", WORKBOOK_RELS),
+        ("xl/worksheets/sheet1.xml", &sheet("")),
+    ]);
+    assert!(Workbook::open(&write_temp(&bytes).path).unwrap().date1904);
+}

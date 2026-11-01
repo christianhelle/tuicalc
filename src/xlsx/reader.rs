@@ -190,7 +190,10 @@ fn read_sheet_list(
             Event::Start(element) | Event::Empty(element)
                 if local_name(&element) == "workbookPr" =>
             {
-                date1904 = matches!(attr(&element, "date1904").as_deref(), Some("1" | "true"));
+                // Extension lists hold a namesake without this attribute, which must not reset it.
+                if let Some(value) = attr(&element, "date1904") {
+                    date1904 = matches!(value.as_str(), "1" | "true");
+                }
             }
             Event::Eof => return Ok((sheets, date1904)),
             _ => {}
