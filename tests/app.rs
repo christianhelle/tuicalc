@@ -1211,3 +1211,17 @@ fn esc_and_backspace_leave_the_command_line() {
     press(&mut app, KeyCode::Backspace);
     assert_eq!(app.mode(), Mode::Normal);
 }
+
+#[test]
+fn prefixed_keys_that_are_not_motions_cancel_a_waiting_operator() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "dgQ");
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+    keys(&mut app, "dg");
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+    keys(&mut app, "dzz");
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+    keys(&mut app, "j");
+    assert_eq!(value(&app, "A2"), CellValue::Number(12.0), "nothing is left waiting");
+}

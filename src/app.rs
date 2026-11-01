@@ -581,7 +581,8 @@ impl App {
     }
 
     /// Finishes a two-key command.
-    fn prefixed_key(&mut self, prefix: char, key: KeyEvent, count: Option<u32>) {
+    fn prefixed_key(&mut self, prefix: char, key: KeyEvent, count: Option<u32>) -> bool {
+        let is_motion = prefix == 'g' && key.code == KeyCode::Char('g');
         let rows = self.viewport.1;
         match (prefix, key.code) {
             ('g', KeyCode::Char('g')) => {
@@ -600,6 +601,7 @@ impl App {
             ('z', KeyCode::Char('b')) => self.scroll.row = (self.cursor.row + 1).saturating_sub(rows),
             _ => {}
         }
+        is_motion
     }
 
     fn normal_key(&mut self, key: KeyEvent) {
@@ -612,8 +614,11 @@ impl App {
             (a, b) => a.or(b),
         };
         if let Some(prefix) = self.pending.take() {
-            self.prefixed_key(prefix, key, count);
-            self.finish_operator(false);
+            if self.prefixed_key(prefix, key, count) {
+                self.finish_operator(false);
+            } else {
+                self.operator = None;
+            }
             return;
         }
         if let (KeyCode::Char(prefix @ ('g' | 'z' | 'Z')), false) = (key.code, is_ctrl(key)) {
