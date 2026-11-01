@@ -36,3 +36,22 @@ pub fn parse_input(text: &str, was_date: bool, date1904: bool) -> Cell {
     }
     Cell::value(CellValue::Text(text.to_string()))
 }
+
+/// The text that reproduces a cell when edited and confirmed.
+pub fn edit_text(cell: &Cell, date1904: bool) -> String {
+    if let Some(formula) = &cell.formula {
+        return format!("={formula}");
+    }
+    match &cell.value {
+        CellValue::Empty => String::new(),
+        CellValue::Number(number) if cell.is_date => date::format_serial(*number, date1904),
+        CellValue::Number(number) => number.to_string(),
+        CellValue::Bool(flag) => if *flag { "TRUE" } else { "FALSE" }.to_string(),
+        CellValue::Error(text) => text.clone(),
+        CellValue::Text(text) => {
+            let reads_as_text =
+                parse_input(text, false, date1904) == Cell::value(CellValue::Text(text.clone()));
+            if reads_as_text { text.clone() } else { format!("'{text}") }
+        }
+    }
+}

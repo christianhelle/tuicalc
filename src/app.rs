@@ -4,7 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
 use crate::model::Sheet;
-use crate::text::parse_input;
+use crate::text::{edit_text, parse_input};
 use crate::xlsx::Workbook;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +59,11 @@ impl App {
         self.mode
     }
 
+    /// The caret position within the edited text, in characters.
+    pub fn caret(&self) -> usize {
+        self.caret
+    }
+
     /// The text being edited.
     pub fn buffer(&self) -> String {
         self.buffer.iter().collect()
@@ -80,6 +85,11 @@ impl App {
         match key.code {
             KeyCode::Char(c) if is_text_input(key) => {
                 self.begin_edit(vec![c]);
+            }
+            KeyCode::F(2) => {
+                let cell = self.current_sheet().cell(self.cursor);
+                let text = edit_text(&cell, self.workbook.date1904);
+                self.begin_edit(text.chars().collect());
             }
             KeyCode::Left => self.move_by(-1, 0),
             KeyCode::Right => self.move_by(1, 0),
@@ -121,6 +131,17 @@ impl App {
             KeyCode::Char(c) if is_text_input(key) => {
                 self.buffer.insert(self.caret, c);
                 self.caret += 1;
+            }
+            KeyCode::Left => self.caret = self.caret.saturating_sub(1),
+            KeyCode::Right => self.caret = (self.caret + 1).min(self.buffer.len()),
+            KeyCode::Home => self.caret = 0,
+            KeyCode::End => self.caret = self.buffer.len(),
+            KeyCode::Backspace if self.caret > 0 => {
+                self.caret -= 1;
+                self.buffer.remove(self.caret);
+            }
+            KeyCode::Delete if self.caret < self.buffer.len() => {
+                self.buffer.remove(self.caret);
             }
             _ => {}
         }

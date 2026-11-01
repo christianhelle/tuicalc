@@ -146,3 +146,28 @@ fn input_is_interpreted_by_its_form() {
 
     assert_eq!(enter_value(&mut app, "=SUM(A1:A2)").formula.as_deref(), Some("SUM(A1:A2)"));
 }
+
+#[test]
+fn f2_edits_the_existing_content_at_the_caret() {
+    let (_file, mut app) = app_with(r#"<row r="1"><c r="A1" t="inlineStr"><is><t>héllo</t></is></c></row>"#);
+
+    press(&mut app, KeyCode::F(2));
+    assert_eq!(app.buffer(), "héllo");
+    assert_eq!(app.caret(), 5);
+
+    press(&mut app, KeyCode::Home);
+    press(&mut app, KeyCode::Right);
+    press(&mut app, KeyCode::Delete);
+    type_text(&mut app, "é");
+    press(&mut app, KeyCode::End);
+    press(&mut app, KeyCode::Backspace);
+    press(&mut app, KeyCode::Left);
+    press(&mut app, KeyCode::Left);
+    press(&mut app, KeyCode::Right);
+    type_text(&mut app, "!");
+    assert_eq!(app.buffer(), "hél!l");
+    assert_eq!(app.caret(), 4);
+
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(app.current_sheet().cell(a1("A1")).value, CellValue::Text("hél!l".into()));
+}
