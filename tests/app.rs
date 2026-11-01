@@ -633,3 +633,20 @@ fn enormous_counts_stop_at_the_sheet_edge() {
     keys(&mut app, "99999999999999999999j");
     assert_eq!(app.cursor(), a1("A1048576"));
 }
+
+#[test]
+fn line_motions_find_the_row_ends() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "$");
+    assert_eq!(app.cursor(), a1("G1"));
+    keys(&mut app, "0");
+    assert_eq!(app.cursor(), a1("A1"));
+    keys(&mut app, "3l^");
+    assert_eq!(app.cursor(), a1("A1"));
+    keys(&mut app, "4|");
+    assert_eq!(app.cursor(), a1("D1"));
+    keys(&mut app, "10j$");
+    assert_eq!(app.cursor(), a1("D11"), "an empty row has no last cell to go to");
+    keys(&mut app, "^");
+    assert_eq!(app.cursor(), a1("A11"));
+}

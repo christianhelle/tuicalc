@@ -71,6 +71,10 @@ impl Sheet {
         self.cells.iter()
     }
 
+    pub fn has_cell(&self, at: CellRef) -> bool {
+        self.cells.contains_key(&at)
+    }
+
     /// Stores a cell read from a file, without marking it as edited.
     pub fn load_cell(&mut self, at: CellRef, cell: Cell) {
         if cell.is_blank() {

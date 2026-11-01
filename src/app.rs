@@ -153,11 +153,42 @@ impl App {
         self.scroll_to_cursor();
     }
 
+    /// The populated columns of the cursor's row, from left to right.
+    fn filled_columns(&self) -> impl Iterator<Item = u32> + '_ {
+        let row = self.cursor.row;
+        let last = self.current_sheet().extent().map_or(0, |extent| extent.col);
+        (0..=last).filter(move |&col| self.is_filled(CellRef { col, row }))
+    }
+
+    fn first_filled_column(&self) -> Option<u32> {
+        self.filled_columns().next()
+    }
+
+    fn last_filled_column(&self) -> Option<u32> {
+        self.filled_columns().last()
+    }
+
+    fn is_filled(&self, at: CellRef) -> bool {
+        self.current_sheet().has_cell(at)
+    }
+
     /// Moves the cursor if the key is a motion, and says whether it was.
     fn motion(&mut self, key: KeyEvent, count: Option<u32>) -> bool {
         let ctrl = is_ctrl(key);
         let n = i64::from(count.unwrap_or(1));
         match key.code {
+            KeyCode::Char('0') if !ctrl => self.cursor.col = 0,
+            KeyCode::Char('|') if !ctrl => {
+                self.cursor.col = count.unwrap_or(1).saturating_sub(1).min(MAX_COLS - 1);
+            }
+            KeyCode::Char('^') if !ctrl => {
+                self.cursor.col = self.first_filled_column().unwrap_or(0);
+            }
+            KeyCode::Char('$') if !ctrl => {
+                if let Some(col) = self.last_filled_column() {
+                    self.cursor.col = col;
+                }
+            }
             KeyCode::Char('h') if !ctrl => self.move_by(-n, 0),
             KeyCode::Char('l') if !ctrl => self.move_by(n, 0),
             KeyCode::Char('k') if !ctrl => self.move_by(0, -n),
