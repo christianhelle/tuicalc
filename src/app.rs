@@ -109,6 +109,9 @@ impl App {
             KeyCode::Char(c) if is_text_input(key) => {
                 self.begin_edit(vec![c]);
             }
+            KeyCode::Char('s') if ctrl => {
+                self.save();
+            }
             KeyCode::Char('z') if ctrl => self.undo(),
             KeyCode::Char('y') if ctrl => self.redo(),
             KeyCode::Delete | KeyCode::Backspace => {
@@ -142,6 +145,25 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Saves and reports the outcome; returns whether the file is now up to date.
+    fn save(&mut self) -> bool {
+        match self.workbook.save() {
+            Ok(()) => {
+                self.status = format!("Saved {}", self.file_name());
+                true
+            }
+            Err(error) => {
+                self.status = format!("Save failed: {error}");
+                false
+            }
+        }
+    }
+
+    pub fn file_name(&self) -> String {
+        let path = self.workbook.path();
+        path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned()
     }
 
     fn undo(&mut self) {

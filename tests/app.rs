@@ -316,3 +316,24 @@ fn a_new_edit_discards_the_redo_history() {
     assert_eq!(app.status(), "Nothing to redo");
     assert_eq!(app.current_sheet().cell(a1("A1")), Cell::default());
 }
+
+#[test]
+fn ctrl_s_saves_and_reports_success_or_failure() {
+    let (file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+
+    ctrl(&mut app, KeyCode::Char('s'));
+
+    assert_eq!(app.status(), "Saved book.xlsx");
+    assert!(!app.workbook.is_dirty());
+    let reloaded = Workbook::open(&file.path).unwrap();
+    assert_eq!(reloaded.sheets[0].cell(a1("A1")).value, CellValue::Number(5.0));
+
+    press(&mut app, KeyCode::Down);
+    enter_value(&mut app, "6");
+    std::fs::write(&file.path, b"replaced by something else").unwrap();
+    ctrl(&mut app, KeyCode::Char('s'));
+
+    assert!(app.status().starts_with("Save failed:"), "{}", app.status());
+    assert!(app.workbook.is_dirty());
+}
