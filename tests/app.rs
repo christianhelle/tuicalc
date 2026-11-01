@@ -1080,3 +1080,33 @@ fn yank_with_a_motion_leaves_cells_alone_and_c_starts_typing() {
     press(&mut app, KeyCode::Esc);
     assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
 }
+
+#[test]
+fn capital_c_and_s_clear_and_start_typing() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "lC");
+    assert_eq!(app.mode(), Mode::Insert);
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+    assert_eq!(value(&app, "B1"), CellValue::Empty);
+    assert_eq!(value(&app, "G1"), CellValue::Empty);
+    press(&mut app, KeyCode::Esc);
+
+    keys(&mut app, "jS");
+    assert_eq!(app.mode(), Mode::Insert);
+    assert_eq!(value(&app, "A2"), CellValue::Empty);
+}
+
+#[test]
+fn o_and_capital_o_edit_the_cells_below_and_above() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "o");
+    assert_eq!(app.mode(), Mode::Insert);
+    assert_eq!(app.cursor(), a1("A2"));
+    assert_eq!(app.buffer(), "12");
+    ctrl(&mut app, KeyCode::Char('c'));
+
+    keys(&mut app, "O");
+    assert_eq!(app.mode(), Mode::Insert);
+    assert_eq!(app.cursor(), a1("A1"));
+    assert_eq!(app.buffer(), "1");
+}

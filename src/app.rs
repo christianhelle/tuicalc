@@ -679,6 +679,24 @@ impl App {
                 self.caret = 0;
             }
             KeyCode::Char('s') if !ctrl => self.begin_edit(Vec::new()),
+            KeyCode::Char('S') if !ctrl => self.operate_on_rows('c', count.unwrap_or(1)),
+            KeyCode::Char('C') if !ctrl => {
+                match self.last_filled_column().filter(|col| *col >= self.cursor.col) {
+                    Some(col) => {
+                        let last = CellRef { col, ..self.cursor };
+                        self.operate('c', self.cursor, last, false, self.cursor);
+                    }
+                    None => self.begin_edit(Vec::new()),
+                }
+            }
+            KeyCode::Char('o') if !ctrl => {
+                self.move_by(0, 1);
+                self.edit_existing();
+            }
+            KeyCode::Char('O') if !ctrl => {
+                self.move_by(0, -1);
+                self.edit_existing();
+            }
             KeyCode::Char('=') if !ctrl => self.begin_edit(vec!['=']),
             _ => {}
         }
