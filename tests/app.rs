@@ -103,7 +103,7 @@ fn typing_replaces_the_cell_and_enter_confirms_and_moves_down() {
     let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
 
     type_text(&mut app, "42");
-    assert_eq!(app.mode(), Mode::Edit);
+    assert_eq!(app.mode(), Mode::Insert);
     assert_eq!(app.buffer(), "42");
     assert_eq!(
         app.current_sheet().cell(a1("A1")).value,
@@ -113,7 +113,7 @@ fn typing_replaces_the_cell_and_enter_confirms_and_moves_down() {
 
     press(&mut app, KeyCode::Enter);
 
-    assert_eq!(app.mode(), Mode::Navigate);
+    assert_eq!(app.mode(), Mode::Normal);
     assert_eq!(
         app.current_sheet().cell(a1("A1")).value,
         CellValue::Number(42.0)
@@ -125,7 +125,7 @@ fn typing_replaces_the_cell_and_enter_confirms_and_moves_down() {
 fn control_shortcuts_do_not_type_but_altgr_characters_do() {
     let (_file, mut app) = app_with("");
     app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
-    assert_eq!(app.mode(), Mode::Navigate);
+    assert_eq!(app.mode(), Mode::Normal);
 
     let altgr = KeyModifiers::CONTROL | KeyModifiers::ALT;
     app.handle_key(KeyEvent::new(KeyCode::Char('@'), altgr));
@@ -193,7 +193,7 @@ fn escape_cancels_and_confirming_unchanged_text_changes_nothing() {
 
     type_text(&mut app, "9");
     press(&mut app, KeyCode::Esc);
-    assert_eq!(app.mode(), Mode::Navigate);
+    assert_eq!(app.mode(), Mode::Normal);
     assert_eq!(
         app.current_sheet().cell(a1("A1")).value,
         CellValue::Number(4.0)
@@ -274,7 +274,7 @@ fn delete_clears_the_cell() {
 
     assert_eq!(app.current_sheet().cell(a1("A1")), Cell::default());
     assert_eq!(app.current_sheet().cell(a1("B1")), Cell::default());
-    assert_eq!(app.mode(), Mode::Navigate);
+    assert_eq!(app.mode(), Mode::Normal);
 
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Delete);
@@ -293,7 +293,7 @@ fn array_formula_regions_cannot_be_edited() {
 
     for attempt in [KeyCode::Char('9'), KeyCode::F(2), KeyCode::Delete] {
         press(&mut app, attempt);
-        assert_eq!(app.mode(), Mode::Navigate);
+        assert_eq!(app.mode(), Mode::Normal);
         assert!(app.status().contains("array formula"), "{}", app.status());
     }
     assert!(!app.workbook.is_dirty());
@@ -396,7 +396,7 @@ fn quitting_with_unsaved_edits_asks_first() {
     assert_eq!(app.current_sheet().cell(a1("A2")), Cell::default());
 
     press(&mut app, KeyCode::Esc);
-    assert_eq!(app.mode(), Mode::Navigate);
+    assert_eq!(app.mode(), Mode::Normal);
     assert!(!app.should_quit());
 
     ctrl(&mut app, KeyCode::Char('q'));

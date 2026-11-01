@@ -9,8 +9,8 @@ use crate::xlsx::Workbook;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    Navigate,
-    Edit,
+    Normal,
+    Insert,
     /// Waiting for the user to decide what happens to unsaved edits.
     ConfirmQuit,
 }
@@ -60,7 +60,7 @@ impl App {
             sheet: 0,
             cursor: CellRef { col: 0, row: 0 },
             viewport: (10, 20),
-            mode: Mode::Navigate,
+            mode: Mode::Normal,
             buffer: Vec::new(),
             caret: 0,
             original: Cell::default(),
@@ -138,14 +138,14 @@ impl App {
         }
         self.status.clear();
         match self.mode {
-            Mode::Navigate => self.navigate_key(key),
-            Mode::Edit => self.edit_key(key),
+            Mode::Normal => self.normal_key(key),
+            Mode::Insert => self.insert_key(key),
             Mode::ConfirmQuit => self.confirm_quit_key(key),
         }
         self.scroll_to_cursor();
     }
 
-    fn navigate_key(&mut self, key: KeyEvent) {
+    fn normal_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         match key.code {
@@ -226,11 +226,11 @@ impl App {
     fn confirm_quit_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('s' | 'S') => {
-                self.mode = Mode::Navigate;
+                self.mode = Mode::Normal;
                 self.should_quit = self.save();
             }
             KeyCode::Char('d' | 'D') => self.should_quit = true,
-            KeyCode::Esc => self.mode = Mode::Navigate,
+            KeyCode::Esc => self.mode = Mode::Normal,
             _ => {}
         }
     }
@@ -277,12 +277,12 @@ impl App {
         self.original = self.current_sheet().cell(self.cursor);
         self.caret = initial.len();
         self.buffer = initial;
-        self.mode = Mode::Edit;
+        self.mode = Mode::Insert;
     }
 
-    fn edit_key(&mut self, key: KeyEvent) {
+    fn insert_key(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Esc => self.mode = Mode::Navigate,
+            KeyCode::Esc => self.mode = Mode::Normal,
             KeyCode::Enter | KeyCode::Down => self.commit_and_move(0, 1),
             KeyCode::Up => self.commit_and_move(0, -1),
             KeyCode::Tab => self.commit_and_move(1, 0),
@@ -340,7 +340,7 @@ impl App {
     }
 
     fn commit_edit(&mut self) {
-        self.mode = Mode::Navigate;
+        self.mode = Mode::Normal;
         let at = self.cursor;
         let text = self.buffer();
         let was_date = self.current_sheet().cell(at).is_date;

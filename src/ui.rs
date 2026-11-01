@@ -39,7 +39,7 @@ fn draw_formula_bar(frame: &mut Frame, area: Rect, app: &App) {
     }
     let label = format!("{:<8}", app.cursor().to_string());
     let label_width = label.len() as u16;
-    let editing = app.mode() == Mode::Edit;
+    let editing = app.mode() == Mode::Insert;
     let content = if editing {
         app.buffer()
     } else {
@@ -129,8 +129,8 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     let message = match app.mode() {
         Mode::ConfirmQuit => CONFIRM_QUIT,
         _ if !app.status().is_empty() => app.status(),
-        Mode::Edit => "Enter confirm | Esc cancel",
-        Mode::Navigate => HELP,
+        Mode::Insert => "Enter confirm | Esc cancel",
+        Mode::Normal => HELP,
     };
     let line = format!("{}{marker} | {message}", app.file_name());
     buffer.set_stringn(
