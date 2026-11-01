@@ -7,8 +7,8 @@ use ratatui::style::{Modifier, Style};
 use unicode_width::UnicodeWidthChar;
 
 use crate::address::{CellRef, column_name};
-use crate::app::App;
-use crate::text::{display_text, is_right_aligned};
+use crate::app::{App, Mode};
+use crate::text::{display_text, edit_text, is_right_aligned};
 
 const ROW_HEADER_WIDTH: u16 = 8;
 const COLUMN_WIDTH: u16 = 12;
@@ -16,7 +16,7 @@ const COLUMN_WIDTH: u16 = 12;
 const CONTENT_WIDTH: usize = COLUMN_WIDTH as usize - 1;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
-    let [_formula_bar, grid, _tabs, _status] = Layout::vertical([
+    let [formula_bar, grid, _tabs, _status] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(1),
@@ -27,6 +27,46 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let visible_rows = u32::from(grid.height.saturating_sub(1));
     app.set_viewport(visible_cols, visible_rows);
     draw_grid(frame.buffer_mut(), grid, app, visible_cols, visible_rows);
+    draw_formula_bar(frame, formula_bar, app);
+}
+
+/// Shows the cursor's address and contents, or the text being edited with its caret.
+fn draw_formula_bar(frame: &mut Frame, area: Rect, app: &App) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let label = format!("{:<8}", app.cursor().to_string());
+    let label_width = label.len() as u16;
+    let editing = app.mode() == Mode::Edit;
+    let content = if editing {
+        app.buffer()
+    } else {
+        edit_text(&app.current_sheet().cell(app.cursor()), app.workbook.date1904)
+    };
+    let content: Vec<char> = content.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    let room = usize::from(area.width.saturating_sub(label_width + 1));
+    let caret = if editing { app.caret() } else { 0 };
+
+    // Drop leading characters until the caret fits in the visible room.
+    let mut start = 0;
+    while text_width(&content[start..caret]) > room && start < caret {
+        start += 1;
+    }
+    let visible: String = content[start..].iter().collect();
+    let buffer = frame.buffer_mut();
+    let bold = Style::default().add_modifier(Modifier::BOLD);
+    buffer.set_stringn(area.x, area.y, &label, usize::from(area.width), bold);
+    if room > 0 {
+        buffer.set_stringn(area.x + label_width, area.y, visible, room, Style::default());
+    }
+    if editing {
+        let x = area.x + label_width + text_width(&content[start..caret]) as u16;
+        frame.set_cursor_position((x.min(area.right().saturating_sub(1)), area.y));
+    }
+}
+
+fn text_width(chars: &[char]) -> usize {
+    chars.iter().map(|c| c.width().unwrap_or(0)).sum()
 }
 
 fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {

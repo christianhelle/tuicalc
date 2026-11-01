@@ -154,3 +154,49 @@ fn highlights_the_cursor_cell_and_scrolls_with_it() {
     let screen = render(&mut app, 40, 10);
     assert_eq!(screen[1].trim_end(), "             D           E");
 }
+
+#[test]
+fn the_formula_bar_shows_the_address_and_full_contents() {
+    let (_file, mut app) = app_with(
+        r#"<row r="1"><c r="A1"><f>SUM(B1:B9)</f><v>3</v></c><c r="B1" t="inlineStr"><is><t>far too long for the column</t></is></c></row>"#,
+    );
+
+    let screen = render(&mut app, 50, 10);
+    assert_eq!(screen[0].trim_end(), "A1      =SUM(B1:B9)");
+
+    press(&mut app, KeyCode::Right);
+    let screen = render(&mut app, 50, 10);
+    assert_eq!(screen[0].trim_end(), "B1      far too long for the column");
+}
+
+#[test]
+fn editing_shows_the_buffer_with_the_terminal_cursor_at_the_caret() {
+    let (_file, mut app) = app_with("");
+    for c in "日本x".chars() {
+        press(&mut app, KeyCode::Char(c));
+    }
+    press(&mut app, KeyCode::Left);
+
+    let mut terminal = terminal_for(&mut app, 50, 10);
+
+    assert!(terminal.backend().buffer()[(8, 0)].symbol() == "日");
+    assert_eq!(terminal.get_cursor_position().unwrap().x, 8 + 4, "wide characters take two cells");
+    assert_eq!(terminal.get_cursor_position().unwrap().y, 0);
+}
+
+#[test]
+fn long_edits_scroll_to_keep_the_caret_visible() {
+    let (_file, mut app) = app_with("");
+    let text: String = ('a'..='z').cycle().take(60).collect();
+    for c in text.chars() {
+        press(&mut app, KeyCode::Char(c));
+    }
+
+    let mut terminal = terminal_for(&mut app, 30, 10);
+
+    let position = terminal.get_cursor_position().unwrap();
+    assert!(position.x < 30, "caret stays on screen, at {}", position.x);
+    let buffer = terminal.backend().buffer();
+    let line: String = (8..30).map(|x| buffer[(x, 0)].symbol().to_string()).collect();
+    assert!(text.ends_with(line.trim_end()), "{line}");
+}
