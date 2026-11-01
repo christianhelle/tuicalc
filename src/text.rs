@@ -55,3 +55,19 @@ pub fn edit_text(cell: &Cell, date1904: bool) -> String {
         }
     }
 }
+
+/// The text shown in the grid for a cell.
+pub fn display_text(cell: &Cell, _date1904: bool, _width: usize) -> String {
+    match &cell.value {
+        CellValue::Empty => String::new(),
+        CellValue::Number(number) => number.to_string(),
+        CellValue::Text(text) => text.clone(),
+        CellValue::Bool(flag) => if *flag { "TRUE" } else { "FALSE" }.to_string(),
+        CellValue::Error(text) => text.clone(),
+    }
+}
+
+/// Numbers sit against the right edge of their column, as in Excel.
+pub fn is_right_aligned(cell: &Cell) -> bool {
+    matches!(cell.value, CellValue::Number(_))
+}
