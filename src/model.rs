@@ -66,6 +66,11 @@ impl Sheet {
         self.cells.get(&at).cloned().unwrap_or_default()
     }
 
+    /// The populated cells ordered by position.
+    pub fn cells(&self) -> impl Iterator<Item = (&CellRef, &Cell)> {
+        self.cells.iter()
+    }
+
     /// Stores a cell read from a file, without marking it as edited.
     pub fn load_cell(&mut self, at: CellRef, cell: Cell) {
         if cell.is_blank() {
