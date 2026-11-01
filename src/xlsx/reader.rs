@@ -10,6 +10,7 @@ use zip::ZipArchive;
 use super::XlsxError;
 use super::xml::{attr, local_name, push_text, xml_error};
 use crate::address::CellRef;
+use crate::formula::translate;
 use crate::model::{Cell, CellValue, Sheet};
 
 const OFFICE_DOCUMENT: &str = "/officeDocument";
@@ -212,9 +213,36 @@ struct Draft {
     formula: Option<String>,
     value: String,
     inline: String,
+    shared_index: Option<String>,
+}
+
+fn parse_range(text: &str) -> Option<(CellRef, CellRef)> {
+    let (first, last) = text.split_once(':').unwrap_or((text, text));
+    Some((CellRef::parse(first)?, CellRef::parse(last)?))
 }
 
 impl Draft {
+    /// Registers a shared formula's master, or expands a dependent from its master.
+    fn resolve_formula(
+        &mut self,
+        at: CellRef,
+        shared: &mut HashMap<String, (CellRef, String)>,
+    ) {
+        let text = self.formula.take().filter(|text| !text.is_empty());
+        self.formula = match (self.shared_index.take(), text) {
+            (Some(index), Some(text)) => {
+                shared.insert(index, (at, text.clone()));
+                Some(text)
+            }
+            (Some(index), None) => shared.get(&index).map(|(origin, text)| {
+                let cols = i64::from(at.col) - i64::from(origin.col);
+                let rows = i64::from(at.row) - i64::from(origin.row);
+                translate(text, cols, rows)
+            }),
+            (None, text) => text,
+        };
+    }
+
     fn start(element: &BytesStart<'_>, fallback: CellRef) -> Self {
         let at = attr(element, "r").and_then(|r| CellRef::parse(&r)).unwrap_or(fallback);
         Self {
@@ -255,6 +283,7 @@ fn read_sheet(name: &str, xml: &str, shared_strings: &[String]) -> Result<Sheet,
     // Rows and cells may omit `r`, in which case they follow their predecessor.
     let mut next = CellRef { col: 0, row: 0 };
     let mut row_seen = false;
+    let mut shared_formulas: HashMap<String, (CellRef, String)> = HashMap::new();
     loop {
         let event = reader.read_event().map_err(xml_error)?;
         match &event {
@@ -279,6 +308,14 @@ fn read_sheet(name: &str, xml: &str, shared_strings: &[String]) -> Result<Sheet,
                     "v" if !empty => capture = Capture::Value,
                     "f" => {
                         draft.formula = Some(String::new());
+                        draft.shared_index = attr(element, "si")
+                            .filter(|_| attr(element, "t").as_deref() == Some("shared"));
+                        if matches!(attr(element, "t").as_deref(), Some("array" | "dataTable")) {
+                            let region = attr(element, "ref").unwrap_or_default();
+                            if let Some((first, last)) = parse_range(&region) {
+                                sheet.lock_range(first, last);
+                            }
+                        }
                         if !empty {
                             capture = Capture::Formula;
                         }
@@ -292,8 +329,9 @@ fn read_sheet(name: &str, xml: &str, shared_strings: &[String]) -> Result<Sheet,
                 "v" | "f" | "t" => capture = Capture::Nothing,
                 "rPh" => in_phonetic = false,
                 "c" => {
-                    let finished = std::mem::take(&mut draft);
+                    let mut finished = std::mem::take(&mut draft);
                     if let Some(at) = finished.at {
+                        finished.resolve_formula(at, &mut shared_formulas);
                         sheet.load_cell(at, finished.into_cell(shared_strings));
                     }
                 }

@@ -110,3 +110,29 @@ fn reports_files_that_are_not_workbooks() {
 
     assert!(Workbook::open("does-not-exist.xlsx").is_err());
 }
+
+#[test]
+fn expands_shared_formulas_for_dependent_cells() {
+    let book = open_rows(
+        r#"<row r="1"><c r="B1"><f t="shared" ref="B1:B2" si="0">A1*2</f><v>2</v></c></row><row r="2"><c r="B2"><f t="shared" si="0"/><v>4</v></c></row>"#,
+        &[],
+    );
+
+    let dependent = book.sheets[0].cell(a1("B2"));
+    assert_eq!(dependent.formula.as_deref(), Some("A2*2"));
+    assert_eq!(dependent.value, CellValue::Number(4.0));
+}
+
+#[test]
+fn marks_array_formula_regions_as_locked() {
+    let book = open_rows(
+        r#"<row r="1"><c r="A1"><f t="array" ref="A1:A2">B1:B2*2</f><v>2</v></c></row><row r="2"><c r="A2"><v>4</v></c></row><row r="3"><c r="A3"><v>9</v></c></row>"#,
+        &[],
+    );
+
+    let sheet = &book.sheets[0];
+    assert_eq!(sheet.cell(a1("A1")).formula.as_deref(), Some("B1:B2*2"));
+    assert!(sheet.is_locked(a1("A1")));
+    assert!(sheet.is_locked(a1("A2")));
+    assert!(!sheet.is_locked(a1("A3")));
+}

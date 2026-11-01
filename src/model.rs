@@ -43,6 +43,7 @@ pub struct Sheet {
     pub name: String,
     cells: BTreeMap<CellRef, Cell>,
     dirty: BTreeSet<CellRef>,
+    locked: Vec<(CellRef, CellRef)>,
 }
 
 impl Sheet {
@@ -67,6 +68,17 @@ impl Sheet {
     pub fn set_cell(&mut self, at: CellRef, cell: Cell) {
         self.load_cell(at, cell);
         self.dirty.insert(at);
+    }
+
+    /// Marks a region that Excel only allows editing as a whole, such as an array formula.
+    pub fn lock_range(&mut self, first: CellRef, last: CellRef) {
+        self.locked.push((first, last));
+    }
+
+    pub fn is_locked(&self, at: CellRef) -> bool {
+        self.locked.iter().any(|(first, last)| {
+            (first.col..=last.col).contains(&at.col) && (first.row..=last.row).contains(&at.row)
+        })
     }
 
     pub fn is_dirty(&self) -> bool {
