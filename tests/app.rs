@@ -752,3 +752,18 @@ fn z_commands_place_the_cursor_row_on_screen() {
     assert_eq!(app.scroll(), a1("A25"));
     assert_eq!(app.cursor(), a1("A30"));
 }
+
+#[test]
+fn gt_and_g_shift_t_switch_sheets() {
+    let (_file, mut app) = app_from(&two_sheets());
+    keys(&mut app, "gt");
+    assert_eq!(app.current_sheet().name, "Second");
+    keys(&mut app, "gt");
+    assert_eq!(app.current_sheet().name, "Sheet1");
+    keys(&mut app, "gT");
+    assert_eq!(app.current_sheet().name, "Second");
+    keys(&mut app, "1gt");
+    assert_eq!(app.current_sheet().name, "Sheet1");
+    keys(&mut app, "9gt");
+    assert_eq!(app.current_sheet().name, "Sheet1", "no such sheet");
+}

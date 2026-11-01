@@ -371,6 +371,11 @@ impl App {
             ('g', KeyCode::Char('g')) => {
                 self.cursor.row = count.unwrap_or(1).saturating_sub(1).min(MAX_ROWS - 1);
             }
+            ('g', KeyCode::Char('t')) => match count {
+                Some(number) => self.go_to_sheet(number),
+                None => self.switch_sheet(1),
+            },
+            ('g', KeyCode::Char('T')) => self.switch_sheet(-1),
             ('z', KeyCode::Char('z')) => self.scroll.row = self.cursor.row.saturating_sub(rows / 2),
             ('z', KeyCode::Char('t')) => self.scroll.row = self.cursor.row,
             ('z', KeyCode::Char('b')) => self.scroll.row = (self.cursor.row + 1).saturating_sub(rows),
@@ -470,6 +475,14 @@ impl App {
         self.cursors[self.sheet] = self.cursor;
         self.sheet = next;
         self.cursor = self.cursors[next];
+    }
+
+    /// `{n}gt`: shows a sheet by its 1-based position.
+    fn go_to_sheet(&mut self, number: u32) {
+        let index = number.saturating_sub(1) as isize;
+        if (index as usize) < self.workbook.sheets.len() {
+            self.switch_sheet(index - self.sheet as isize);
+        }
     }
 
     fn undo(&mut self) {
