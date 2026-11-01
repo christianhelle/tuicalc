@@ -30,6 +30,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     draw_formula_bar(frame, formula_bar, app);
     draw_tabs(frame.buffer_mut(), tabs, app);
     draw_status(frame.buffer_mut(), status, app);
+    if app.mode() == Mode::Command && status.width > 0 && status.height > 0 {
+        let chars: Vec<char> = app.buffer().chars().collect();
+        let x = status.x + 1 + text_width(&chars[..app.caret()]) as u16;
+        frame.set_cursor_position((x.min(status.right().saturating_sub(1)), status.y));
+    }
 }
 
 /// Shows the cursor's address and contents, or the text being edited with its caret.
@@ -124,6 +129,11 @@ const CONFIRM_QUIT: &str = "Unsaved changes: [s]ave and quit, [d]iscard, Esc to 
 
 fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     if area.width == 0 || area.height == 0 {
+        return;
+    }
+    if app.mode() == Mode::Command {
+        let line = format!(":{}", app.buffer());
+        buffer.set_stringn(area.x, area.y, line, usize::from(area.width), Style::default());
         return;
     }
     let marker = if app.workbook.is_dirty() { "*" } else { "" };
