@@ -106,3 +106,91 @@ fn new_cells_use_the_namespace_prefix_of_the_worksheet() {
     let saved = read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap();
     assert!(saved.contains(r#"<x:row r="1"><x:c r="A1"><x:v>2</x:v></x:c></x:row><x:row r="2"><x:c r="A2"><x:v>3</x:v></x:c></x:row></x:sheetData>"#), "{saved}");
 }
+
+const ONE_CELL: &str = r#"<row r="1"><c r="A1" s="4"><v>1</v></c></row>"#;
+
+#[test]
+fn saves_every_value_type_so_it_reads_back_identically() {
+    let cells = [
+        Cell::value(CellValue::Text("  a < b & \"c\"\nnext  ".into())),
+        Cell::value(CellValue::Bool(false)),
+        Cell::value(CellValue::Error("#N/A".into())),
+        Cell::value(CellValue::Number(-1.5e300)),
+        Cell::formula("IF(A2<1,\"x\",B2)"),
+    ];
+    for cell in cells {
+        let (_file, book) = edited(ONE_CELL, "A1", cell.clone());
+        assert_eq!(book.sheets[0].cell(a1("A1")), cell);
+    }
+}
+
+#[test]
+fn saves_a_formula_together_with_its_cached_text_result() {
+    let cell = Cell {
+        value: CellValue::Text("ab".into()),
+        formula: Some("B1&C1".into()),
+        is_date: false,
+    };
+    let (_file, book) = edited(ONE_CELL, "A1", cell.clone());
+    assert_eq!(book.sheets[0].cell(a1("A1")), cell);
+}
+
+#[test]
+fn clearing_a_cell_keeps_its_style_but_drops_its_content() {
+    let saved = saved_sheet(ONE_CELL, "A1", Cell::default());
+    assert!(saved.contains(r#"<row r="1"><c r="A1" s="4"/></row>"#), "{saved}");
+
+    let unstyled = r#"<row r="1"><c r="A1"><v>1</v></c></row>"#;
+    let saved = saved_sheet(unstyled, "A1", Cell::default());
+    assert!(saved.contains(r#"<row r="1"></row>"#), "{saved}");
+}
+
+#[test]
+fn clearing_a_cell_that_never_existed_writes_nothing() {
+    let saved = saved_sheet(ONE_CELL, "C9", Cell::default());
+    assert_eq!(saved, sheet(ONE_CELL));
+}
+
+#[test]
+fn control_characters_and_excel_escape_lookalikes_round_trip() {
+    let text = "bell\u{7} cr\r literal _x0041_ end";
+    let cell = Cell::value(CellValue::Text(text.into()));
+    let (file, book) = edited(ONE_CELL, "A1", cell.clone());
+
+    assert_eq!(book.sheets[0].cell(a1("A1")), cell);
+    let saved = read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap();
+    assert!(!saved.contains('\u{7}'), "raw control characters are not legal XML");
+}
+
+#[test]
+fn decodes_excel_escapes_when_reading_shared_strings() {
+    let strings = r#"<sst><si><t>a_x000D_b_x005F_x0041_</t></si></sst>"#;
+    let rows = r#"<row r="1"><c r="A1" t="s"><v>0</v></c></row>"#;
+    let file = write_temp(&single_sheet(&sheet(rows), &[("xl/sharedStrings.xml", strings)]));
+    let book = Workbook::open(&file.path).unwrap();
+    assert_eq!(book.sheets[0].cell(a1("A1")).value, CellValue::Text("a\rb_x0041_".into()));
+}
+
+#[test]
+fn editing_a_shared_formula_master_keeps_its_dependents_working() {
+    let rows = r#"<row r="1"><c r="B1"><f t="shared" ref="B1:B2" si="0">A1*2</f><v>2</v></c></row><row r="2"><c r="B2" s="3"><f t="shared" si="0"/><v>4</v></c></row>"#;
+    let (file, book) = edited(rows, "B1", number(100.0));
+
+    assert_eq!(book.sheets[0].cell(a1("B1")), number(100.0));
+    assert_eq!(book.sheets[0].cell(a1("B2")).formula.as_deref(), Some("A2*2"));
+    let saved = read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap();
+    assert!(!saved.contains("shared"), "{saved}");
+    assert!(saved.contains(r#"<c r="B2" s="3"><f>A2*2</f><v>4</v></c>"#), "{saved}");
+}
+
+#[test]
+fn unedited_sheets_keep_their_shared_formulas() {
+    let rows = r#"<row r="1"><c r="B1"><f t="shared" ref="B1:B2" si="0">A1*2</f><v>2</v></c></row><row r="2"><c r="B2"><f t="shared" si="0"/><v>4</v></c></row>"#;
+    let saved = saved_sheet(rows, "A1", number(1.0));
+    assert!(saved.contains(r#"t="shared""#) == false, "edited sheet is expanded: {saved}");
+
+    let file = write_temp(&single_sheet(&sheet(rows), &[]));
+    let mut book = Workbook::open(&file.path).unwrap();
+    book.save().unwrap();
+    assert_eq!(read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap(), sheet(rows));
+}

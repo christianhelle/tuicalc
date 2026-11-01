@@ -12,7 +12,7 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use super::XlsxError;
 use super::reader::Layout;
-use super::xml::{attr, local_name, xml_error};
+use super::xml::{attr, local_name, starts_with_excel_escape, xml_error};
 use crate::address::CellRef;
 use crate::model::{Cell, CellValue, Sheet};
 
@@ -82,7 +82,8 @@ impl SheetPatch<'_> {
 
     /// Writes pending cells in rows that come before `limit` as new rows.
     fn write_rows_before(&mut self, limit: Option<u32>) {
-        let cells = self.take_pending(|at| limit.is_none_or(|limit| at.row < limit));
+        let mut cells = self.take_pending(|at| limit.is_none_or(|limit| at.row < limit));
+        cells.retain(|(_, cell)| *cell != Cell::default());
         let mut index = 0;
         while index < cells.len() {
             let row = cells[index].0.row;
@@ -169,12 +170,20 @@ fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, XlsxError> {
                         patch.copy_until(before, before);
                         let earlier = patch.take_pending(|p| p.row == at.row && p.col < at.col);
                         patch.write_cells(&earlier);
-                        if let Some(cell) = patch.pending.remove(&at) {
-                            let style = attr(element, "s");
-                            if !empty {
-                                reader.read_to_end(element.name()).map_err(xml_error)?;
-                            }
-                            patch.copied_to = position(&reader);
+                        let style = attr(element, "s");
+                        let edit = patch.pending.remove(&at);
+                        let name = element.name().as_ref().to_string();
+                        let mut end = after;
+                        let mut shared = false;
+                        if !empty {
+                            let span = reader.read_to_end(element.name()).map_err(xml_error)?;
+                            end = position(&reader);
+                            shared = xml[span.start as usize..span.end as usize]
+                                .contains(r#"t="shared""#);
+                        }
+                        debug_assert!(name.ends_with('c'));
+                        if let Some(cell) = edit.or_else(|| shared.then(|| sheet.cell(at))) {
+                            patch.copy_until(before, end);
                             write_cell(&mut patch.out, &patch.prefix, at, style.as_deref(), &cell);
                         }
                     }
@@ -208,11 +217,60 @@ fn position(reader: &Reader<&[u8]>) -> usize {
 }
 
 fn write_cell(out: &mut String, prefix: &str, at: CellRef, style: Option<&str>, cell: &Cell) {
+    if cell.formula.is_none() && cell.value == CellValue::Empty && style.is_none() {
+        return;
+    }
     out.push_str(&format!(r#"<{prefix}c r="{at}""#));
     if let Some(style) = style {
         out.push_str(&format!(r#" s="{}""#, escape(style)));
     }
-    if let CellValue::Number(number) = cell.value {
-        out.push_str(&format!("><{prefix}v>{number}</{prefix}v></{prefix}c>"));
+    let kind = match (&cell.value, &cell.formula) {
+        (CellValue::Text(_), None) => Some("inlineStr"),
+        (CellValue::Text(_), Some(_)) => Some("str"),
+        (CellValue::Bool(_), _) => Some("b"),
+        (CellValue::Error(_), _) => Some("e"),
+        _ => None,
+    };
+    if let Some(kind) = kind {
+        out.push_str(&format!(r#" t="{kind}""#));
     }
+    if cell.formula.is_none() && cell.value == CellValue::Empty {
+        out.push_str("/>");
+        return;
+    }
+    out.push('>');
+    if let Some(formula) = &cell.formula {
+        out.push_str(&format!("<{prefix}f>{}</{prefix}f>", escape(formula.as_str())));
+    }
+    match (&cell.value, &cell.formula) {
+        (CellValue::Empty, _) => {}
+        (CellValue::Number(number), _) => push_value(out, prefix, &number.to_string()),
+        (CellValue::Bool(flag), _) => push_value(out, prefix, if *flag { "1" } else { "0" }),
+        (CellValue::Error(text), _) => push_value(out, prefix, &escape(text.as_str())),
+        (CellValue::Text(text), Some(_)) => push_value(out, prefix, &encode_text(text)),
+        (CellValue::Text(text), None) => out.push_str(&format!(
+            r#"<{prefix}is><{prefix}t xml:space="preserve">{}</{prefix}t></{prefix}is>"#,
+            encode_text(text)
+        )),
+    }
+    out.push_str(&format!("</{prefix}c>"));
+}
+
+fn push_value(out: &mut String, prefix: &str, text: &str) {
+    out.push_str(&format!("<{prefix}v>{text}</{prefix}v>"));
+}
+
+/// XML-escapes text, using Excel's `_xHHHH_` form for what XML cannot carry literally.
+fn encode_text(text: &str) -> String {
+    let mut encoded = String::with_capacity(text.len());
+    for (index, c) in text.char_indices() {
+        if c == '_' && starts_with_excel_escape(&text[index..]) {
+            encoded.push_str("_x005F_");
+        } else if (c < ' ' && !matches!(c, '\n' | '\t')) || c == '\u{FFFE}' || c == '\u{FFFF}' {
+            encoded.push_str(&format!("_x{:04X}_", u32::from(c)));
+        } else {
+            encoded.push(c);
+        }
+    }
+    escape(encoded).into_owned()
 }

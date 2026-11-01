@@ -8,7 +8,7 @@ use quick_xml::events::{BytesStart, Event};
 use zip::ZipArchive;
 
 use super::XlsxError;
-use super::xml::{attr, local_name, push_text, xml_error};
+use super::xml::{attr, decode_excel_escapes, local_name, push_text, xml_error};
 use crate::address::CellRef;
 use crate::formula::translate;
 use crate::model::{Cell, CellValue, Sheet};
@@ -260,7 +260,7 @@ fn read_shared_strings(xml: &str) -> Result<Vec<String>, XlsxError> {
             },
             Event::Empty(element) if local_name(element) == "si" => strings.push(String::new()),
             Event::End(element) => match AsRef::<str>::as_ref(&element.local_name()) {
-                "si" => strings.push(std::mem::take(&mut current)),
+                "si" => strings.push(decode_excel_escapes(&std::mem::take(&mut current))),
                 "rPh" => in_phonetic = false,
                 "t" => in_text = false,
                 _ => {}
@@ -341,8 +341,8 @@ impl Draft {
                 .map_or(CellValue::Empty, CellValue::Text),
             "b" => CellValue::Bool(self.value == "1"),
             "e" => CellValue::Error(self.value),
-            "inlineStr" => CellValue::Text(self.inline),
-            "str" | "d" => CellValue::Text(self.value),
+            "inlineStr" => CellValue::Text(decode_excel_escapes(&self.inline)),
+            "str" | "d" => CellValue::Text(decode_excel_escapes(&self.value)),
             _ if self.value.is_empty() => CellValue::Empty,
             _ => self
                 .value
