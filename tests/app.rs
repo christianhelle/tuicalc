@@ -603,3 +603,12 @@ fn ctrl_u_and_ctrl_w_delete_backwards_in_insert_mode() {
     assert_eq!(app.buffer(), "x");
     assert_eq!(app.caret(), 0);
 }
+
+#[test]
+fn hjkl_move_like_the_arrow_keys() {
+    let (_file, mut app) = app_with("");
+    keys(&mut app, "ljjlkh");
+    assert_eq!(app.cursor(), a1("B2"));
+    keys(&mut app, "hhhkkk");
+    assert_eq!(app.cursor(), a1("A1"));
+}

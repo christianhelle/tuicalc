@@ -150,7 +150,45 @@ impl App {
         self.scroll_to_cursor();
     }
 
+    /// Moves the cursor if the key is a motion, and says whether it was.
+    fn motion(&mut self, key: KeyEvent, count: Option<u32>) -> bool {
+        let ctrl = is_ctrl(key);
+        let n = i64::from(count.unwrap_or(1));
+        match key.code {
+            KeyCode::Char('h') if !ctrl => self.move_by(-n, 0),
+            KeyCode::Char('l') if !ctrl => self.move_by(n, 0),
+            KeyCode::Char('k') if !ctrl => self.move_by(0, -n),
+            KeyCode::Char('j') if !ctrl => self.move_by(0, n),
+            KeyCode::Left => self.move_by(-n, 0),
+            KeyCode::Right => self.move_by(n, 0),
+            KeyCode::Up => self.move_by(0, -n),
+            KeyCode::Down => self.move_by(0, n),
+            KeyCode::Tab => self.move_by(n, 0),
+            KeyCode::BackTab => self.move_by(-n, 0),
+            KeyCode::Enter => self.move_by(0, n),
+            KeyCode::PageDown if !ctrl => self.move_by(0, n * i64::from(self.viewport.1)),
+            KeyCode::PageUp if !ctrl => self.move_by(0, -n * i64::from(self.viewport.1)),
+            KeyCode::Home if ctrl => self.cursor = CellRef { col: 0, row: 0 },
+            KeyCode::Home => self.cursor.col = 0,
+            KeyCode::End if ctrl => {
+                if let Some(extent) = self.current_sheet().extent() {
+                    self.cursor = extent;
+                }
+            }
+            KeyCode::End => {
+                if let Some(extent) = self.current_sheet().extent() {
+                    self.cursor.col = extent.col;
+                }
+            }
+            _ => return false,
+        }
+        true
+    }
+
     fn normal_key(&mut self, key: KeyEvent) {
+        if self.motion(key, None) {
+            return;
+        }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         match key.code {
@@ -181,27 +219,6 @@ impl App {
             }
             KeyCode::Char('s') if !ctrl => self.begin_edit(Vec::new()),
             KeyCode::Char('=') if !ctrl => self.begin_edit(vec!['=']),
-            KeyCode::Left => self.move_by(-1, 0),
-            KeyCode::Right => self.move_by(1, 0),
-            KeyCode::Up => self.move_by(0, -1),
-            KeyCode::Down => self.move_by(0, 1),
-            KeyCode::Tab => self.move_by(1, 0),
-            KeyCode::BackTab => self.move_by(-1, 0),
-            KeyCode::Enter => self.move_by(0, 1),
-            KeyCode::PageDown => self.move_by(0, i64::from(self.viewport.1)),
-            KeyCode::PageUp => self.move_by(0, -i64::from(self.viewport.1)),
-            KeyCode::Home if ctrl => self.cursor = CellRef { col: 0, row: 0 },
-            KeyCode::Home => self.cursor.col = 0,
-            KeyCode::End if ctrl => {
-                if let Some(extent) = self.current_sheet().extent() {
-                    self.cursor = extent;
-                }
-            }
-            KeyCode::End => {
-                if let Some(extent) = self.current_sheet().extent() {
-                    self.cursor.col = extent.col;
-                }
-            }
             _ => {}
         }
     }
