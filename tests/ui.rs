@@ -415,7 +415,7 @@ fn column_and_row_headers_are_cyan_bars_in_homage_to_lotus_1_2_3() {
 
     let terminal = terminal_for(&mut app, 50, 10);
     let buffer = terminal.backend().buffer();
-    let is_bar = |x: u16, y: u16| buffer[(x, y)].bg == Color::Cyan;
+    let is_bar = |x: u16, y: u16| buffer[(x, y)].bg == Color::Rgb(0x00, 0xA8, 0xA8);
 
     assert_eq!(buffer[(13, 1)].symbol(), "A");
     assert!(is_bar(13, 1), "behind a column letter");

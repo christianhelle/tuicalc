@@ -10,6 +10,8 @@ use crate::address::{CellRef, column_name};
 use crate::app::{App, Mode};
 use crate::text::{display_text, edit_text, is_right_aligned};
 
+/// An exact color, because a terminal theme can make its own "cyan" any shade.
+const HEADER_BACKGROUND: Color = Color::Rgb(0x00, 0xA8, 0xA8);
 const ROW_HEADER_WIDTH: u16 = 8;
 const COLUMN_WIDTH: u16 = 12;
 /// Column width less the gap separating neighbouring cells.
@@ -185,7 +187,7 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
     let scroll = app.scroll();
     // Cyan bars around the grid, as a nod to Lotus 1-2-3. Not bold, because some terminals
     // show bold black as grey.
-    let header_style = Style::default().fg(Color::Black).bg(Color::Cyan);
+    let header_style = Style::default().fg(Color::Black).bg(HEADER_BACKGROUND);
     buffer.set_style(Rect { height: 1, ..area }, header_style);
     buffer.set_style(
         Rect {
