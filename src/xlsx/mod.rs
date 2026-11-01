@@ -1,9 +1,11 @@
 //! Reading and patching .xlsx packages.
 
 mod reader;
+mod writer;
 mod xml;
 
 use std::fmt;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::model::Sheet;
@@ -49,9 +51,7 @@ pub struct Workbook {
     /// Whether date serials count from 1904 rather than 1900.
     pub date1904: bool,
     path: PathBuf,
-    #[allow(dead_code)]
     source: Vec<u8>,
-    #[allow(dead_code)]
     layout: reader::Layout,
 }
 
@@ -63,7 +63,34 @@ impl Workbook {
         Ok(Self { sheets, date1904, path, source, layout })
     }
 
+    pub fn is_dirty(&self) -> bool {
+        self.sheets.iter().any(Sheet::is_dirty)
+    }
+
+    /// Writes edits back to the file this workbook was opened from.
+    pub fn save(&mut self) -> Result<(), XlsxError> {
+        let patched = writer::patch(&self.source, &self.layout, &self.sheets)?;
+        replace_file(&self.path, &patched)?;
+        self.source = patched;
+        self.sheets.iter_mut().for_each(Sheet::mark_saved);
+        Ok(())
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
+}
+
+/// Replaces `path` atomically, so a failed save cannot leave a truncated workbook behind.
+fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), XlsxError> {
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let directory = target.parent().filter(|parent| !parent.as_os_str().is_empty());
+    let mut temporary = tempfile::NamedTempFile::new_in(directory.unwrap_or(Path::new(".")))?;
+    temporary.write_all(bytes)?;
+    temporary.as_file().sync_all()?;
+    if let Ok(metadata) = std::fs::metadata(&target) {
+        std::fs::set_permissions(temporary.path(), metadata.permissions())?;
+    }
+    temporary.persist(&target).map_err(|error| XlsxError::Io(error.error))?;
+    Ok(())
 }
