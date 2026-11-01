@@ -273,6 +273,13 @@ impl App {
         Some(CellRef { col: self.cursor.col, row })
     }
 
+    /// Moves the view and the cursor by the same number of rows.
+    fn scroll_with_cursor(&mut self, rows: i64) {
+        self.move_by(0, rows);
+        let top = i64::from(self.scroll.row) + rows;
+        self.scroll.row = top.clamp(0, i64::from(MAX_ROWS) - 1) as u32;
+    }
+
     /// Moves the cursor if the key is a motion, and says whether it was.
     fn motion(&mut self, key: KeyEvent, count: Option<u32>) -> bool {
         let ctrl = is_ctrl(key);
@@ -299,6 +306,19 @@ impl App {
             KeyCode::Char('b') if !ctrl => self.repeat_motion(n, Self::previous_run_start),
             KeyCode::Char('}') if !ctrl => self.repeat_motion(n, Self::next_gap),
             KeyCode::Char('{') if !ctrl => self.repeat_motion(n, Self::previous_gap),
+            KeyCode::Char('H') if !ctrl => {
+                let offset = count.unwrap_or(1).saturating_sub(1).min(self.viewport.1 - 1);
+                self.cursor.row = self.scroll.row + offset;
+            }
+            KeyCode::Char('M') if !ctrl => self.cursor.row = self.scroll.row + (self.viewport.1 - 1) / 2,
+            KeyCode::Char('L') if !ctrl => {
+                let offset = count.unwrap_or(1).saturating_sub(1).min(self.viewport.1 - 1);
+                self.cursor.row = self.scroll.row + self.viewport.1 - 1 - offset;
+            }
+            KeyCode::Char('d') if ctrl => self.scroll_with_cursor(n * i64::from(self.viewport.1 / 2)),
+            KeyCode::Char('u') if ctrl => self.scroll_with_cursor(-n * i64::from(self.viewport.1 / 2)),
+            KeyCode::Char('f') if ctrl => self.scroll_with_cursor(n * i64::from(self.viewport.1)),
+            KeyCode::Char('b') if ctrl => self.scroll_with_cursor(-n * i64::from(self.viewport.1)),
             KeyCode::Char('h') if !ctrl => self.move_by(-n, 0),
             KeyCode::Char('l') if !ctrl => self.move_by(n, 0),
             KeyCode::Char('k') if !ctrl => self.move_by(0, -n),
@@ -346,8 +366,15 @@ impl App {
 
     /// Finishes a two-key command.
     fn prefixed_key(&mut self, prefix: char, key: KeyEvent, count: Option<u32>) {
-        if let ('g', KeyCode::Char('g')) = (prefix, key.code) {
-            self.cursor.row = count.unwrap_or(1).saturating_sub(1).min(MAX_ROWS - 1);
+        let rows = self.viewport.1;
+        match (prefix, key.code) {
+            ('g', KeyCode::Char('g')) => {
+                self.cursor.row = count.unwrap_or(1).saturating_sub(1).min(MAX_ROWS - 1);
+            }
+            ('z', KeyCode::Char('z')) => self.scroll.row = self.cursor.row.saturating_sub(rows / 2),
+            ('z', KeyCode::Char('t')) => self.scroll.row = self.cursor.row,
+            ('z', KeyCode::Char('b')) => self.scroll.row = (self.cursor.row + 1).saturating_sub(rows),
+            _ => {}
         }
     }
 
@@ -360,8 +387,8 @@ impl App {
             self.prefixed_key(prefix, key, count);
             return;
         }
-        if let (KeyCode::Char('g'), false) = (key.code, is_ctrl(key)) {
-            self.pending = Some('g');
+        if let (KeyCode::Char(prefix @ ('g' | 'z')), false) = (key.code, is_ctrl(key)) {
+            self.pending = Some(prefix);
             self.count = count;
             return;
         }

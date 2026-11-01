@@ -706,3 +706,49 @@ fn paragraph_motions_stop_at_empty_cells_in_the_column() {
     keys(&mut app, "{");
     assert_eq!(app.cursor(), a1("A1"));
 }
+
+#[test]
+fn screen_motions_use_the_visible_rows() {
+    let (_file, mut app) = app_with("");
+    app.set_viewport(5, 10);
+    keys(&mut app, "L");
+    assert_eq!(app.cursor(), a1("A10"));
+    keys(&mut app, "M");
+    assert_eq!(app.cursor(), a1("A5"));
+    keys(&mut app, "H");
+    assert_eq!(app.cursor(), a1("A1"));
+    keys(&mut app, "3H");
+    assert_eq!(app.cursor(), a1("A3"));
+    keys(&mut app, "2L");
+    assert_eq!(app.cursor(), a1("A9"));
+}
+
+#[test]
+fn ctrl_keys_scroll_the_view_along_with_the_cursor() {
+    let (_file, mut app) = app_with("");
+    app.set_viewport(5, 10);
+    ctrl(&mut app, KeyCode::Char('d'));
+    assert_eq!((app.cursor(), app.scroll()), (a1("A6"), a1("A6")));
+    ctrl(&mut app, KeyCode::Char('u'));
+    assert_eq!((app.cursor(), app.scroll()), (a1("A1"), a1("A1")));
+    ctrl(&mut app, KeyCode::Char('f'));
+    assert_eq!((app.cursor(), app.scroll()), (a1("A11"), a1("A11")));
+    ctrl(&mut app, KeyCode::Char('b'));
+    assert_eq!((app.cursor(), app.scroll()), (a1("A1"), a1("A1")));
+    ctrl(&mut app, KeyCode::Char('b'));
+    assert_eq!((app.cursor(), app.scroll()), (a1("A1"), a1("A1")), "stops at the top");
+}
+
+#[test]
+fn z_commands_place_the_cursor_row_on_screen() {
+    let (_file, mut app) = app_with("");
+    app.set_viewport(5, 10);
+    keys(&mut app, "30G");
+    keys(&mut app, "zt");
+    assert_eq!(app.scroll(), a1("A30"));
+    keys(&mut app, "zb");
+    assert_eq!(app.scroll(), a1("A21"));
+    keys(&mut app, "zz");
+    assert_eq!(app.scroll(), a1("A25"));
+    assert_eq!(app.cursor(), a1("A30"));
+}
