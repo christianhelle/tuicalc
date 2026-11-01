@@ -18,13 +18,11 @@ pub fn parse_input(text: &str, was_date: bool, date1904: bool) -> Cell {
     if let Some(formula) = text.strip_prefix('=').filter(|formula| !formula.is_empty()) {
         return Cell::formula(formula);
     }
-    if was_date {
-        if let Some(serial) = date::parse_serial(text, date1904) {
-            return Cell {
-                is_date: true,
-                ..Cell::value(CellValue::Number(serial))
-            };
-        }
+    if was_date && let Some(serial) = date::parse_serial(text, date1904) {
+        return Cell {
+            is_date: true,
+            ..Cell::value(CellValue::Number(serial))
+        };
     }
     if let Some(number) = text.parse::<f64>().ok().filter(|number| number.is_finite()) {
         return Cell {
