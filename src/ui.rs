@@ -10,8 +10,12 @@ use crate::address::{CellRef, column_name};
 use crate::app::{App, Mode};
 use crate::text::{display_text, edit_text, is_right_aligned};
 
-/// An exact color, because a terminal theme can make its own "cyan" any shade.
-const HEADER_BACKGROUND: Color = Color::Rgb(0x00, 0xA8, 0xA8);
+/// The header bars and the cursor, as a nod to Lotus 1-2-3. The color is exact because a terminal
+/// theme can make its own "cyan" any shade, and the text isn't bold because some terminals show
+/// bold black as grey.
+const FRAME_STYLE: Style = Style::new()
+    .fg(Color::Black)
+    .bg(Color::Rgb(0x00, 0xA8, 0xA8));
 const ROW_HEADER_WIDTH: u16 = 8;
 const COLUMN_WIDTH: u16 = 12;
 /// Column width less the gap separating neighbouring cells.
@@ -185,9 +189,7 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
         return;
     }
     let scroll = app.scroll();
-    // Cyan bars around the grid, as a nod to Lotus 1-2-3. Not bold, because some terminals
-    // show bold black as grey.
-    let header_style = Style::default().fg(Color::Black).bg(HEADER_BACKGROUND);
+    let header_style = FRAME_STYLE;
     buffer.set_style(Rect { height: 1, ..area }, header_style);
     buffer.set_style(
         Rect {
@@ -228,9 +230,9 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
             let selected = selection.is_some_and(|(first, last)| {
                 (first.col..=last.col).contains(&at.col) && (first.row..=last.row).contains(&at.row)
             });
-            let style = if at == app.cursor() && selected {
-                Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
-            } else if at == app.cursor() || selected {
+            let style = if at == app.cursor() {
+                FRAME_STYLE
+            } else if selected {
                 Style::default().add_modifier(Modifier::REVERSED)
             } else {
                 Style::default()

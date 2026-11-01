@@ -13,8 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cursor's address and full contents in a formula bar above it. Numbers show as
   many digits as fit, as in Excel's General format, and dates show as
   `YYYY-MM-DD`, in workbooks of either date system. Text is cut to the terminal
-  width of its column, wide characters included. The column and row headers sit
-  on cyan bars, in homage to Lotus 1-2-3.
+  width of its column, wide characters included. The column and row headers and
+  the cursor are black on cyan, in homage to Lotus 1-2-3.
 - Vim motions: tuicalc starts in normal mode. `h` `j` `k` `l` and the arrow keys
   move, and most motions take a count such as `5j`. `w`, `b` and `e` move between
   runs of filled cells in a row, `{` and `}` between gaps in a column. `0`, `^`

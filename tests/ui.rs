@@ -10,6 +10,12 @@ use tuicalc::ui::draw;
 use tuicalc::xlsx::Workbook;
 use unicode_width::UnicodeWidthStr;
 
+/// The cursor cell uses the header bars' colors.
+fn is_selector(cell: &ratatui::buffer::Cell) -> bool {
+    use ratatui::style::Color;
+    cell.fg == Color::Black && cell.bg == Color::Rgb(0x00, 0xA8, 0xA8)
+}
+
 fn app_with(rows: &str) -> (TempXlsx, App) {
     app_from(&single_sheet(&sheet(rows), &[]))
 }
@@ -142,8 +148,8 @@ fn highlights_the_cursor_cell_and_scrolls_with_it() {
 
     let terminal = terminal_for(&mut app, 40, 10);
     let buffer = terminal.backend().buffer();
-    assert!(buffer[(8, 2)].modifier.contains(Modifier::REVERSED));
-    assert!(!buffer[(20, 2)].modifier.contains(Modifier::REVERSED));
+    assert!(is_selector(&buffer[(8, 2)]));
+    assert!(!is_selector(&buffer[(20, 2)]));
 
     // Six rows fit between the headers and the bottom two lines.
     for _ in 0..9 {
@@ -161,11 +167,7 @@ fn highlights_the_cursor_cell_and_scrolls_with_it() {
         grid_line(&screen, 6)
     );
     let terminal = terminal_for(&mut app, 40, 10);
-    assert!(
-        terminal.backend().buffer()[(8, 7)]
-            .modifier
-            .contains(Modifier::REVERSED)
-    );
+    assert!(is_selector(&terminal.backend().buffer()[(8, 7)]));
 
     for _ in 0..4 {
         press(&mut app, KeyCode::Right);
@@ -378,13 +380,8 @@ fn the_selection_is_highlighted_with_the_cursor_marked_inside_it() {
     assert!(at(0, 0).modifier.contains(Modifier::REVERSED));
     assert!(at(1, 0).modifier.contains(Modifier::REVERSED));
     assert!(at(0, 1).modifier.contains(Modifier::REVERSED));
-    assert!(
-        at(1, 1)
-            .modifier
-            .contains(Modifier::REVERSED | Modifier::BOLD),
-        "the cursor"
-    );
-    assert!(!at(0, 0).modifier.contains(Modifier::BOLD));
+    assert!(is_selector(at(1, 1)), "the cursor");
+    assert!(!is_selector(at(0, 0)));
     assert!(!at(2, 0).modifier.contains(Modifier::REVERSED));
     assert!(!at(0, 2).modifier.contains(Modifier::REVERSED));
 }
