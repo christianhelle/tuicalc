@@ -47,6 +47,7 @@ pub struct App {
     should_quit: bool,
     /// The cursor position left behind on each sheet.
     cursors: Vec<CellRef>,
+    scroll: CellRef,
 }
 
 impl App {
@@ -54,6 +55,7 @@ impl App {
         let origin = CellRef { col: 0, row: 0 };
         Self {
             cursors: vec![origin; workbook.sheets.len()],
+            scroll: origin,
             workbook,
             sheet: 0,
             cursor: CellRef { col: 0, row: 0 }, viewport: (10, 20),
@@ -82,6 +84,7 @@ impl App {
 
     pub fn set_viewport(&mut self, cols: u32, rows: u32) {
         self.viewport = (cols.max(1), rows.max(1));
+        self.scroll_to_cursor();
     }
 
     /// The latest message for the user.
@@ -107,6 +110,26 @@ impl App {
         self.buffer.iter().collect()
     }
 
+    /// The cell shown in the grid's top-left corner.
+    pub fn scroll(&self) -> CellRef {
+        self.scroll
+    }
+
+    /// Adjusts the scroll position just enough to show the cursor.
+    fn scroll_to_cursor(&mut self) {
+        let (cols, rows) = self.viewport;
+        if self.cursor.col < self.scroll.col {
+            self.scroll.col = self.cursor.col;
+        } else if self.cursor.col >= self.scroll.col + cols {
+            self.scroll.col = self.cursor.col + 1 - cols;
+        }
+        if self.cursor.row < self.scroll.row {
+            self.scroll.row = self.cursor.row;
+        } else if self.cursor.row >= self.scroll.row + rows {
+            self.scroll.row = self.cursor.row + 1 - rows;
+        }
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) {
         // Windows reports key releases as separate events.
         if key.kind == KeyEventKind::Release {
@@ -118,6 +141,7 @@ impl App {
             Mode::Edit => self.edit_key(key),
             Mode::ConfirmQuit => self.confirm_quit_key(key),
         }
+        self.scroll_to_cursor();
     }
 
     fn navigate_key(&mut self, key: KeyEvent) {

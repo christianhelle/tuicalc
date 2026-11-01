@@ -445,3 +445,36 @@ fn undo_returns_to_the_sheet_of_the_edit_and_saves_only_edited_sheets() {
     assert_eq!(app.current_sheet().name, "Sheet1");
     assert_eq!(app.current_sheet().cell(a1("A1")), Cell::default());
 }
+
+#[test]
+fn the_view_scrolls_just_enough_to_show_the_cursor() {
+    let (_file, mut app) = app_with("");
+    app.set_viewport(3, 4);
+
+    for _ in 0..4 {
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Right);
+    }
+    assert_eq!(app.cursor(), a1("E5"));
+    assert_eq!(app.scroll(), a1("C2"));
+
+    press(&mut app, KeyCode::Up);
+    assert_eq!(app.scroll(), a1("C2"), "still visible, so no scroll");
+
+    ctrl(&mut app, KeyCode::Home);
+    assert_eq!(app.scroll(), a1("A1"));
+}
+
+#[test]
+fn shrinking_the_view_keeps_the_cursor_visible() {
+    let (_file, mut app) = app_with("");
+    app.set_viewport(10, 10);
+    for _ in 0..8 {
+        press(&mut app, KeyCode::Down);
+    }
+    assert_eq!(app.scroll(), a1("A1"));
+
+    app.set_viewport(10, 3);
+
+    assert_eq!(app.scroll(), a1("A7"));
+}
