@@ -408,26 +408,31 @@ fn unfinished_commands_show_at_the_right_of_the_status_line() {
 }
 
 #[test]
-fn column_and_row_headers_are_cyan_in_homage_to_lotus_1_2_3() {
+fn column_and_row_headers_are_cyan_bars_in_homage_to_lotus_1_2_3() {
     use ratatui::style::Color;
 
     let (_file, mut app) = app_with(r#"<row r="1"><c r="B1"><v>1</v></c></row>"#);
 
-    let terminal = terminal_for(&mut app, 44, 10);
+    let terminal = terminal_for(&mut app, 50, 10);
     let buffer = terminal.backend().buffer();
+    let is_bar = |x: u16, y: u16| buffer[(x, y)].bg == Color::Cyan;
 
     assert_eq!(buffer[(13, 1)].symbol(), "A");
-    assert_eq!(buffer[(13, 1)].fg, Color::Cyan, "column letter");
+    assert!(is_bar(13, 1), "behind a column letter");
+    assert_eq!(buffer[(13, 1)].fg, Color::Black);
     assert_eq!(buffer[(0, 2)].symbol(), "1");
-    assert_eq!(buffer[(0, 2)].fg, Color::Cyan, "row number");
-    assert_ne!(
-        buffer[(30, 2)].fg,
-        Color::Cyan,
-        "cell contents keep the default color"
-    );
-    assert_ne!(
-        buffer[(0, 0)].fg,
-        Color::Cyan,
-        "the formula bar keeps the default color"
-    );
+    assert!(is_bar(0, 2), "behind a row number");
+    assert_eq!(buffer[(0, 2)].fg, Color::Black);
+
+    assert!(is_bar(0, 1), "the corner");
+    assert!(is_bar(19, 1), "between column letters");
+    assert!(is_bar(49, 1), "out to the right edge");
+    assert!(is_bar(7, 2), "across the row header's width");
+    assert!(is_bar(0, 7), "down to the last row");
+
+    assert!(!is_bar(30, 2), "cell contents");
+    assert!(!is_bar(8, 3), "empty cells");
+    assert!(!is_bar(0, 0), "the formula bar");
+    assert!(!is_bar(0, 8), "the sheet tabs");
+    assert!(!is_bar(0, 9), "the status line");
 }

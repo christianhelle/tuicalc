@@ -183,10 +183,19 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
         return;
     }
     let scroll = app.scroll();
-    // Cyan column and row headers, as a nod to Lotus 1-2-3.
-    let header_style = Style::default()
-        .fg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
+    // Cyan bars around the grid, as a nod to Lotus 1-2-3. Not bold, because some terminals
+    // show bold black as grey.
+    let header_style = Style::default().fg(Color::Black).bg(Color::Cyan);
+    buffer.set_style(Rect { height: 1, ..area }, header_style);
+    buffer.set_style(
+        Rect {
+            y: area.y + 1,
+            width: ROW_HEADER_WIDTH.min(area.width),
+            height: area.height - 1,
+            ..area
+        },
+        header_style,
+    );
     for offset in 0..cols {
         let x = area.x + ROW_HEADER_WIDTH + offset as u16 * COLUMN_WIDTH;
         let name = column_name(scroll.col + offset);
