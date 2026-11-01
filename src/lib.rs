@@ -4,3 +4,4 @@ pub mod model;
 pub mod xlsx;
 pub mod formula;
 pub mod date;
+pub mod app;
