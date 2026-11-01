@@ -128,3 +128,29 @@ lines</t></is></c></row>"#,
     assert!(row2.trim_end().ends_with('2'), "{row2}");
     assert_eq!(drawn_cell(grid_line(&screen, 3), 0), "two lines  ");
 }
+
+#[test]
+fn highlights_the_cursor_cell_and_scrolls_with_it() {
+    let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
+
+    let terminal = terminal_for(&mut app, 40, 10);
+    let buffer = terminal.backend().buffer();
+    assert!(buffer[(8, 2)].modifier.contains(Modifier::REVERSED));
+    assert!(!buffer[(20, 2)].modifier.contains(Modifier::REVERSED));
+
+    // Six rows fit between the headers and the bottom two lines.
+    for _ in 0..9 {
+        press(&mut app, KeyCode::Down);
+    }
+    let screen = render(&mut app, 40, 10);
+    assert!(grid_line(&screen, 1).starts_with("5 "), "{}", grid_line(&screen, 1));
+    assert!(grid_line(&screen, 6).starts_with("10 "), "{}", grid_line(&screen, 6));
+    let terminal = terminal_for(&mut app, 40, 10);
+    assert!(terminal.backend().buffer()[(8, 7)].modifier.contains(Modifier::REVERSED));
+
+    for _ in 0..4 {
+        press(&mut app, KeyCode::Right);
+    }
+    let screen = render(&mut app, 40, 10);
+    assert_eq!(screen[1].trim_end(), "             D           E");
+}

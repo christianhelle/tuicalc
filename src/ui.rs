@@ -58,7 +58,12 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
             let cell = sheet.cell(at);
             let text = display_text(&cell, date1904, CONTENT_WIDTH);
             let padded = pad(&text, is_right_aligned(&cell));
-            buffer.set_stringn(x, y, padded, CONTENT_WIDTH, Style::default());
+            let style = if at == app.cursor() {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            };
+            buffer.set_stringn(x, y, padded, CONTENT_WIDTH, style);
         }
     }
 }
