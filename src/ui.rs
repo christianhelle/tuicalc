@@ -3,7 +3,7 @@
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use unicode_width::UnicodeWidthChar;
 
 use crate::address::{CellRef, column_name};
@@ -183,7 +183,10 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
         return;
     }
     let scroll = app.scroll();
-    let header_style = Style::default().add_modifier(Modifier::BOLD);
+    // Cyan column and row headers, as a nod to Lotus 1-2-3.
+    let header_style = Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
     for offset in 0..cols {
         let x = area.x + ROW_HEADER_WIDTH + offset as u16 * COLUMN_WIDTH;
         let name = column_name(scroll.col + offset);

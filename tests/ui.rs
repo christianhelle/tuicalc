@@ -406,3 +406,28 @@ fn unfinished_commands_show_at_the_right_of_the_status_line() {
     let screen = render(&mut app, 100, 10);
     assert!(!screen[9].trim_end().ends_with('g'), "{}", screen[9]);
 }
+
+#[test]
+fn column_and_row_headers_are_cyan_in_homage_to_lotus_1_2_3() {
+    use ratatui::style::Color;
+
+    let (_file, mut app) = app_with(r#"<row r="1"><c r="B1"><v>1</v></c></row>"#);
+
+    let terminal = terminal_for(&mut app, 44, 10);
+    let buffer = terminal.backend().buffer();
+
+    assert_eq!(buffer[(13, 1)].symbol(), "A");
+    assert_eq!(buffer[(13, 1)].fg, Color::Cyan, "column letter");
+    assert_eq!(buffer[(0, 2)].symbol(), "1");
+    assert_eq!(buffer[(0, 2)].fg, Color::Cyan, "row number");
+    assert_ne!(
+        buffer[(30, 2)].fg,
+        Color::Cyan,
+        "cell contents keep the default color"
+    );
+    assert_ne!(
+        buffer[(0, 0)].fg,
+        Color::Cyan,
+        "the formula bar keeps the default color"
+    );
+}
