@@ -31,6 +31,7 @@ pub struct App {
     caret: usize,
     /// The cell as it was when editing began.
     original: Cell,
+    status: String,
 }
 
 impl App {
@@ -43,6 +44,7 @@ impl App {
             buffer: Vec::new(),
             caret: 0,
             original: Cell::default(),
+            status: String::new(),
         }
     }
 
@@ -56,6 +58,11 @@ impl App {
 
     pub fn set_viewport(&mut self, cols: u32, rows: u32) {
         self.viewport = (cols.max(1), rows.max(1));
+    }
+
+    /// The latest message for the user.
+    pub fn status(&self) -> &str {
+        &self.status
     }
 
     pub fn mode(&self) -> Mode {
@@ -77,6 +84,7 @@ impl App {
         if key.kind == KeyEventKind::Release {
             return;
         }
+        self.status.clear();
         match self.mode {
             Mode::Navigate => self.navigate_key(key),
             Mode::Edit => self.edit_key(key),
@@ -123,6 +131,9 @@ impl App {
     }
 
     fn begin_edit(&mut self, initial: Vec<char>) {
+        if self.refuse_if_locked() {
+            return;
+        }
         self.original = self.current_sheet().cell(self.cursor);
         self.caret = initial.len();
         self.buffer = initial;
@@ -155,7 +166,18 @@ impl App {
         }
     }
 
+    fn refuse_if_locked(&mut self) -> bool {
+        let locked = self.current_sheet().is_locked(self.cursor);
+        if locked {
+            self.status = format!("{} is part of an array formula and is read-only", self.cursor);
+        }
+        locked
+    }
+
     fn apply_edit(&mut self, at: CellRef, cell: Cell) {
+        if self.refuse_if_locked() {
+            return;
+        }
         if self.current_sheet().cell(at) != cell {
             self.workbook.sheets[self.sheet].set_cell(at, cell);
         }

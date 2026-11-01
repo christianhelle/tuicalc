@@ -257,3 +257,20 @@ fn delete_clears_the_cell() {
     press(&mut app, KeyCode::Delete);
     assert_eq!(app.current_sheet().dirty_cells().count(), 2, "clearing an empty cell is no edit");
 }
+
+#[test]
+fn array_formula_regions_cannot_be_edited() {
+    let (_file, mut app) = app_with(
+        r#"<row r="1"><c r="A1"><f t="array" ref="A1:A2">B1:B2*2</f><v>2</v></c></row><row r="2"><c r="A2"><v>4</v></c></row>"#,
+    );
+
+    for attempt in [KeyCode::Char('9'), KeyCode::F(2), KeyCode::Delete] {
+        press(&mut app, attempt);
+        assert_eq!(app.mode(), Mode::Navigate);
+        assert!(app.status().contains("array formula"), "{}", app.status());
+    }
+    assert!(!app.workbook.is_dirty());
+
+    press(&mut app, KeyCode::Right);
+    assert_eq!(app.status(), "", "messages clear on the next key");
+}
