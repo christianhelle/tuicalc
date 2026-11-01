@@ -1,6 +1,6 @@
 //! Application state: everything the keyboard can change.
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
 use crate::model::Sheet;
@@ -31,6 +31,10 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
+        // Windows reports key releases as separate events.
+        if key.kind == KeyEventKind::Release {
+            return;
+        }
         self.navigate_key(key);
     }
 

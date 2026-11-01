@@ -56,3 +56,13 @@ fn arrows_move_the_cursor_and_stop_at_the_sheet_edge() {
     press(&mut app, KeyCode::Down);
     assert_eq!(app.cursor(), a1("B2"));
 }
+
+#[test]
+fn key_releases_do_nothing() {
+    let (_file, mut app) = app_with("");
+    let release = KeyEvent::new_with_kind(KeyCode::Right, KeyModifiers::NONE, KeyEventKind::Release);
+
+    app.handle_key(release);
+
+    assert_eq!(app.cursor(), a1("A1"));
+}
