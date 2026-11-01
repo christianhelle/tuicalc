@@ -27,12 +27,17 @@ fn is_ctrl(key: KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT)
 }
 
-/// One reversible cell edit.
-struct Change {
-    sheet: usize,
+/// One cell's part in a change.
+struct CellEdit {
     at: CellRef,
     before: Cell,
     after: Cell,
+}
+
+/// What one command changed, undone and redone as a unit.
+struct Change {
+    sheet: usize,
+    edits: Vec<CellEdit>,
 }
 
 pub struct App {
@@ -422,6 +427,28 @@ impl App {
             KeyCode::Delete | KeyCode::Backspace => {
                 self.apply_edit(self.cursor, Cell::default());
             }
+            KeyCode::Char('u') if !ctrl => self.undo(),
+            KeyCode::Char('r') if ctrl => self.redo(),
+            KeyCode::Char('x') if !ctrl => {
+                let n = count.unwrap_or(1) - 1;
+                let last = CellRef { col: (self.cursor.col + n).min(MAX_COLS - 1), ..self.cursor };
+                self.clear_cells(self.cursor, last);
+            }
+            KeyCode::Char('X') if !ctrl => {
+                let n = count.unwrap_or(1);
+                if self.cursor.col > 0 {
+                    let first = CellRef { col: self.cursor.col.saturating_sub(n), ..self.cursor };
+                    let last = CellRef { col: self.cursor.col - 1, ..self.cursor };
+                    if self.clear_cells(first, last) {
+                        self.cursor = first;
+                    }
+                }
+            }
+            KeyCode::Char('D') if !ctrl => {
+                if let Some(col) = self.last_filled_column().filter(|col| *col >= self.cursor.col) {
+                    self.clear_cells(self.cursor, CellRef { col, ..self.cursor });
+                }
+            }
             KeyCode::F(2) => self.edit_existing(),
             KeyCode::Char('a' | 'A') if !ctrl => self.edit_existing(),
             KeyCode::Char('i' | 'I') if !ctrl => {
@@ -490,7 +517,8 @@ impl App {
             self.status = "Nothing to undo".into();
             return;
         };
-        self.restore(change.sheet, change.at, change.before.clone());
+        let cells = change.edits.iter().map(|edit| (edit.at, edit.before.clone())).collect();
+        self.restore(change.sheet, cells);
         self.redo.push(change);
     }
 
@@ -499,16 +527,22 @@ impl App {
             self.status = "Nothing to redo".into();
             return;
         };
-        self.restore(change.sheet, change.at, change.after.clone());
+        let cells = change.edits.iter().map(|edit| (edit.at, edit.after.clone())).collect();
+        self.restore(change.sheet, cells);
         self.undo.push(change);
     }
 
-    /// Writes a cell back and shows it to the user.
-    fn restore(&mut self, sheet: usize, at: CellRef, cell: Cell) {
-        self.workbook.sheets[sheet].set_cell(at, cell);
+    /// Writes cells back and shows the first of them to the user.
+    fn restore(&mut self, sheet: usize, cells: Vec<(CellRef, Cell)>) {
+        let first = cells.first().map(|(at, _)| *at);
+        for (at, cell) in cells {
+            self.workbook.sheets[sheet].set_cell(at, cell);
+        }
         self.cursors[self.sheet] = self.cursor;
         self.sheet = sheet;
-        self.cursor = at;
+        if let Some(first) = first {
+            self.cursor = first;
+        }
     }
 
     fn edit_existing(&mut self) {
@@ -582,20 +616,44 @@ impl App {
     }
 
     fn apply_edit(&mut self, at: CellRef, cell: Cell) {
-        if self.refuse_if_locked() {
-            return;
+        self.apply_edits(vec![(at, cell)]);
+    }
+
+    /// Applies edits as one undoable change, or none of them if any cell is read-only.
+    fn apply_edits(&mut self, cells: Vec<(CellRef, Cell)>) -> bool {
+        if let Some((at, _)) = cells.iter().find(|(at, _)| self.current_sheet().is_locked(*at)) {
+            self.status = format!("{at} is part of an array formula and is read-only");
+            return false;
         }
-        let before = self.current_sheet().cell(at);
-        if before != cell {
-            self.workbook.sheets[self.sheet].set_cell(at, cell.clone());
-            self.undo.push(Change {
-                sheet: self.sheet,
-                at,
-                before,
-                after: cell,
-            });
+        let mut edits = Vec::new();
+        for (at, after) in cells {
+            let before = self.current_sheet().cell(at);
+            if before != after {
+                self.workbook.sheets[self.sheet].set_cell(at, after.clone());
+                edits.push(CellEdit { at, before, after });
+            }
+        }
+        if !edits.is_empty() {
+            self.undo.push(Change { sheet: self.sheet, edits });
             self.redo.clear();
         }
+        true
+    }
+
+    /// The populated cells of a rectangle.
+    fn filled_cells(&self, first: CellRef, last: CellRef) -> Vec<CellRef> {
+        self.current_sheet()
+            .cells()
+            .map(|(at, _)| *at)
+            .filter(|at| {
+                (first.col..=last.col).contains(&at.col) && (first.row..=last.row).contains(&at.row)
+            })
+            .collect()
+    }
+
+    fn clear_cells(&mut self, first: CellRef, last: CellRef) -> bool {
+        let cleared = self.filled_cells(first, last).into_iter();
+        self.apply_edits(cleared.map(|at| (at, Cell::default())).collect())
     }
 
     fn commit_and_move(&mut self, cols: i64, rows: i64) {

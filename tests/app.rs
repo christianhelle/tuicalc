@@ -767,3 +767,45 @@ fn gt_and_g_shift_t_switch_sheets() {
     keys(&mut app, "9gt");
     assert_eq!(app.current_sheet().name, "Sheet1", "no such sheet");
 }
+
+#[test]
+fn x_clears_cells_and_undo_restores_them_all_at_once() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "5x");
+    assert_eq!(value(&app, "A1"), CellValue::Empty);
+    assert_eq!(value(&app, "D1"), CellValue::Empty);
+    assert_eq!(value(&app, "E1"), CellValue::Empty);
+    assert_eq!(value(&app, "G1"), CellValue::Number(7.0));
+    assert_eq!(app.cursor(), a1("A1"));
+
+    keys(&mut app, "u");
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+    assert_eq!(value(&app, "E1"), CellValue::Number(5.0));
+
+    ctrl(&mut app, KeyCode::Char('r'));
+    assert_eq!(value(&app, "B1"), CellValue::Empty);
+}
+
+#[test]
+fn capital_x_clears_to_the_left_and_d_to_the_end_of_the_row() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "4|2X");
+    assert_eq!(value(&app, "B1"), CellValue::Empty);
+    assert_eq!(value(&app, "D1"), CellValue::Number(4.0));
+    assert_eq!(app.cursor(), a1("B1"));
+
+    keys(&mut app, "lllD");
+    assert_eq!(value(&app, "E1"), CellValue::Empty);
+    assert_eq!(value(&app, "G1"), CellValue::Empty);
+    assert_eq!(value(&app, "D1"), CellValue::Number(4.0));
+}
+
+#[test]
+fn a_clear_touching_a_read_only_cell_changes_nothing() {
+    let (_file, mut app) = app_with(
+        r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f t="array" ref="B1">C1*2</f><v>2</v></c></row>"#,
+    );
+    keys(&mut app, "2x");
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+    assert!(app.status().contains("B1 is part of an array formula"), "{}", app.status());
+}
