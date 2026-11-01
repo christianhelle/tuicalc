@@ -1110,3 +1110,104 @@ fn o_and_capital_o_edit_the_cells_below_and_above() {
     assert_eq!(app.cursor(), a1("A1"));
     assert_eq!(app.buffer(), "1");
 }
+
+fn run(app: &mut App, command: &str) {
+    keys(app, ":");
+    keys(app, command);
+    press(app, KeyCode::Enter);
+}
+
+#[test]
+fn w_saves_and_q_refuses_while_there_are_unsaved_edits() {
+    let (file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+
+    run(&mut app, "q");
+    assert!(!app.should_quit());
+    assert!(app.status().starts_with("E37"), "{}", app.status());
+
+    run(&mut app, "w");
+    assert_eq!(app.status(), "Saved book.xlsx");
+    assert_eq!(app.mode(), Mode::Normal);
+    let reloaded = Workbook::open(&file.path).unwrap();
+    assert_eq!(reloaded.sheets[0].cell(a1("A1")).value, CellValue::Number(5.0));
+
+    run(&mut app, "q");
+    assert!(app.should_quit());
+}
+
+#[test]
+fn q_bang_discards_and_wq_saves_then_quits() {
+    let (file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+    run(&mut app, "q!");
+    assert!(app.should_quit());
+    let unchanged = Workbook::open(&file.path).unwrap();
+    assert_eq!(unchanged.sheets[0].cell(a1("A1")), Cell::default());
+
+    for command in ["wq", "x"] {
+        let (file, mut app) = app_with("");
+        enter_value(&mut app, "5");
+        run(&mut app, command);
+        assert!(app.should_quit(), "{command}");
+        let saved = Workbook::open(&file.path).unwrap();
+        assert_eq!(saved.sheets[0].cell(a1("A1")).value, CellValue::Number(5.0), "{command}");
+    }
+}
+
+#[test]
+fn zz_saves_and_quits_and_zq_quits_without_saving() {
+    let (file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+    keys(&mut app, "ZZ");
+    assert!(app.should_quit());
+    let saved = Workbook::open(&file.path).unwrap();
+    assert_eq!(saved.sheets[0].cell(a1("A1")).value, CellValue::Number(5.0));
+
+    let (file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+    keys(&mut app, "ZQ");
+    assert!(app.should_quit());
+    let unchanged = Workbook::open(&file.path).unwrap();
+    assert_eq!(unchanged.sheets[0].cell(a1("A1")), Cell::default());
+}
+
+#[test]
+fn a_failed_wq_stays_open() {
+    let (file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+    std::fs::write(&file.path, b"changed").unwrap();
+    run(&mut app, "wq");
+    assert!(!app.should_quit());
+    assert!(app.status().starts_with("Save failed:"), "{}", app.status());
+}
+
+#[test]
+fn numbers_and_addresses_jump_and_anything_else_is_an_error() {
+    let (_file, mut app) = app_with("");
+    run(&mut app, "25");
+    assert_eq!(app.cursor(), a1("A25"));
+    run(&mut app, "C7");
+    assert_eq!(app.cursor(), a1("C7"));
+    run(&mut app, "nonsense");
+    assert_eq!(app.status(), "E492: Not an editor command: nonsense");
+    assert_eq!(app.cursor(), a1("C7"));
+}
+
+#[test]
+fn esc_and_backspace_leave_the_command_line() {
+    let (_file, mut app) = app_with("");
+    keys(&mut app, ":q");
+    assert_eq!(app.mode(), Mode::Command);
+    assert_eq!(app.buffer(), "q");
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(!app.should_quit());
+
+    keys(&mut app, ":q");
+    press(&mut app, KeyCode::Backspace);
+    assert_eq!(app.buffer(), "");
+    assert_eq!(app.mode(), Mode::Command);
+    press(&mut app, KeyCode::Backspace);
+    assert_eq!(app.mode(), Mode::Normal);
+}

@@ -18,6 +18,8 @@ pub enum Mode {
     Visual,
     /// Selecting whole rows.
     VisualRow,
+    /// Typing a `:` command.
+    Command,
     /// Waiting for the user to decide what happens to unsaved edits.
     ConfirmQuit,
 }
@@ -183,6 +185,7 @@ impl App {
             Mode::Normal => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
             Mode::Visual | Mode::VisualRow => self.visual_key(key),
+            Mode::Command => self.command_key(key),
             Mode::ConfirmQuit => self.confirm_quit_key(key),
         }
         self.scroll_to_cursor();
@@ -578,6 +581,8 @@ impl App {
                 None => self.switch_sheet(1),
             },
             ('g', KeyCode::Char('T')) => self.switch_sheet(-1),
+            ('Z', KeyCode::Char('Z')) => self.should_quit = self.save(),
+            ('Z', KeyCode::Char('Q')) => self.should_quit = true,
             ('z', KeyCode::Char('z')) => self.scroll.row = self.cursor.row.saturating_sub(rows / 2),
             ('z', KeyCode::Char('t')) => self.scroll.row = self.cursor.row,
             ('z', KeyCode::Char('b')) => self.scroll.row = (self.cursor.row + 1).saturating_sub(rows),
@@ -599,7 +604,7 @@ impl App {
             self.finish_operator(false);
             return;
         }
-        if let (KeyCode::Char(prefix @ ('g' | 'z')), false) = (key.code, is_ctrl(key)) {
+        if let (KeyCode::Char(prefix @ ('g' | 'z' | 'Z')), false) = (key.code, is_ctrl(key)) {
             self.pending = Some(prefix);
             self.count = count;
             return;
@@ -672,6 +677,11 @@ impl App {
             KeyCode::Char('v') if is_ctrl(key) => self.begin_visual(Mode::Visual),
             KeyCode::Char('v') if !ctrl => self.begin_visual(Mode::Visual),
             KeyCode::Char('V') if !ctrl => self.begin_visual(Mode::VisualRow),
+            KeyCode::Char(':') if !ctrl => {
+                self.buffer.clear();
+                self.caret = 0;
+                self.mode = Mode::Command;
+            }
             KeyCode::F(2) => self.edit_existing(),
             KeyCode::Char('a' | 'A') if !ctrl => self.edit_existing(),
             KeyCode::Char('i' | 'I') if !ctrl => {
@@ -790,6 +800,51 @@ impl App {
         let cell = self.current_sheet().cell(self.cursor);
         let text = edit_text(&cell, self.workbook.date1904);
         self.begin_edit(text.chars().collect());
+    }
+
+    fn command_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.mode = Mode::Normal,
+            KeyCode::Char('c') if is_ctrl(key) => self.mode = Mode::Normal,
+            KeyCode::Enter => {
+                self.mode = Mode::Normal;
+                let command = self.buffer();
+                self.run_command(command.trim());
+            }
+            KeyCode::Backspace if self.caret == 0 => self.mode = Mode::Normal,
+            KeyCode::Backspace => {
+                self.caret -= 1;
+                self.buffer.remove(self.caret);
+            }
+            KeyCode::Char(c) if is_text_input(key) => {
+                self.buffer.insert(self.caret, c);
+                self.caret += 1;
+            }
+            _ => {}
+        }
+    }
+
+    fn run_command(&mut self, command: &str) {
+        match command {
+            "" => {}
+            "w" => {
+                self.save();
+            }
+            "q" if self.workbook.is_dirty() => {
+                self.status = "E37: No write since last change (add ! to override)".into();
+            }
+            "q" | "q!" => self.should_quit = true,
+            "wq" | "x" => self.should_quit = self.save(),
+            _ => {
+                if let Ok(row) = command.parse::<u32>() {
+                    self.cursor.row = row.saturating_sub(1).min(MAX_ROWS - 1);
+                } else if let Some(at) = CellRef::parse(command) {
+                    self.cursor = at;
+                } else {
+                    self.status = format!("E492: Not an editor command: {command}");
+                }
+            }
+        }
     }
 
     fn begin_edit(&mut self, initial: Vec<char>) {

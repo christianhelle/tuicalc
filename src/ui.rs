@@ -130,7 +130,7 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         Mode::ConfirmQuit => CONFIRM_QUIT,
         _ if !app.status().is_empty() => app.status(),
         Mode::Insert => "Enter confirm | Esc cancel",
-        Mode::Normal | Mode::Visual | Mode::VisualRow => HELP,
+        Mode::Normal | Mode::Visual | Mode::VisualRow | Mode::Command => HELP,
     };
     let line = format!("{}{marker} | {message}", app.file_name());
     buffer.set_stringn(
