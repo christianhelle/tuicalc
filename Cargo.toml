@@ -3,6 +3,10 @@ name = "tuicalc"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "tcalc"
+path = "src/main.rs"
+
 [dependencies]
 crossterm = "0.29.0"
 quick-xml = "0.42.0"

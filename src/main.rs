@@ -7,7 +7,7 @@ use tuicalc::app::App;
 use tuicalc::ui::draw;
 use tuicalc::xlsx::Workbook;
 
-const USAGE: &str = "Usage: tuicalc <file.xlsx>";
+const USAGE: &str = "Usage: tcalc <file.xlsx>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -25,7 +25,7 @@ fn main() -> ExitCode {
     let workbook = match Workbook::open(path) {
         Ok(workbook) => workbook,
         Err(error) => {
-            eprintln!("tuicalc: cannot open {path}: {error}");
+            eprintln!("tcalc: cannot open {path}: {error}");
             return ExitCode::FAILURE;
         }
     };
@@ -34,7 +34,7 @@ fn main() -> ExitCode {
     let result = run(&mut terminal, App::new(workbook));
     ratatui::restore();
     if let Err(error) = result {
-        eprintln!("tuicalc: {error}");
+        eprintln!("tcalc: {error}");
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
