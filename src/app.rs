@@ -22,6 +22,11 @@ fn is_text_input(key: KeyEvent) -> bool {
     ctrl == alt
 }
 
+/// Ctrl alone, not the Ctrl+Alt that Windows reports for AltGr.
+fn is_ctrl(key: KeyEvent) -> bool {
+    key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT)
+}
+
 /// One reversible cell edit.
 struct Change {
     sheet: usize,
@@ -288,7 +293,24 @@ impl App {
 
     fn insert_key(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Esc => self.mode = Mode::Normal,
+            // As in vim, Esc keeps what was typed and Ctrl-C is the way out without it.
+            KeyCode::Esc => self.commit_edit(),
+            KeyCode::Char('c') if is_ctrl(key) => self.mode = Mode::Normal,
+            KeyCode::Char('u') if is_ctrl(key) => {
+                self.buffer.drain(..self.caret);
+                self.caret = 0;
+            }
+            KeyCode::Char('w') if is_ctrl(key) => {
+                let mut start = self.caret;
+                while start > 0 && self.buffer[start - 1].is_whitespace() {
+                    start -= 1;
+                }
+                while start > 0 && !self.buffer[start - 1].is_whitespace() {
+                    start -= 1;
+                }
+                self.buffer.drain(start..self.caret);
+                self.caret = start;
+            }
             KeyCode::Enter | KeyCode::Down => self.commit_and_move(0, 1),
             KeyCode::Up => self.commit_and_move(0, -1),
             KeyCode::Tab => self.commit_and_move(1, 0),

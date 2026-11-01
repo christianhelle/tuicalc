@@ -191,12 +191,12 @@ fn f2_edits_the_existing_content_at_the_caret() {
 }
 
 #[test]
-fn escape_cancels_and_confirming_unchanged_text_changes_nothing() {
+fn ctrl_c_cancels_and_confirming_unchanged_text_changes_nothing() {
     let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><f>B1*2</f><v>4</v></c></row>"#);
 
     press(&mut app, KeyCode::Char('s'));
     type_text(&mut app, "9");
-    press(&mut app, KeyCode::Esc);
+    ctrl(&mut app, KeyCode::Char('c'));
     assert_eq!(app.mode(), Mode::Normal);
     assert_eq!(
         app.current_sheet().cell(a1("A1")).value,
@@ -579,4 +579,27 @@ fn letters_with_no_command_do_nothing_in_normal_mode() {
     keys(&mut app, "Q");
     assert_eq!(app.mode(), Mode::Normal);
     assert_eq!(app.current_sheet().cell(a1("A1")), Cell::default());
+}
+
+#[test]
+fn esc_keeps_the_text_and_stays_on_the_cell() {
+    let (_file, mut app) = app_with("");
+    keys(&mut app, "s42");
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(value(&app, "A1"), CellValue::Number(42.0));
+    assert_eq!(app.cursor(), a1("A1"));
+}
+
+#[test]
+fn ctrl_u_and_ctrl_w_delete_backwards_in_insert_mode() {
+    let (_file, mut app) = app_with("");
+    keys(&mut app, "sone two  ");
+    ctrl(&mut app, KeyCode::Char('w'));
+    assert_eq!(app.buffer(), "one ");
+    keys(&mut app, "x");
+    press(&mut app, KeyCode::Left);
+    ctrl(&mut app, KeyCode::Char('u'));
+    assert_eq!(app.buffer(), "x");
+    assert_eq!(app.caret(), 0);
 }
