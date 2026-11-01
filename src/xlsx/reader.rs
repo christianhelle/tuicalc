@@ -39,7 +39,10 @@ pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), XlsxError> {
         },
         None => Vec::new(),
     };
-    let shared_strings = match relationships.values().find(|r| r.kind.ends_with(SHARED_STRINGS)) {
+    let shared_strings = match relationships
+        .values()
+        .find(|r| r.kind.ends_with(SHARED_STRINGS))
+    {
         Some(relationship) => match read_part(&mut archive, &relationship.target)? {
             Some(xml) => read_shared_strings(&xml)?,
             None => Vec::new(),
@@ -51,7 +54,9 @@ pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), XlsxError> {
     let mut sheet_parts = Vec::new();
     for (name, relationship_id) in declared {
         let Some(relationship) = relationships.get(&relationship_id) else {
-            return Err(XlsxError::Invalid(format!("sheet {name} has no relationship")));
+            return Err(XlsxError::Invalid(format!(
+                "sheet {name} has no relationship"
+            )));
         };
         if !relationship.kind.ends_with(WORKSHEET) {
             continue;
@@ -64,7 +69,14 @@ pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), XlsxError> {
     if sheets.is_empty() {
         return Err(XlsxError::Invalid("no worksheets".into()));
     }
-    Ok((sheets, date1904, Layout { workbook_part, sheet_parts }))
+    Ok((
+        sheets,
+        date1904,
+        Layout {
+            workbook_part,
+            sheet_parts,
+        },
+    ))
 }
 
 pub struct Relationship {
@@ -143,7 +155,10 @@ fn resolve_target(base_directory: &str, target: &str) -> String {
     if let Some(absolute) = target.strip_prefix('/') {
         return absolute.to_string();
     }
-    let mut segments: Vec<&str> = base_directory.split('/').filter(|s| !s.is_empty()).collect();
+    let mut segments: Vec<&str> = base_directory
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
     for segment in target.split('/') {
         match segment {
             "." | "" => {}
@@ -303,11 +318,7 @@ fn parse_range(text: &str) -> Option<(CellRef, CellRef)> {
 
 impl Draft {
     /// Registers a shared formula's master, or expands a dependent from its master.
-    fn resolve_formula(
-        &mut self,
-        at: CellRef,
-        shared: &mut HashMap<String, (CellRef, String)>,
-    ) {
+    fn resolve_formula(&mut self, at: CellRef, shared: &mut HashMap<String, (CellRef, String)>) {
         let text = self.formula.take().filter(|text| !text.is_empty());
         self.formula = match (self.shared_index.take(), text) {
             (Some(index), Some(text)) => {
@@ -324,7 +335,9 @@ impl Draft {
     }
 
     fn start(element: &BytesStart<'_>, fallback: CellRef) -> Self {
-        let at = attr(element, "r").and_then(|r| CellRef::parse(&r)).unwrap_or(fallback);
+        let at = attr(element, "r")
+            .and_then(|r| CellRef::parse(&r))
+            .unwrap_or(fallback);
         Self {
             at: Some(at),
             kind: attr(element, "t").unwrap_or_default(),
@@ -352,7 +365,11 @@ impl Draft {
                 .parse()
                 .map_or_else(|_| CellValue::Text(self.value), CellValue::Number),
         };
-        Cell { is_date: is_date && matches!(value, CellValue::Number(_)), value, formula: self.formula }
+        Cell {
+            is_date: is_date && matches!(value, CellValue::Number(_)),
+            value,
+            formula: self.formula,
+        }
     }
 }
 

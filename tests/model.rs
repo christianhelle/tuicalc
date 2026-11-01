@@ -24,7 +24,10 @@ fn edits_are_tracked_until_marked_saved() {
 
     sheet.set_cell(a1("B1"), Cell::value(CellValue::Bool(true)));
     assert!(sheet.is_dirty());
-    assert_eq!(sheet.dirty_cells().copied().collect::<Vec<_>>(), vec![a1("B1")]);
+    assert_eq!(
+        sheet.dirty_cells().copied().collect::<Vec<_>>(),
+        vec![a1("B1")]
+    );
 
     sheet.mark_saved();
     assert!(!sheet.is_dirty());

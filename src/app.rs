@@ -58,7 +58,8 @@ impl App {
             scroll: origin,
             workbook,
             sheet: 0,
-            cursor: CellRef { col: 0, row: 0 }, viewport: (10, 20),
+            cursor: CellRef { col: 0, row: 0 },
+            viewport: (10, 20),
             mode: Mode::Navigate,
             buffer: Vec::new(),
             caret: 0,
@@ -216,7 +217,10 @@ impl App {
 
     pub fn file_name(&self) -> String {
         let path = self.workbook.path();
-        path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned()
+        path.file_name()
+            .unwrap_or(path.as_os_str())
+            .to_string_lossy()
+            .into_owned()
     }
 
     fn confirm_quit_key(&mut self, key: KeyEvent) {
@@ -305,7 +309,10 @@ impl App {
     fn refuse_if_locked(&mut self) -> bool {
         let locked = self.current_sheet().is_locked(self.cursor);
         if locked {
-            self.status = format!("{} is part of an array formula and is read-only", self.cursor);
+            self.status = format!(
+                "{} is part of an array formula and is read-only",
+                self.cursor
+            );
         }
         locked
     }
@@ -317,7 +324,12 @@ impl App {
         let before = self.current_sheet().cell(at);
         if before != cell {
             self.workbook.sheets[self.sheet].set_cell(at, cell.clone());
-            self.undo.push(Change { sheet: self.sheet, at, before, after: cell });
+            self.undo.push(Change {
+                sheet: self.sheet,
+                at,
+                before,
+                after: cell,
+            });
             self.redo.clear();
         }
     }

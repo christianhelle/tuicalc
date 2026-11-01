@@ -63,7 +63,13 @@ impl Workbook {
         let path = path.as_ref().to_path_buf();
         let source = std::fs::read(&path)?;
         let (sheets, date1904, layout) = reader::read(&source)?;
-        Ok(Self { sheets, date1904, path, source, layout })
+        Ok(Self {
+            sheets,
+            date1904,
+            path,
+            source,
+            layout,
+        })
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -93,13 +99,17 @@ impl Workbook {
 /// Replaces `path` atomically, so a failed save cannot leave a truncated workbook behind.
 fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), XlsxError> {
     let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let directory = target.parent().filter(|parent| !parent.as_os_str().is_empty());
+    let directory = target
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
     let mut temporary = tempfile::NamedTempFile::new_in(directory.unwrap_or(Path::new(".")))?;
     temporary.write_all(bytes)?;
     temporary.as_file().sync_all()?;
     if let Ok(metadata) = std::fs::metadata(&target) {
         std::fs::set_permissions(temporary.path(), metadata.permissions())?;
     }
-    temporary.persist(&target).map_err(|error| XlsxError::Io(error.error))?;
+    temporary
+        .persist(&target)
+        .map_err(|error| XlsxError::Io(error.error))?;
     Ok(())
 }

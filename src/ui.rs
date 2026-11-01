@@ -43,9 +43,15 @@ fn draw_formula_bar(frame: &mut Frame, area: Rect, app: &App) {
     let content = if editing {
         app.buffer()
     } else {
-        edit_text(&app.current_sheet().cell(app.cursor()), app.workbook.date1904)
+        edit_text(
+            &app.current_sheet().cell(app.cursor()),
+            app.workbook.date1904,
+        )
     };
-    let content: Vec<char> = content.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    let content: Vec<char> = content
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
     let room = usize::from(area.width.saturating_sub(label_width + 1));
     let caret = if editing { app.caret() } else { 0 };
 
@@ -59,7 +65,13 @@ fn draw_formula_bar(frame: &mut Frame, area: Rect, app: &App) {
     let bold = Style::default().add_modifier(Modifier::BOLD);
     buffer.set_stringn(area.x, area.y, &label, usize::from(area.width), bold);
     if room > 0 {
-        buffer.set_stringn(area.x + label_width, area.y, visible, room, Style::default());
+        buffer.set_stringn(
+            area.x + label_width,
+            area.y,
+            visible,
+            room,
+            Style::default(),
+        );
     }
     if editing {
         let x = area.x + label_width + text_width(&content[start..caret]) as u16;
@@ -76,8 +88,12 @@ fn draw_tabs(buffer: &mut Buffer, area: Rect, app: &App) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let names: Vec<String> =
-        app.workbook.sheets.iter().map(|sheet| format!(" {} ", sheet.name)).collect();
+    let names: Vec<String> = app
+        .workbook
+        .sheets
+        .iter()
+        .map(|sheet| format!(" {} ", sheet.name))
+        .collect();
     let width_of = |name: &String| name.chars().map(|c| c.width().unwrap_or(0)).sum::<usize>();
     let current = app.sheet_index();
     let mut first = 0;
@@ -117,7 +133,13 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         Mode::Navigate => HELP,
     };
     let line = format!("{}{marker} | {message}", app.file_name());
-    buffer.set_stringn(area.x, area.y, line, usize::from(area.width), Style::default());
+    buffer.set_stringn(
+        area.x,
+        area.y,
+        line,
+        usize::from(area.width),
+        Style::default(),
+    );
 }
 
 fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
@@ -145,7 +167,10 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
         );
         for col_offset in 0..cols {
             let x = area.x + ROW_HEADER_WIDTH + col_offset as u16 * COLUMN_WIDTH;
-            let at = CellRef { col: scroll.col + col_offset, row };
+            let at = CellRef {
+                col: scroll.col + col_offset,
+                row,
+            };
             let cell = sheet.cell(at);
             let text = display_text(&cell, date1904, CONTENT_WIDTH);
             let padded = pad(&text, is_right_aligned(&cell));
@@ -177,5 +202,9 @@ fn pad(text: &str, right_aligned: bool) -> String {
         width += char_width;
     }
     let fill = " ".repeat(CONTENT_WIDTH - width);
-    if right_aligned { format!("{fill}{fitted}") } else { format!("{fitted}{fill}") }
+    if right_aligned {
+        format!("{fill}{fitted}")
+    } else {
+        format!("{fitted}{fill}")
+    }
 }

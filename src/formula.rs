@@ -57,7 +57,9 @@ fn token_end(chars: &[char], start: usize) -> usize {
     let token: String = chars[start..end].iter().collect();
     let numeric_exponent = token.ends_with(['e', 'E'])
         && token.len() > 1
-        && token[..token.len() - 1].chars().all(|c| c.is_ascii_digit() || c == '.');
+        && token[..token.len() - 1]
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.');
     if numeric_exponent && matches!(chars.get(end), Some('+' | '-')) {
         end += 1;
         while end < chars.len() && chars[end].is_ascii_digit() {
@@ -113,7 +115,9 @@ fn split_part(text: &str) -> (bool, &str, &str) {
         Some(rest) => (true, rest),
         None => (false, text),
     };
-    let split = rest.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(rest.len());
+    let split = rest
+        .find(|c: char| !c.is_ascii_alphabetic())
+        .unwrap_or(rest.len());
     let (letters, tail) = rest.split_at(split);
     (absolute, letters, tail)
 }
@@ -133,7 +137,9 @@ fn row_number(digits: &str) -> Option<i64> {
         return None;
     }
     let number: i64 = digits.parse().ok()?;
-    (1..=i64::from(MAX_ROWS)).contains(&number).then_some(number)
+    (1..=i64::from(MAX_ROWS))
+        .contains(&number)
+        .then_some(number)
 }
 
 fn column_text(absolute: bool, number: i64, shift: i64) -> Option<String> {
@@ -147,7 +153,11 @@ fn column_text(absolute: bool, number: i64, shift: i64) -> Option<String> {
 fn row_text(absolute: bool, number: i64, shift: i64) -> Option<String> {
     let moved = if absolute { number } else { number + shift };
     (1..=i64::from(MAX_ROWS)).contains(&moved).then(|| {
-        if absolute { format!("${moved}") } else { moved.to_string() }
+        if absolute {
+            format!("${moved}")
+        } else {
+            moved.to_string()
+        }
     })
 }
 

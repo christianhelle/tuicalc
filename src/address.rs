@@ -30,7 +30,10 @@ impl CellRef {
             .contains(&col)
             .then_some(())
             .filter(|()| (1..=MAX_ROWS).contains(&row))?;
-        Some(Self { col: col - 1, row: row - 1 })
+        Some(Self {
+            col: col - 1,
+            row: row - 1,
+        })
     }
 }
 

@@ -33,7 +33,13 @@ fn parses_what_it_formats() {
 
 #[test]
 fn rejects_text_that_is_not_a_date() {
-    for bad in ["hello", "2023-13-01", "2023-02-30", "2023-03-15 25:00:00", "1899-12-31"] {
+    for bad in [
+        "hello",
+        "2023-13-01",
+        "2023-02-30",
+        "2023-03-15 25:00:00",
+        "1899-12-31",
+    ] {
         assert_eq!(parse_serial(bad, false), None, "{bad}");
     }
 }

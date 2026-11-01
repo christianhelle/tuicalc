@@ -1,7 +1,10 @@
 use std::process::{Command, Output};
 
 fn tuicalc(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_tuicalc")).args(args).output().unwrap()
+    Command::new(env!("CARGO_BIN_EXE_tuicalc"))
+        .args(args)
+        .output()
+        .unwrap()
 }
 
 #[test]

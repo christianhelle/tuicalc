@@ -67,7 +67,10 @@ fn draws_column_and_row_headers_with_aligned_values() {
 
     let screen = render(&mut app, 44, 10);
 
-    assert_eq!(screen[1].trim_end(), "             A           B           C");
+    assert_eq!(
+        screen[1].trim_end(),
+        "             A           B           C"
+    );
     assert_eq!(grid_line(&screen, 1).trim_end(), "1");
     let row = grid_line(&screen, 2);
     assert!(row.starts_with("2       "), "{row}");
@@ -108,7 +111,11 @@ fn shows_booleans_errors_formula_results_and_dates() {
     let row = grid_line(&screen, 2);
     assert_eq!(drawn_cell(row, 0).trim(), "=NEW()");
     assert_eq!(drawn_cell(row, 1).trim(), "2023-03-15");
-    assert_eq!(drawn_cell(row, 2).trim(), "2023-03-15", "the time does not fit the column");
+    assert_eq!(
+        drawn_cell(row, 2).trim(),
+        "2023-03-15",
+        "the time does not fit the column"
+    );
 }
 
 #[test]
@@ -143,10 +150,22 @@ fn highlights_the_cursor_cell_and_scrolls_with_it() {
         press(&mut app, KeyCode::Down);
     }
     let screen = render(&mut app, 40, 10);
-    assert!(grid_line(&screen, 1).starts_with("5 "), "{}", grid_line(&screen, 1));
-    assert!(grid_line(&screen, 6).starts_with("10 "), "{}", grid_line(&screen, 6));
+    assert!(
+        grid_line(&screen, 1).starts_with("5 "),
+        "{}",
+        grid_line(&screen, 1)
+    );
+    assert!(
+        grid_line(&screen, 6).starts_with("10 "),
+        "{}",
+        grid_line(&screen, 6)
+    );
     let terminal = terminal_for(&mut app, 40, 10);
-    assert!(terminal.backend().buffer()[(8, 7)].modifier.contains(Modifier::REVERSED));
+    assert!(
+        terminal.backend().buffer()[(8, 7)]
+            .modifier
+            .contains(Modifier::REVERSED)
+    );
 
     for _ in 0..4 {
         press(&mut app, KeyCode::Right);
@@ -180,7 +199,11 @@ fn editing_shows_the_buffer_with_the_terminal_cursor_at_the_caret() {
     let mut terminal = terminal_for(&mut app, 50, 10);
 
     assert!(terminal.backend().buffer()[(8, 0)].symbol() == "日");
-    assert_eq!(terminal.get_cursor_position().unwrap().x, 8 + 4, "wide characters take two cells");
+    assert_eq!(
+        terminal.get_cursor_position().unwrap().x,
+        8 + 4,
+        "wide characters take two cells"
+    );
     assert_eq!(terminal.get_cursor_position().unwrap().y, 0);
 }
 
@@ -197,7 +220,9 @@ fn long_edits_scroll_to_keep_the_caret_visible() {
     let position = terminal.get_cursor_position().unwrap();
     assert!(position.x < 30, "caret stays on screen, at {}", position.x);
     let buffer = terminal.backend().buffer();
-    let line: String = (8..30).map(|x| buffer[(x, 0)].symbol().to_string()).collect();
+    let line: String = (8..30)
+        .map(|x| buffer[(x, 0)].symbol().to_string())
+        .collect();
     assert!(text.ends_with(line.trim_end()), "{line}");
 }
 
@@ -207,11 +232,17 @@ fn many_sheets(count: usize) -> Vec<u8> {
         .collect();
     let workbook = format!(r#"<workbook xmlns:r="x"><sheets>{tags}</sheets></workbook>"#);
     let rels: String = (0..count)
-        .map(|i| format!(r#"<Relationship Id="rId{i}" Type="x/worksheet" Target="worksheets/s{i}.xml"/>"#))
+        .map(|i| {
+            format!(
+                r#"<Relationship Id="rId{i}" Type="x/worksheet" Target="worksheets/s{i}.xml"/>"#
+            )
+        })
         .collect();
     let rels = format!("<Relationships>{rels}</Relationships>");
     let sheet_xml = sheet("");
-    let names: Vec<String> = (0..count).map(|i| format!("xl/worksheets/s{i}.xml")).collect();
+    let names: Vec<String> = (0..count)
+        .map(|i| format!("xl/worksheets/s{i}.xml"))
+        .collect();
     let mut parts = vec![
         ("_rels/.rels", ROOT_RELS),
         ("xl/workbook.xml", workbook.as_str()),
@@ -233,7 +264,9 @@ fn tabs_mark_the_current_sheet_and_keep_it_on_screen() {
     }
     let terminal = terminal_for(&mut app, 30, 10);
     let buffer = terminal.backend().buffer();
-    let line: String = (0..30).map(|x| buffer[(x, 8)].symbol().to_string()).collect();
+    let line: String = (0..30)
+        .map(|x| buffer[(x, 8)].symbol().to_string())
+        .collect();
     assert!(line.contains(" Sheet9 "), "{line}");
     let start = line.find(" Sheet9 ").unwrap() as u16;
     assert!(buffer[(start + 1, 8)].modifier.contains(Modifier::REVERSED));
@@ -244,7 +277,11 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     let (_file, mut app) = app_with("");
 
     let screen = render(&mut app, 80, 10);
-    assert!(screen[9].starts_with("book.xlsx | F2 edit"), "{}", screen[9]);
+    assert!(
+        screen[9].starts_with("book.xlsx | F2 edit"),
+        "{}",
+        screen[9]
+    );
 
     press(&mut app, KeyCode::Char('1'));
     let screen = render(&mut app, 80, 10);
@@ -256,7 +293,11 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
 
     app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
     let screen = render(&mut app, 80, 10);
-    assert!(screen[9].starts_with("book.xlsx | Saved book.xlsx"), "{}", screen[9]);
+    assert!(
+        screen[9].starts_with("book.xlsx | Saved book.xlsx"),
+        "{}",
+        screen[9]
+    );
 
     press(&mut app, KeyCode::Up);
     press(&mut app, KeyCode::Char('2'));

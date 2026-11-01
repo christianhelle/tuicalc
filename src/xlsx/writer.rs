@@ -79,7 +79,11 @@ fn find_calc_chain(
         return Ok(None);
     };
     let xml = read_text(archive, index)?;
-    let directory = rels_part.split("_rels/").next().unwrap_or("").trim_end_matches('/');
+    let directory = rels_part
+        .split("_rels/")
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('/');
     let relationships = reader::parse_relationships(&xml, directory)?;
     Ok(relationships
         .into_values()
@@ -175,7 +179,11 @@ fn set_full_calc(xml: &str, start: usize, end: usize, element: &BytesStart<'_>) 
         return format!("{}{on}{}", &xml[..start], &xml[end..]);
     }
     let name_end = start + 1 + element.name().as_ref().len();
-    format!("{} fullCalcOnLoad=\"1\"{}", &xml[..name_end], &xml[name_end..])
+    format!(
+        "{} fullCalcOnLoad=\"1\"{}",
+        &xml[..name_end],
+        &xml[name_end..]
+    )
 }
 
 fn read_text(archive: &mut ZipArchive<Cursor<&[u8]>>, index: usize) -> Result<String, XlsxError> {
@@ -203,7 +211,12 @@ impl SheetPatch<'_> {
 
     /// Removes and returns the pending cells accepted by `wanted`.
     fn take_pending(&mut self, wanted: impl Fn(CellRef) -> bool) -> Vec<(CellRef, Cell)> {
-        let keys: Vec<CellRef> = self.pending.keys().copied().filter(|at| wanted(*at)).collect();
+        let keys: Vec<CellRef> = self
+            .pending
+            .keys()
+            .copied()
+            .filter(|at| wanted(*at))
+            .collect();
         keys.into_iter()
             .filter_map(|at| self.pending.remove(&at).map(|cell| (at, cell)))
             .collect()
@@ -226,7 +239,8 @@ impl SheetPatch<'_> {
                 .iter()
                 .position(|(at, _)| at.row != row)
                 .map_or(cells.len(), |offset| index + offset);
-            self.out.push_str(&format!(r#"<{}row r="{}">"#, self.prefix, row + 1));
+            self.out
+                .push_str(&format!(r#"<{}row r="{}">"#, self.prefix, row + 1));
             self.write_cells(&cells[index..end]);
             self.out.push_str(&format!("</{}row>", self.prefix));
             index = end;
@@ -237,12 +251,16 @@ impl SheetPatch<'_> {
 fn qualified_prefix(element: &BytesStart<'_>) -> String {
     let name = element.name();
     let full: &str = name.as_ref();
-    full.strip_suffix(&local_name(element)).unwrap_or("").to_string()
+    full.strip_suffix(&local_name(element))
+        .unwrap_or("")
+        .to_string()
 }
 
 fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, XlsxError> {
-    let pending: BTreeMap<CellRef, Cell> =
-        sheet.dirty_cells().map(|at| (*at, sheet.cell(*at))).collect();
+    let pending: BTreeMap<CellRef, Cell> = sheet
+        .dirty_cells()
+        .map(|at| (*at, sheet.cell(*at)))
+        .collect();
     let mut patch = SheetPatch {
         xml,
         out: String::with_capacity(xml.len() + pending.len() * 32),
@@ -313,7 +331,8 @@ fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, XlsxError> {
                             let span = reader.read_to_end(element.name()).map_err(xml_error)?;
                             end = position(&reader);
                             let inner = &xml[span.start as usize..span.end as usize];
-                            shared = inner.contains(r#"t="shared""#) || inner.contains("t='shared'");
+                            shared =
+                                inner.contains(r#"t="shared""#) || inner.contains("t='shared'");
                         }
                         if let Some(cell) = edit.or_else(|| shared.then(|| sheet.cell(at))) {
                             patch.copy_until(before, end);
@@ -373,7 +392,10 @@ fn write_cell(out: &mut String, prefix: &str, at: CellRef, style: Option<&str>, 
     }
     out.push('>');
     if let Some(formula) = &cell.formula {
-        out.push_str(&format!("<{prefix}f>{}</{prefix}f>", escape(formula.as_str())));
+        out.push_str(&format!(
+            "<{prefix}f>{}</{prefix}f>",
+            escape(formula.as_str())
+        ));
     }
     match (&cell.value, &cell.formula) {
         (CellValue::Empty, _) => {}

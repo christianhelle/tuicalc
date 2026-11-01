@@ -60,7 +60,8 @@ fn arrows_move_the_cursor_and_stop_at_the_sheet_edge() {
 #[test]
 fn key_releases_do_nothing() {
     let (_file, mut app) = app_with("");
-    let release = KeyEvent::new_with_kind(KeyCode::Right, KeyModifiers::NONE, KeyEventKind::Release);
+    let release =
+        KeyEvent::new_with_kind(KeyCode::Right, KeyModifiers::NONE, KeyEventKind::Release);
 
     app.handle_key(release);
 
@@ -104,12 +105,19 @@ fn typing_replaces_the_cell_and_enter_confirms_and_moves_down() {
     type_text(&mut app, "42");
     assert_eq!(app.mode(), Mode::Edit);
     assert_eq!(app.buffer(), "42");
-    assert_eq!(app.current_sheet().cell(a1("A1")).value, CellValue::Number(1.0), "not until confirmed");
+    assert_eq!(
+        app.current_sheet().cell(a1("A1")).value,
+        CellValue::Number(1.0),
+        "not until confirmed"
+    );
 
     press(&mut app, KeyCode::Enter);
 
     assert_eq!(app.mode(), Mode::Navigate);
-    assert_eq!(app.current_sheet().cell(a1("A1")).value, CellValue::Number(42.0));
+    assert_eq!(
+        app.current_sheet().cell(a1("A1")).value,
+        CellValue::Number(42.0)
+    );
     assert_eq!(app.cursor(), a1("A2"));
 }
 
@@ -144,12 +152,16 @@ fn input_is_interpreted_by_its_form() {
         assert_eq!(enter_value(&mut app, input).value, expected, "{input}");
     }
 
-    assert_eq!(enter_value(&mut app, "=SUM(A1:A2)").formula.as_deref(), Some("SUM(A1:A2)"));
+    assert_eq!(
+        enter_value(&mut app, "=SUM(A1:A2)").formula.as_deref(),
+        Some("SUM(A1:A2)")
+    );
 }
 
 #[test]
 fn f2_edits_the_existing_content_at_the_caret() {
-    let (_file, mut app) = app_with(r#"<row r="1"><c r="A1" t="inlineStr"><is><t>héllo</t></is></c></row>"#);
+    let (_file, mut app) =
+        app_with(r#"<row r="1"><c r="A1" t="inlineStr"><is><t>héllo</t></is></c></row>"#);
 
     press(&mut app, KeyCode::F(2));
     assert_eq!(app.buffer(), "héllo");
@@ -169,7 +181,10 @@ fn f2_edits_the_existing_content_at_the_caret() {
     assert_eq!(app.caret(), 4);
 
     press(&mut app, KeyCode::Enter);
-    assert_eq!(app.current_sheet().cell(a1("A1")).value, CellValue::Text("hél!l".into()));
+    assert_eq!(
+        app.current_sheet().cell(a1("A1")).value,
+        CellValue::Text("hél!l".into())
+    );
 }
 
 #[test]
@@ -179,12 +194,19 @@ fn escape_cancels_and_confirming_unchanged_text_changes_nothing() {
     type_text(&mut app, "9");
     press(&mut app, KeyCode::Esc);
     assert_eq!(app.mode(), Mode::Navigate);
-    assert_eq!(app.current_sheet().cell(a1("A1")).value, CellValue::Number(4.0));
+    assert_eq!(
+        app.current_sheet().cell(a1("A1")).value,
+        CellValue::Number(4.0)
+    );
 
     press(&mut app, KeyCode::F(2));
     press(&mut app, KeyCode::Enter);
     let cell = app.current_sheet().cell(a1("A1"));
-    assert_eq!(cell.value, CellValue::Number(4.0), "the cached result is kept");
+    assert_eq!(
+        cell.value,
+        CellValue::Number(4.0),
+        "the cached result is kept"
+    );
     assert!(!app.workbook.is_dirty());
 }
 
@@ -243,7 +265,8 @@ fn arrows_and_tab_confirm_the_edit_and_move() {
 
 #[test]
 fn delete_clears_the_cell() {
-    let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c></row>"#);
+    let (_file, mut app) =
+        app_with(r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c></row>"#);
 
     press(&mut app, KeyCode::Delete);
     press(&mut app, KeyCode::Right);
@@ -255,7 +278,11 @@ fn delete_clears_the_cell() {
 
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Delete);
-    assert_eq!(app.current_sheet().dirty_cells().count(), 2, "clearing an empty cell is no edit");
+    assert_eq!(
+        app.current_sheet().dirty_cells().count(),
+        2,
+        "clearing an empty cell is no edit"
+    );
 }
 
 #[test]
@@ -298,7 +325,10 @@ fn undo_and_redo_restore_cells_and_the_cursor() {
     ctrl(&mut app, KeyCode::Char('y'));
     assert_eq!(app.current_sheet().cell(a1("A1")), Cell::default());
     ctrl(&mut app, KeyCode::Char('y'));
-    assert_eq!(app.current_sheet().cell(a1("A2")).value, CellValue::Number(7.0));
+    assert_eq!(
+        app.current_sheet().cell(a1("A2")).value,
+        CellValue::Number(7.0)
+    );
     ctrl(&mut app, KeyCode::Char('y'));
     assert_eq!(app.status(), "Nothing to redo");
 }
@@ -327,7 +357,10 @@ fn ctrl_s_saves_and_reports_success_or_failure() {
     assert_eq!(app.status(), "Saved book.xlsx");
     assert!(!app.workbook.is_dirty());
     let reloaded = Workbook::open(&file.path).unwrap();
-    assert_eq!(reloaded.sheets[0].cell(a1("A1")).value, CellValue::Number(5.0));
+    assert_eq!(
+        reloaded.sheets[0].cell(a1("A1")).value,
+        CellValue::Number(5.0)
+    );
 
     press(&mut app, KeyCode::Down);
     enter_value(&mut app, "6");
@@ -370,7 +403,11 @@ fn quitting_with_unsaved_edits_asks_first() {
     press(&mut app, KeyCode::Char('d'));
     assert!(app.should_quit());
     let on_disk = Workbook::open(&file.path).unwrap();
-    assert_eq!(on_disk.sheets[0].cell(a1("A1")), Cell::default(), "discarded");
+    assert_eq!(
+        on_disk.sheets[0].cell(a1("A1")),
+        Cell::default(),
+        "discarded"
+    );
 }
 
 #[test]
@@ -437,8 +474,14 @@ fn undo_returns_to_the_sheet_of_the_edit_and_saves_only_edited_sheets() {
     enter_value(&mut app, "2");
     ctrl(&mut app, KeyCode::Char('s'));
     let reloaded = Workbook::open(&file.path).unwrap();
-    assert_eq!(reloaded.sheets[0].cell(a1("A1")).value, CellValue::Number(1.0));
-    assert_eq!(reloaded.sheets[1].cell(a1("A1")).value, CellValue::Number(2.0));
+    assert_eq!(
+        reloaded.sheets[0].cell(a1("A1")).value,
+        CellValue::Number(1.0)
+    );
+    assert_eq!(
+        reloaded.sheets[1].cell(a1("A1")).value,
+        CellValue::Number(2.0)
+    );
 
     ctrl(&mut app, KeyCode::Char('z'));
     ctrl(&mut app, KeyCode::Char('z'));

@@ -27,11 +27,17 @@ pub struct Cell {
 
 impl Cell {
     pub fn value(value: CellValue) -> Self {
-        Self { value, ..Self::default() }
+        Self {
+            value,
+            ..Self::default()
+        }
     }
 
     pub fn formula(text: impl Into<String>) -> Self {
-        Self { formula: Some(text.into()), ..Self::default() }
+        Self {
+            formula: Some(text.into()),
+            ..Self::default()
+        }
     }
 
     fn is_blank(&self) -> bool {
@@ -50,7 +56,10 @@ pub struct Sheet {
 
 impl Sheet {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), ..Self::default() }
+        Self {
+            name: name.into(),
+            ..Self::default()
+        }
     }
 
     pub fn cell(&self, at: CellRef) -> Cell {

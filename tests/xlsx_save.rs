@@ -45,12 +45,18 @@ fn saving_keeps_everything_it_does_not_edit() {
     book.sheets[0].set_cell(a1("A1"), number(5.0));
     book.save().unwrap();
 
-    assert_eq!(read_part(&file.path, "xl/charts/chart1.xml").unwrap(), chart);
+    assert_eq!(
+        read_part(&file.path, "xl/charts/chart1.xml").unwrap(),
+        chart
+    );
     assert_eq!(read_part(&file.path, "xl/workbook.xml").unwrap(), WORKBOOK);
     let saved = read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap();
     assert_eq!(
         saved,
-        sheet_xml.replace(r#"<c r="A1" s="7"><v>1</v></c>"#, r#"<c r="A1" s="7"><v>5</v></c>"#),
+        sheet_xml.replace(
+            r#"<c r="A1" s="7"><v>1</v></c>"#,
+            r#"<c r="A1" s="7"><v>5</v></c>"#
+        ),
         "only the edited cell may change, and it keeps its style"
     );
 }
@@ -64,26 +70,43 @@ fn saved_sheet(rows_xml: &str, at: &str, cell: Cell) -> String {
 fn inserts_new_cells_in_column_order() {
     let rows = r#"<row r="1"><c r="A1"><v>1</v></c><c r="C1"><v>3</v></c></row>"#;
     let saved = saved_sheet(rows, "B1", number(2.0));
-    assert!(saved.contains(r#"<c r="A1"><v>1</v></c><c r="B1"><v>2</v></c><c r="C1"><v>3</v></c></row>"#), "{saved}");
+    assert!(
+        saved.contains(
+            r#"<c r="A1"><v>1</v></c><c r="B1"><v>2</v></c><c r="C1"><v>3</v></c></row>"#
+        ),
+        "{saved}"
+    );
 
     let saved = saved_sheet(rows, "D1", number(4.0));
-    assert!(saved.contains(r#"<c r="C1"><v>3</v></c><c r="D1"><v>4</v></c></row>"#), "{saved}");
+    assert!(
+        saved.contains(r#"<c r="C1"><v>3</v></c><c r="D1"><v>4</v></c></row>"#),
+        "{saved}"
+    );
 }
 
 #[test]
 fn inserts_new_rows_in_row_order() {
     let rows = r#"<row r="1"><c r="A1"><v>1</v></c></row><row r="5"><c r="A5"><v>5</v></c></row>"#;
     let saved = saved_sheet(rows, "B3", number(3.0));
-    assert!(saved.contains(r#"</row><row r="3"><c r="B3"><v>3</v></c></row><row r="5">"#), "{saved}");
+    assert!(
+        saved.contains(r#"</row><row r="3"><c r="B3"><v>3</v></c></row><row r="5">"#),
+        "{saved}"
+    );
 
     let saved = saved_sheet(rows, "A9", number(9.0));
-    assert!(saved.contains(r#"</row><row r="9"><c r="A9"><v>9</v></c></row></sheetData>"#), "{saved}");
+    assert!(
+        saved.contains(r#"</row><row r="9"><c r="A9"><v>9</v></c></row></sheetData>"#),
+        "{saved}"
+    );
 }
 
 #[test]
 fn fills_empty_rows_and_empty_sheet_data() {
     let saved = saved_sheet(r#"<row r="2" ht="30"/>"#, "A2", number(1.0));
-    assert!(saved.contains(r#"<row r="2" ht="30"><c r="A2"><v>1</v></c></row>"#), "{saved}");
+    assert!(
+        saved.contains(r#"<row r="2" ht="30"><c r="A2"><v>1</v></c></row>"#),
+        "{saved}"
+    );
 
     let bare = r#"<worksheet xmlns="urn"><sheetData/></worksheet>"#;
     let file = write_temp(&single_sheet(bare, &[]));
@@ -91,7 +114,10 @@ fn fills_empty_rows_and_empty_sheet_data() {
     book.sheets[0].set_cell(a1("A1"), number(1.0));
     book.save().unwrap();
     let saved = read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap();
-    assert_eq!(saved, r#"<worksheet xmlns="urn"><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>"#);
+    assert_eq!(
+        saved,
+        r#"<worksheet xmlns="urn"><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>"#
+    );
 }
 
 #[test]
@@ -138,7 +164,10 @@ fn saves_a_formula_together_with_its_cached_text_result() {
 #[test]
 fn clearing_a_cell_keeps_its_style_but_drops_its_content() {
     let saved = saved_sheet(ONE_CELL, "A1", Cell::default());
-    assert!(saved.contains(r#"<row r="1"><c r="A1" s="4"/></row>"#), "{saved}");
+    assert!(
+        saved.contains(r#"<row r="1"><c r="A1" s="4"/></row>"#),
+        "{saved}"
+    );
 
     let unstyled = r#"<row r="1"><c r="A1"><v>1</v></c></row>"#;
     let saved = saved_sheet(unstyled, "A1", Cell::default());
@@ -159,16 +188,25 @@ fn control_characters_and_excel_escape_lookalikes_round_trip() {
 
     assert_eq!(book.sheets[0].cell(a1("A1")), cell);
     let saved = read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap();
-    assert!(!saved.contains('\u{7}'), "raw control characters are not legal XML");
+    assert!(
+        !saved.contains('\u{7}'),
+        "raw control characters are not legal XML"
+    );
 }
 
 #[test]
 fn decodes_excel_escapes_when_reading_shared_strings() {
     let strings = r#"<sst><si><t>a_x000D_b_x005F_x0041_</t></si></sst>"#;
     let rows = r#"<row r="1"><c r="A1" t="s"><v>0</v></c></row>"#;
-    let file = write_temp(&single_sheet(&sheet(rows), &[("xl/sharedStrings.xml", strings)]));
+    let file = write_temp(&single_sheet(
+        &sheet(rows),
+        &[("xl/sharedStrings.xml", strings)],
+    ));
     let book = Workbook::open(&file.path).unwrap();
-    assert_eq!(book.sheets[0].cell(a1("A1")).value, CellValue::Text("a\rb_x0041_".into()));
+    assert_eq!(
+        book.sheets[0].cell(a1("A1")).value,
+        CellValue::Text("a\rb_x0041_".into())
+    );
 }
 
 #[test]
@@ -177,10 +215,16 @@ fn editing_a_shared_formula_master_keeps_its_dependents_working() {
     let (file, book) = edited(rows, "B1", number(100.0));
 
     assert_eq!(book.sheets[0].cell(a1("B1")), number(100.0));
-    assert_eq!(book.sheets[0].cell(a1("B2")).formula.as_deref(), Some("A2*2"));
+    assert_eq!(
+        book.sheets[0].cell(a1("B2")).formula.as_deref(),
+        Some("A2*2")
+    );
     let saved = read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap();
     assert!(!saved.contains("shared"), "{saved}");
-    assert!(saved.contains(r#"<c r="B2" s="3"><f>A2*2</f><v>4</v></c>"#), "{saved}");
+    assert!(
+        saved.contains(r#"<c r="B2" s="3"><f>A2*2</f><v>4</v></c>"#),
+        "{saved}"
+    );
 }
 
 #[test]
@@ -189,10 +233,14 @@ fn unedited_sheets_keep_their_shared_formulas() {
     let file = write_temp(&single_sheet(&sheet(rows), &[]));
     let mut book = Workbook::open(&file.path).unwrap();
     book.save().unwrap();
-    assert_eq!(read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap(), sheet(rows));
+    assert_eq!(
+        read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap(),
+        sheet(rows)
+    );
 }
 
-const FORMULA_ROWS: &str = r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>A1*2</f><v>2</v></c></row>"#;
+const FORMULA_ROWS: &str =
+    r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>A1*2</f><v>2</v></c></row>"#;
 
 fn save_edit_with_workbook(workbook: &str) -> String {
     let parts = [
@@ -214,19 +262,32 @@ fn save_edit_with_workbook(workbook: &str) -> String {
 #[test]
 fn asks_excel_to_recalculate_when_a_workbook_with_formulas_changes() {
     let existing = WORKBOOK.replace("</sheets>", r#"</sheets><calcPr calcId="191029"/>"#);
-    assert!(save_edit_with_workbook(&existing).contains(r#"<calcPr fullCalcOnLoad="1" calcId="191029"/>"#));
+    assert!(
+        save_edit_with_workbook(&existing)
+            .contains(r#"<calcPr fullCalcOnLoad="1" calcId="191029"/>"#)
+    );
 
     let saved = save_edit_with_workbook(WORKBOOK);
-    assert!(saved.contains(r#"</sheets><calcPr fullCalcOnLoad="1"/></workbook>"#), "{saved}");
+    assert!(
+        saved.contains(r#"</sheets><calcPr fullCalcOnLoad="1"/></workbook>"#),
+        "{saved}"
+    );
 
     let followed = WORKBOOK.replace("</sheets>", r#"</sheets><extLst/>"#);
     let saved = save_edit_with_workbook(&followed);
-    assert!(saved.contains(r#"<calcPr fullCalcOnLoad="1"/><extLst/>"#), "schema order matters: {saved}");
+    assert!(
+        saved.contains(r#"<calcPr fullCalcOnLoad="1"/><extLst/>"#),
+        "schema order matters: {saved}"
+    );
 }
 
 #[test]
 fn leaves_the_workbook_part_alone_when_there_are_no_formulas() {
-    let (file, _) = edited(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#, "A1", number(2.0));
+    let (file, _) = edited(
+        r#"<row r="1"><c r="A1"><v>1</v></c></row>"#,
+        "A1",
+        number(2.0),
+    );
     assert_eq!(read_part(&file.path, "xl/workbook.xml").unwrap(), WORKBOOK);
 }
 
@@ -247,7 +308,10 @@ fn removes_the_calculation_chain_so_it_cannot_go_stale() {
         ("xl/workbook.xml", WORKBOOK),
         ("xl/_rels/workbook.xml.rels", &rels),
         ("xl/worksheets/sheet1.xml", &sheet_xml),
-        ("xl/calcChain.xml", r#"<calcChain><c r="B1" i="1"/></calcChain>"#),
+        (
+            "xl/calcChain.xml",
+            r#"<calcChain><c r="B1" i="1"/></calcChain>"#,
+        ),
     ]));
     let mut book = Workbook::open(&file.path).unwrap();
 
@@ -255,8 +319,14 @@ fn removes_the_calculation_chain_so_it_cannot_go_stale() {
     book.save().unwrap();
 
     assert_eq!(read_part(&file.path, "xl/calcChain.xml"), None);
-    assert_eq!(read_part(&file.path, "[Content_Types].xml").unwrap(), CONTENT_TYPES);
-    assert_eq!(read_part(&file.path, "xl/_rels/workbook.xml.rels").unwrap(), WORKBOOK_RELS);
+    assert_eq!(
+        read_part(&file.path, "[Content_Types].xml").unwrap(),
+        CONTENT_TYPES
+    );
+    assert_eq!(
+        read_part(&file.path, "xl/_rels/workbook.xml.rels").unwrap(),
+        WORKBOOK_RELS
+    );
 }
 
 #[test]

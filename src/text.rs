@@ -3,8 +3,9 @@
 use crate::date;
 use crate::model::{Cell, CellValue};
 
-const ERROR_LITERALS: [&str; 7] =
-    ["#N/A", "#DIV/0!", "#REF!", "#VALUE!", "#NAME?", "#NUM!", "#NULL!"];
+const ERROR_LITERALS: [&str; 7] = [
+    "#N/A", "#DIV/0!", "#REF!", "#VALUE!", "#NAME?", "#NUM!", "#NULL!",
+];
 
 /// Interprets what the user typed into a cell.
 pub fn parse_input(text: &str, was_date: bool, date1904: bool) -> Cell {
@@ -19,11 +20,17 @@ pub fn parse_input(text: &str, was_date: bool, date1904: bool) -> Cell {
     }
     if was_date {
         if let Some(serial) = date::parse_serial(text, date1904) {
-            return Cell { is_date: true, ..Cell::value(CellValue::Number(serial)) };
+            return Cell {
+                is_date: true,
+                ..Cell::value(CellValue::Number(serial))
+            };
         }
     }
     if let Some(number) = text.parse::<f64>().ok().filter(|number| number.is_finite()) {
-        return Cell { is_date: was_date, ..Cell::value(CellValue::Number(number)) };
+        return Cell {
+            is_date: was_date,
+            ..Cell::value(CellValue::Number(number))
+        };
     }
     if text.eq_ignore_ascii_case("true") {
         return Cell::value(CellValue::Bool(true));
@@ -51,7 +58,11 @@ pub fn edit_text(cell: &Cell, date1904: bool) -> String {
         CellValue::Text(text) => {
             let reads_as_text =
                 parse_input(text, false, date1904) == Cell::value(CellValue::Text(text.clone()));
-            if reads_as_text { text.clone() } else { format!("'{text}") }
+            if reads_as_text {
+                text.clone()
+            } else {
+                format!("'{text}")
+            }
         }
     }
 }
@@ -87,7 +98,11 @@ fn date_text(serial: f64, date1904: bool, width: usize) -> String {
     }
     // The date matters more than the time when both cannot fit.
     let date = full.split(' ').next().unwrap_or(&full);
-    if date.len() <= width { date.to_string() } else { "#".repeat(width) }
+    if date.len() <= width {
+        date.to_string()
+    } else {
+        "#".repeat(width)
+    }
 }
 
 /// Formats a number with as many significant digits as fit, like Excel's General format.

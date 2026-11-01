@@ -20,7 +20,10 @@ fn opens_sheet_names_and_numeric_cells() {
 
     assert_eq!(book.sheets.len(), 1);
     assert_eq!(book.sheets[0].name, "Sheet1");
-    assert_eq!(book.sheets[0].cell(a1("B2")), Cell::value(CellValue::Number(42.5)));
+    assert_eq!(
+        book.sheets[0].cell(a1("B2")),
+        Cell::value(CellValue::Number(42.5))
+    );
     assert_eq!(book.sheets[0].cell(a1("A1")), Cell::default());
     assert!(!book.sheets[0].is_dirty());
 }
@@ -68,7 +71,10 @@ fn reads_formulas_with_their_cached_results() {
 
 #[test]
 fn locates_cells_that_omit_their_reference() {
-    let book = open_rows(r#"<row><c><v>1</v></c><c><v>2</v></c></row><row><c><v>3</v></c></row>"#, &[]);
+    let book = open_rows(
+        r#"<row><c><v>1</v></c><c><v>2</v></c></row><row><c><v>3</v></c></row>"#,
+        &[],
+    );
 
     assert_eq!(book.sheets[0].cell(a1("A1")).value, CellValue::Number(1.0));
     assert_eq!(book.sheets[0].cell(a1("B1")).value, CellValue::Number(2.0));

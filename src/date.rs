@@ -27,7 +27,11 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let shifted_month = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
-    let month = if shifted_month < 10 { shifted_month + 3 } else { shifted_month - 9 };
+    let month = if shifted_month < 10 {
+        shifted_month + 3
+    } else {
+        shifted_month - 9
+    };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
     (year, month, day)
 }
@@ -48,7 +52,9 @@ fn civil_to_serial(year: i64, month: i64, day: i64, date1904: bool) -> Option<i6
     if !date1904 && (year, month, day) == (1900, 2, 29) {
         return Some(PHANTOM_LEAP_DAY);
     }
-    if !(1..=12).contains(&month) || civil_from_days(days_from_civil(year, month, day)) != (year, month, day) {
+    if !(1..=12).contains(&month)
+        || civil_from_days(days_from_civil(year, month, day)) != (year, month, day)
+    {
         return None;
     }
     let days = days_from_civil(year, month, day);
@@ -56,7 +62,11 @@ fn civil_to_serial(year: i64, month: i64, day: i64, date1904: bool) -> Option<i6
         days - EPOCH_1904
     } else {
         let serial = days - EPOCH_1900;
-        if serial <= PHANTOM_LEAP_DAY { serial - 1 } else { serial }
+        if serial <= PHANTOM_LEAP_DAY {
+            serial - 1
+        } else {
+            serial
+        }
     };
     (serial >= i64::from(!date1904)).then_some(serial)
 }
@@ -66,13 +76,22 @@ pub fn format_serial(serial: f64, date1904: bool) -> String {
     let total_seconds = (serial * SECONDS_PER_DAY).round() as i64;
     let days = total_seconds.div_euclid(86_400);
     let seconds = total_seconds.rem_euclid(86_400);
-    let time = format!("{:02}:{:02}:{:02}", seconds / 3_600, seconds / 60 % 60, seconds % 60);
+    let time = format!(
+        "{:02}:{:02}:{:02}",
+        seconds / 3_600,
+        seconds / 60 % 60,
+        seconds % 60
+    );
     if days == 0 && !date1904 {
         return time;
     }
     let (year, month, day) = serial_to_civil(days, date1904);
     let date = format!("{year:04}-{month:02}-{day:02}");
-    if seconds == 0 { date } else { format!("{date} {time}") }
+    if seconds == 0 {
+        date
+    } else {
+        format!("{date} {time}")
+    }
 }
 
 fn parse_time(text: &str) -> Option<f64> {
