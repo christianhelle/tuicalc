@@ -691,3 +691,18 @@ fn word_motions_treat_runs_of_filled_cells_as_words() {
     keys(&mut app, "2w");
     assert_eq!(app.cursor(), a1("G1"));
 }
+
+#[test]
+fn paragraph_motions_stop_at_empty_cells_in_the_column() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "}");
+    assert_eq!(app.cursor(), a1("A4"));
+    keys(&mut app, "}");
+    assert_eq!(app.cursor(), a1("A7"));
+    keys(&mut app, "}");
+    assert_eq!(app.cursor(), a1("A7"), "nothing further down");
+    keys(&mut app, "{");
+    assert_eq!(app.cursor(), a1("A4"));
+    keys(&mut app, "{");
+    assert_eq!(app.cursor(), a1("A1"));
+}

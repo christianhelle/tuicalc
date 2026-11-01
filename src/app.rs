@@ -238,6 +238,41 @@ impl App {
         Some(CellRef { col, row: self.cursor.row })
     }
 
+    fn filled_in_column(&self, row: u32) -> bool {
+        self.is_filled(CellRef { col: self.cursor.col, row })
+    }
+
+    /// `}`: the empty cell below the next run of filled cells in this column.
+    fn next_gap(&self) -> Option<CellRef> {
+        let last = self.current_sheet().extent()?.row;
+        let mut row = self.cursor.row;
+        while row <= last && !self.filled_in_column(row) {
+            row += 1;
+        }
+        if row > last {
+            return None;
+        }
+        while row <= last && self.filled_in_column(row) {
+            row += 1;
+        }
+        Some(CellRef { col: self.cursor.col, row })
+    }
+
+    /// `{`: the empty cell above the previous run of filled cells, or the top of the sheet.
+    fn previous_gap(&self) -> Option<CellRef> {
+        let mut row = self.cursor.row;
+        if row == 0 {
+            return None;
+        }
+        while row > 0 && !self.filled_in_column(row) {
+            row -= 1;
+        }
+        while row > 0 && self.filled_in_column(row) {
+            row -= 1;
+        }
+        Some(CellRef { col: self.cursor.col, row })
+    }
+
     /// Moves the cursor if the key is a motion, and says whether it was.
     fn motion(&mut self, key: KeyEvent, count: Option<u32>) -> bool {
         let ctrl = is_ctrl(key);
@@ -262,6 +297,8 @@ impl App {
             KeyCode::Char('w') if !ctrl => self.repeat_motion(n, Self::next_run_start),
             KeyCode::Char('e') if !ctrl => self.repeat_motion(n, Self::next_run_end),
             KeyCode::Char('b') if !ctrl => self.repeat_motion(n, Self::previous_run_start),
+            KeyCode::Char('}') if !ctrl => self.repeat_motion(n, Self::next_gap),
+            KeyCode::Char('{') if !ctrl => self.repeat_motion(n, Self::previous_gap),
             KeyCode::Char('h') if !ctrl => self.move_by(-n, 0),
             KeyCode::Char('l') if !ctrl => self.move_by(n, 0),
             KeyCode::Char('k') if !ctrl => self.move_by(0, -n),
