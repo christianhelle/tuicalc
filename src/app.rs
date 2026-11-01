@@ -3,7 +3,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
-use crate::model::Sheet;
+use crate::model::{Cell, Sheet};
 use crate::text::{edit_text, parse_input};
 use crate::xlsx::Workbook;
 
@@ -29,6 +29,8 @@ pub struct App {
     mode: Mode,
     buffer: Vec<char>,
     caret: usize,
+    /// The cell as it was when editing began.
+    original: Cell,
 }
 
 impl App {
@@ -40,6 +42,7 @@ impl App {
             mode: Mode::Navigate,
             buffer: Vec::new(),
             caret: 0,
+            original: Cell::default(),
         }
     }
 
@@ -117,6 +120,7 @@ impl App {
     }
 
     fn begin_edit(&mut self, initial: Vec<char>) {
+        self.original = self.current_sheet().cell(self.cursor);
         self.caret = initial.len();
         self.buffer = initial;
         self.mode = Mode::Edit;
@@ -124,6 +128,7 @@ impl App {
 
     fn edit_key(&mut self, key: KeyEvent) {
         match key.code {
+            KeyCode::Esc => self.mode = Mode::Navigate,
             KeyCode::Enter => {
                 self.commit_edit();
                 self.move_by(0, 1);
@@ -152,7 +157,12 @@ impl App {
         let at = self.cursor;
         let text = self.buffer();
         let was_date = self.current_sheet().cell(at).is_date;
-        let cell = parse_input(&text, was_date, self.workbook.date1904);
+        let date1904 = self.workbook.date1904;
+        // Confirming unchanged text must not disturb the cell, cached formula results included.
+        if text == edit_text(&self.original, date1904) {
+            return;
+        }
+        let cell = parse_input(&text, was_date, date1904);
         self.workbook.sheets[self.sheet].set_cell(at, cell);
     }
 

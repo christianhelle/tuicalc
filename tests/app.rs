@@ -171,3 +171,49 @@ fn f2_edits_the_existing_content_at_the_caret() {
     press(&mut app, KeyCode::Enter);
     assert_eq!(app.current_sheet().cell(a1("A1")).value, CellValue::Text("hél!l".into()));
 }
+
+#[test]
+fn escape_cancels_and_confirming_unchanged_text_changes_nothing() {
+    let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><f>B1*2</f><v>4</v></c></row>"#);
+
+    type_text(&mut app, "9");
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(app.mode(), Mode::Navigate);
+    assert_eq!(app.current_sheet().cell(a1("A1")).value, CellValue::Number(4.0));
+
+    press(&mut app, KeyCode::F(2));
+    press(&mut app, KeyCode::Enter);
+    let cell = app.current_sheet().cell(a1("A1"));
+    assert_eq!(cell.value, CellValue::Number(4.0), "the cached result is kept");
+    assert!(!app.workbook.is_dirty());
+}
+
+#[test]
+fn date_cells_edit_as_iso_text_and_stay_dates() {
+    let styles = r#"<styleSheet><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14"/></cellXfs></styleSheet>"#;
+    let rows = r#"<row r="1"><c r="A1" s="1"><v>45000</v></c></row>"#;
+    let (_file, mut app) = app_from(&single_sheet(&sheet(rows), &[("xl/styles.xml", styles)]));
+
+    press(&mut app, KeyCode::F(2));
+    assert_eq!(app.buffer(), "2023-03-15");
+    press(&mut app, KeyCode::Enter);
+    assert!(!app.workbook.is_dirty());
+
+    press(&mut app, KeyCode::Up);
+    let cell = enter_value(&mut app, "2023-03-16");
+    assert_eq!(cell.value, CellValue::Number(45001.0));
+    assert!(cell.is_date);
+}
+
+#[test]
+fn f2_shows_each_kind_of_cell_as_text_that_recreates_it() {
+    let (_file, mut app) = app_with(
+        r#"<row r="1"><c r="A1"><f>B1*2</f><v>4</v></c><c r="B1"><v>2.5</v></c><c r="C1" t="b"><v>1</v></c><c r="D1" t="inlineStr"><is><t>007</t></is></c></row>"#,
+    );
+    for expected in ["=B1*2", "2.5", "TRUE", "'007"] {
+        press(&mut app, KeyCode::F(2));
+        assert_eq!(app.buffer(), expected);
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Right);
+    }
+}
