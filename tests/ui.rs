@@ -265,3 +265,14 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     let screen = render(&mut app, 80, 10);
     assert!(screen[9].contains("[s]ave and quit"), "{}", screen[9]);
 }
+
+#[test]
+fn draws_at_any_terminal_size_without_panicking() {
+    let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
+    press(&mut app, KeyCode::Char('x'));
+    for width in 1..30 {
+        for height in 1..8 {
+            render(&mut app, width, height);
+        }
+    }
+}
