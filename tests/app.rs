@@ -976,3 +976,107 @@ fn a_read_only_cell_in_a_selection_stops_the_delete() {
     assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
     assert!(app.status().contains("read-only"), "{}", app.status());
 }
+
+#[test]
+fn doubled_operators_act_on_whole_rows() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "ldd");
+    assert_eq!(value(&app, "A1"), CellValue::Empty);
+    assert_eq!(value(&app, "G1"), CellValue::Empty);
+    assert_eq!(value(&app, "A2"), CellValue::Number(12.0));
+    assert_eq!(app.cursor(), a1("B1"), "the cursor stays");
+
+    keys(&mut app, "u");
+    keys(&mut app, "j2dd");
+    assert_eq!(value(&app, "A2"), CellValue::Empty);
+    assert_eq!(value(&app, "A3"), CellValue::Empty);
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+
+    keys(&mut app, "u");
+    keys(&mut app, "ggyy");
+    assert_eq!(app.status(), "5 cells yanked");
+}
+
+#[test]
+fn operators_take_the_cells_a_motion_covers() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "d$");
+    assert_eq!(value(&app, "A1"), CellValue::Empty);
+    assert_eq!(value(&app, "G1"), CellValue::Empty);
+    assert_eq!(value(&app, "A2"), CellValue::Number(12.0));
+
+    keys(&mut app, "u");
+    keys(&mut app, "dj");
+    assert_eq!(value(&app, "A1"), CellValue::Empty);
+    assert_eq!(value(&app, "A2"), CellValue::Empty);
+    assert_eq!(value(&app, "B1"), CellValue::Number(2.0));
+
+    keys(&mut app, "u");
+    keys(&mut app, "dG");
+    assert_eq!(value(&app, "A6"), CellValue::Empty);
+    assert_eq!(value(&app, "B1"), CellValue::Number(2.0));
+
+    keys(&mut app, "u");
+    keys(&mut app, "jjdgg");
+    assert_eq!(value(&app, "A1"), CellValue::Empty);
+    assert_eq!(value(&app, "A3"), CellValue::Empty);
+    assert_eq!(app.cursor(), a1("A1"));
+}
+
+#[test]
+fn sideways_operators_leave_the_cell_the_motion_lands_on() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "dw");
+    assert_eq!(value(&app, "A1"), CellValue::Empty);
+    assert_eq!(value(&app, "B1"), CellValue::Empty);
+    assert_eq!(value(&app, "D1"), CellValue::Number(4.0), "where w landed");
+
+    keys(&mut app, "u");
+    keys(&mut app, "dl");
+    assert_eq!(value(&app, "A1"), CellValue::Empty);
+    assert_eq!(value(&app, "B1"), CellValue::Number(2.0));
+
+    keys(&mut app, "u");
+    keys(&mut app, "ldh");
+    assert_eq!(value(&app, "A1"), CellValue::Empty);
+    assert_eq!(value(&app, "B1"), CellValue::Number(2.0), "the cursor's cell stays");
+    assert_eq!(app.cursor(), a1("A1"));
+
+    keys(&mut app, "u");
+    keys(&mut app, "0de");
+    assert_eq!(value(&app, "B1"), CellValue::Empty, "e lands on the cell it includes");
+}
+
+#[test]
+fn counts_multiply_across_an_operator_and_other_keys_cancel_it() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "2d2j");
+    assert_eq!(value(&app, "A5"), CellValue::Empty);
+    assert_eq!(value(&app, "A6"), CellValue::Number(16.0));
+
+    keys(&mut app, "u");
+    keys(&mut app, "dQ");
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+    keys(&mut app, "j");
+    assert_eq!(value(&app, "A2"), CellValue::Number(12.0), "the operator did not wait");
+    press(&mut app, KeyCode::Char('d'));
+    press(&mut app, KeyCode::Esc);
+    keys(&mut app, "j");
+    assert_eq!(value(&app, "A2"), CellValue::Number(12.0));
+    assert_eq!(value(&app, "A3"), CellValue::Number(13.0));
+}
+
+#[test]
+fn yank_with_a_motion_leaves_cells_alone_and_c_starts_typing() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "y$");
+    assert_eq!(app.status(), "5 cells yanked");
+    assert_eq!(value(&app, "G1"), CellValue::Number(7.0));
+
+    keys(&mut app, "cw");
+    assert_eq!(app.mode(), Mode::Insert);
+    assert_eq!(value(&app, "B1"), CellValue::Empty);
+    keys(&mut app, "5");
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
+}

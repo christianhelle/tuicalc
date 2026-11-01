@@ -81,6 +81,9 @@ pub struct App {
     /// Where the visual selection started.
     anchor: CellRef,
     register: Option<Register>,
+    /// The operator waiting for its motion, and where it started.
+    operator: Option<(char, CellRef)>,
+    operator_count: Option<u32>,
 }
 
 impl App {
@@ -93,6 +96,8 @@ impl App {
             pending: None,
             anchor: origin,
             register: None,
+            operator: None,
+            operator_count: None,
             workbook,
             sheet: 0,
             cursor: CellRef { col: 0, row: 0 },
@@ -413,6 +418,38 @@ impl App {
         }
     }
 
+    /// Completes `d`, `y` or `c` with the motion that just moved the cursor. Exclusive motions
+    /// stop short of where they landed, so `dw` keeps the next run and `dl` takes one cell.
+    fn finish_operator(&mut self, exclusive: bool) {
+        let Some((operator, origin)) = self.operator.take() else {
+            return;
+        };
+        let target = self.cursor;
+        let (mut first, mut last) = (
+            CellRef { col: origin.col.min(target.col), row: origin.row.min(target.row) },
+            CellRef { col: origin.col.max(target.col), row: origin.row.max(target.row) },
+        );
+        if exclusive && target.col > origin.col {
+            last.col -= 1;
+        } else if exclusive && target.col < origin.col {
+            last.col -= 1;
+        } else if exclusive && target == origin && target.col == 0 {
+            first = origin;
+            last = origin;
+        }
+        self.cursor = origin;
+        self.operate(operator, first, last, false, first);
+    }
+
+    /// `dd`, `yy` and `cc`: the operator on whole rows, starting at the cursor's.
+    fn operate_on_rows(&mut self, operator: char, count: u32) {
+        let row = self.cursor.row;
+        let bottom = row.saturating_add(count - 1).min(MAX_ROWS - 1);
+        let first = CellRef { col: 0, row };
+        let last = CellRef { col: MAX_COLS - 1, row: bottom };
+        self.operate(operator, first, last, true, self.cursor);
+    }
+
     fn operate_on_selection(&mut self, operator: char) {
         let Some((first, last)) = self.selection() else {
             return;
@@ -553,8 +590,13 @@ impl App {
             return;
         }
         let count = self.count.take();
+        let count = match (count, self.operator_count.take()) {
+            (Some(a), Some(b)) => Some(a.saturating_mul(b).min(MAX_ROWS)),
+            (a, b) => a.or(b),
+        };
         if let Some(prefix) = self.pending.take() {
             self.prefixed_key(prefix, key, count);
+            self.finish_operator(false);
             return;
         }
         if let (KeyCode::Char(prefix @ ('g' | 'z')), false) = (key.code, is_ctrl(key)) {
@@ -563,6 +605,22 @@ impl App {
             return;
         }
         if self.motion(key, count) {
+            let exclusive = matches!(
+                key.code,
+                KeyCode::Char('h' | 'l' | 'w' | 'b') | KeyCode::Left | KeyCode::Right
+            );
+            self.finish_operator(exclusive);
+            return;
+        }
+        if let Some((operator, _)) = self.operator.take() {
+            if key.code == KeyCode::Char(operator) {
+                self.operate_on_rows(operator, count.unwrap_or(1));
+            }
+            return;
+        }
+        if let (KeyCode::Char(operator @ ('d' | 'y' | 'c')), false) = (key.code, is_ctrl(key)) {
+            self.operator = Some((operator, self.cursor));
+            self.operator_count = count;
             return;
         }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
