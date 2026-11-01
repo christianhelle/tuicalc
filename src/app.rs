@@ -53,6 +53,8 @@ pub struct App {
     /// The cursor position left behind on each sheet.
     cursors: Vec<CellRef>,
     scroll: CellRef,
+    /// The count typed so far, as in `5j`.
+    count: Option<u32>,
 }
 
 impl App {
@@ -61,6 +63,7 @@ impl App {
         Self {
             cursors: vec![origin; workbook.sheets.len()],
             scroll: origin,
+            count: None,
             workbook,
             sheet: 0,
             cursor: CellRef { col: 0, row: 0 },
@@ -185,8 +188,27 @@ impl App {
         true
     }
 
+    /// Collects count digits, and says whether the key was one.
+    fn count_digit(&mut self, key: KeyEvent) -> bool {
+        let KeyCode::Char(c @ '0'..='9') = key.code else {
+            return false;
+        };
+        // A leading zero is the motion to the first column, not a count.
+        if c == '0' && self.count.is_none() {
+            return false;
+        }
+        let digit = c.to_digit(10).unwrap_or(0);
+        let count = self.count.unwrap_or(0).saturating_mul(10).saturating_add(digit);
+        self.count = Some(count.min(MAX_ROWS));
+        true
+    }
+
     fn normal_key(&mut self, key: KeyEvent) {
-        if self.motion(key, None) {
+        if self.count_digit(key) {
+            return;
+        }
+        let count = self.count.take();
+        if self.motion(key, count) {
             return;
         }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);

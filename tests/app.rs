@@ -612,3 +612,24 @@ fn hjkl_move_like_the_arrow_keys() {
     keys(&mut app, "hhhkkk");
     assert_eq!(app.cursor(), a1("A1"));
 }
+
+#[test]
+fn a_count_repeats_the_motion_once() {
+    let (_file, mut app) = app_with("");
+    keys(&mut app, "5j");
+    assert_eq!(app.cursor(), a1("A6"));
+    keys(&mut app, "12l");
+    assert_eq!(app.cursor(), a1("M6"));
+    keys(&mut app, "h");
+    assert_eq!(app.cursor(), a1("L6"), "the count does not linger");
+    press(&mut app, KeyCode::Char('3'));
+    press(&mut app, KeyCode::Down);
+    assert_eq!(app.cursor(), a1("L9"), "arrows take counts too");
+}
+
+#[test]
+fn enormous_counts_stop_at_the_sheet_edge() {
+    let (_file, mut app) = app_with("");
+    keys(&mut app, "99999999999999999999j");
+    assert_eq!(app.cursor(), a1("A1048576"));
+}
