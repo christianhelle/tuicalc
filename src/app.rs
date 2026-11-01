@@ -20,6 +20,14 @@ fn is_text_input(key: KeyEvent) -> bool {
     ctrl == alt
 }
 
+/// One reversible cell edit.
+struct Change {
+    sheet: usize,
+    at: CellRef,
+    before: Cell,
+    after: Cell,
+}
+
 pub struct App {
     pub workbook: Workbook,
     sheet: usize,
@@ -32,6 +40,8 @@ pub struct App {
     /// The cell as it was when editing began.
     original: Cell,
     status: String,
+    undo: Vec<Change>,
+    redo: Vec<Change>,
 }
 
 impl App {
@@ -45,6 +55,8 @@ impl App {
             caret: 0,
             original: Cell::default(),
             status: String::new(),
+            undo: Vec::new(),
+            redo: Vec::new(),
         }
     }
 
@@ -97,6 +109,8 @@ impl App {
             KeyCode::Char(c) if is_text_input(key) => {
                 self.begin_edit(vec![c]);
             }
+            KeyCode::Char('z') if ctrl => self.undo(),
+            KeyCode::Char('y') if ctrl => self.redo(),
             KeyCode::Delete | KeyCode::Backspace => {
                 self.apply_edit(self.cursor, Cell::default());
             }
@@ -128,6 +142,31 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn undo(&mut self) {
+        let Some(change) = self.undo.pop() else {
+            self.status = "Nothing to undo".into();
+            return;
+        };
+        self.restore(change.sheet, change.at, change.before.clone());
+        self.redo.push(change);
+    }
+
+    fn redo(&mut self) {
+        let Some(change) = self.redo.pop() else {
+            self.status = "Nothing to redo".into();
+            return;
+        };
+        self.restore(change.sheet, change.at, change.after.clone());
+        self.undo.push(change);
+    }
+
+    /// Writes a cell back and shows it to the user.
+    fn restore(&mut self, sheet: usize, at: CellRef, cell: Cell) {
+        self.workbook.sheets[sheet].set_cell(at, cell);
+        self.sheet = sheet;
+        self.cursor = at;
     }
 
     fn begin_edit(&mut self, initial: Vec<char>) {
@@ -178,8 +217,11 @@ impl App {
         if self.refuse_if_locked() {
             return;
         }
-        if self.current_sheet().cell(at) != cell {
-            self.workbook.sheets[self.sheet].set_cell(at, cell);
+        let before = self.current_sheet().cell(at);
+        if before != cell {
+            self.workbook.sheets[self.sheet].set_cell(at, cell.clone());
+            self.undo.push(Change { sheet: self.sheet, at, before, after: cell });
+            self.redo.clear();
         }
     }
 

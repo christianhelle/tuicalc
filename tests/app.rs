@@ -274,3 +274,45 @@ fn array_formula_regions_cannot_be_edited() {
     press(&mut app, KeyCode::Right);
     assert_eq!(app.status(), "", "messages clear on the next key");
 }
+
+#[test]
+fn undo_and_redo_restore_cells_and_the_cursor() {
+    let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><f>B1</f><v>4</v></c></row>"#);
+    press(&mut app, KeyCode::Delete);
+    press(&mut app, KeyCode::Down);
+    enter_value(&mut app, "7");
+
+    ctrl(&mut app, KeyCode::Char('z'));
+    assert_eq!(app.current_sheet().cell(a1("A2")), Cell::default());
+    assert_eq!(app.cursor(), a1("A2"));
+
+    ctrl(&mut app, KeyCode::Char('z'));
+    let restored = app.current_sheet().cell(a1("A1"));
+    assert_eq!(restored.formula.as_deref(), Some("B1"));
+    assert_eq!(restored.value, CellValue::Number(4.0));
+    assert_eq!(app.cursor(), a1("A1"));
+
+    ctrl(&mut app, KeyCode::Char('z'));
+    assert_eq!(app.status(), "Nothing to undo");
+
+    ctrl(&mut app, KeyCode::Char('y'));
+    assert_eq!(app.current_sheet().cell(a1("A1")), Cell::default());
+    ctrl(&mut app, KeyCode::Char('y'));
+    assert_eq!(app.current_sheet().cell(a1("A2")).value, CellValue::Number(7.0));
+    ctrl(&mut app, KeyCode::Char('y'));
+    assert_eq!(app.status(), "Nothing to redo");
+}
+
+#[test]
+fn a_new_edit_discards_the_redo_history() {
+    let (_file, mut app) = app_with("");
+    enter_value(&mut app, "1");
+    ctrl(&mut app, KeyCode::Char('z'));
+    press(&mut app, KeyCode::Down);
+    enter_value(&mut app, "2");
+
+    ctrl(&mut app, KeyCode::Char('y'));
+
+    assert_eq!(app.status(), "Nothing to redo");
+    assert_eq!(app.current_sheet().cell(a1("A1")), Cell::default());
+}
