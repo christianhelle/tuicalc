@@ -8,8 +8,9 @@ pub const MAX_ROWS: u32 = 1_048_576;
 /// A zero-based cell position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CellRef {
-    pub col: u32,
+    // Row first: the derived ordering is the order cells must have in a worksheet.
     pub row: u32,
+    pub col: u32,
 }
 
 impl CellRef {

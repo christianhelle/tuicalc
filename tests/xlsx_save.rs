@@ -363,3 +363,41 @@ fn saving_without_edits_leaves_the_file_untouched_and_saves_repeat() {
     assert_eq!(reloaded.sheets[0].cell(a1("A1")), number(5.0));
     assert_eq!(reloaded.sheets[0].cell(a1("C1")), number(6.0));
 }
+
+#[test]
+fn new_cells_across_several_rows_and_columns_are_written_in_sheet_order() {
+    let rows = r#"<row r="1"><c r="A1"><v>1</v></c></row>"#;
+    let file = write_temp(&single_sheet(&sheet(rows), &[]));
+    let mut book = Workbook::open(&file.path).unwrap();
+    for at in ["H26", "I25", "A30", "H25", "I26"] {
+        book.sheets[0].set_cell(a1(at), number(1.0));
+    }
+    book.save().unwrap();
+
+    let saved = read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap();
+    let expected = concat!(
+        r#"<row r="25"><c r="H25"><v>1</v></c><c r="I25"><v>1</v></c></row>"#,
+        r#"<row r="26"><c r="H26"><v>1</v></c><c r="I26"><v>1</v></c></row>"#,
+        r#"<row r="30"><c r="A30"><v>1</v></c></row></sheetData>"#,
+    );
+    assert!(saved.contains(expected), "{saved}");
+}
+
+#[test]
+fn new_rows_before_an_existing_row_keep_their_own_order() {
+    let rows = r#"<row r="9"><c r="A9"><v>9</v></c></row>"#;
+    let file = write_temp(&single_sheet(&sheet(rows), &[]));
+    let mut book = Workbook::open(&file.path).unwrap();
+    for at in ["B3", "A4", "C3", "B4"] {
+        book.sheets[0].set_cell(a1(at), number(1.0));
+    }
+    book.save().unwrap();
+
+    let saved = read_part(&file.path, "xl/worksheets/sheet1.xml").unwrap();
+    let expected = concat!(
+        r#"<row r="3"><c r="B3"><v>1</v></c><c r="C3"><v>1</v></c></row>"#,
+        r#"<row r="4"><c r="A4"><v>1</v></c><c r="B4"><v>1</v></c></row>"#,
+        r#"<row r="9">"#,
+    );
+    assert!(saved.contains(expected), "{saved}");
+}
