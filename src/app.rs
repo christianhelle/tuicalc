@@ -4,11 +4,20 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
 use crate::model::Sheet;
+use crate::text::parse_input;
 use crate::xlsx::Workbook;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Navigate,
+    Edit,
+}
+
+/// Plain characters, plus AltGr combinations, which Windows reports as Ctrl+Alt.
+fn is_text_input(key: KeyEvent) -> bool {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    ctrl == alt
 }
 
 pub struct App {
@@ -17,11 +26,21 @@ pub struct App {
     cursor: CellRef,
     /// The visible grid size, in columns and rows.
     viewport: (u32, u32),
+    mode: Mode,
+    buffer: Vec<char>,
+    caret: usize,
 }
 
 impl App {
     pub fn new(workbook: Workbook) -> Self {
-        Self { workbook, sheet: 0, cursor: CellRef { col: 0, row: 0 }, viewport: (10, 20) }
+        Self {
+            workbook,
+            sheet: 0,
+            cursor: CellRef { col: 0, row: 0 }, viewport: (10, 20),
+            mode: Mode::Navigate,
+            buffer: Vec::new(),
+            caret: 0,
+        }
     }
 
     pub fn cursor(&self) -> CellRef {
@@ -36,17 +55,32 @@ impl App {
         self.viewport = (cols.max(1), rows.max(1));
     }
 
+    pub fn mode(&self) -> Mode {
+        self.mode
+    }
+
+    /// The text being edited.
+    pub fn buffer(&self) -> String {
+        self.buffer.iter().collect()
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) {
         // Windows reports key releases as separate events.
         if key.kind == KeyEventKind::Release {
             return;
         }
-        self.navigate_key(key);
+        match self.mode {
+            Mode::Navigate => self.navigate_key(key),
+            Mode::Edit => self.edit_key(key),
+        }
     }
 
     fn navigate_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
+            KeyCode::Char(c) if is_text_input(key) => {
+                self.begin_edit(vec![c]);
+            }
             KeyCode::Left => self.move_by(-1, 0),
             KeyCode::Right => self.move_by(1, 0),
             KeyCode::Up => self.move_by(0, -1),
@@ -70,6 +104,35 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn begin_edit(&mut self, initial: Vec<char>) {
+        self.caret = initial.len();
+        self.buffer = initial;
+        self.mode = Mode::Edit;
+    }
+
+    fn edit_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Enter => {
+                self.commit_edit();
+                self.move_by(0, 1);
+            }
+            KeyCode::Char(c) if is_text_input(key) => {
+                self.buffer.insert(self.caret, c);
+                self.caret += 1;
+            }
+            _ => {}
+        }
+    }
+
+    fn commit_edit(&mut self) {
+        self.mode = Mode::Navigate;
+        let at = self.cursor;
+        let text = self.buffer();
+        let was_date = self.current_sheet().cell(at).is_date;
+        let cell = parse_input(&text, was_date, self.workbook.date1904);
+        self.workbook.sheets[self.sheet].set_cell(at, cell);
     }
 
     fn move_by(&mut self, cols: i64, rows: i64) {

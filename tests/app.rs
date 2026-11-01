@@ -96,3 +96,53 @@ fn paging_and_jumping() {
     ctrl(&mut app, KeyCode::Home);
     assert_eq!(app.cursor(), a1("A1"));
 }
+
+#[test]
+fn typing_replaces_the_cell_and_enter_confirms_and_moves_down() {
+    let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
+
+    type_text(&mut app, "42");
+    assert_eq!(app.mode(), Mode::Edit);
+    assert_eq!(app.buffer(), "42");
+    assert_eq!(app.current_sheet().cell(a1("A1")).value, CellValue::Number(1.0), "not until confirmed");
+
+    press(&mut app, KeyCode::Enter);
+
+    assert_eq!(app.mode(), Mode::Navigate);
+    assert_eq!(app.current_sheet().cell(a1("A1")).value, CellValue::Number(42.0));
+    assert_eq!(app.cursor(), a1("A2"));
+}
+
+#[test]
+fn control_shortcuts_do_not_type_but_altgr_characters_do() {
+    let (_file, mut app) = app_with("");
+    app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+    assert_eq!(app.mode(), Mode::Navigate);
+
+    let altgr = KeyModifiers::CONTROL | KeyModifiers::ALT;
+    app.handle_key(KeyEvent::new(KeyCode::Char('@'), altgr));
+    assert_eq!(app.buffer(), "@");
+}
+
+#[test]
+fn input_is_interpreted_by_its_form() {
+    let (_file, mut app) = app_with("");
+    let text = |s: &str| CellValue::Text(s.to_string());
+    for (input, expected) in [
+        ("-1.5e3", CellValue::Number(-1500.0)),
+        ("hello", text("hello")),
+        ("true", CellValue::Bool(true)),
+        ("FALSE", CellValue::Bool(false)),
+        ("#N/A", CellValue::Error("#N/A".into())),
+        ("'123", text("123")),
+        ("'=A1", text("=A1")),
+        ("=", text("=")),
+        ("inf", text("inf")),
+        ("NaN", text("NaN")),
+        ("infinity", text("infinity")),
+    ] {
+        assert_eq!(enter_value(&mut app, input).value, expected, "{input}");
+    }
+
+    assert_eq!(enter_value(&mut app, "=SUM(A1:A2)").formula.as_deref(), Some("SUM(A1:A2)"));
+}
