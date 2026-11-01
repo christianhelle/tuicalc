@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
 use quick_xml::Reader;
-use quick_xml::events::Event;
+use quick_xml::events::{BytesStart, Event};
 use zip::ZipArchive;
 
 use super::XlsxError;
@@ -14,6 +14,7 @@ use crate::model::{Cell, CellValue, Sheet};
 
 const OFFICE_DOCUMENT: &str = "/officeDocument";
 const WORKSHEET: &str = "/worksheet";
+const SHARED_STRINGS: &str = "/sharedStrings";
 
 /// Where the parts that saving needs live inside the package.
 #[derive(Debug, Clone)]
@@ -29,6 +30,13 @@ pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, Layout), XlsxError> {
     let workbook_part = find_workbook_part(&mut archive)?;
     let relationships = read_relationships(&mut archive, &workbook_part)?;
     let declared = read_sheet_list(&mut archive, &workbook_part)?;
+    let shared_strings = match relationships.values().find(|r| r.kind.ends_with(SHARED_STRINGS)) {
+        Some(relationship) => match read_part(&mut archive, &relationship.target)? {
+            Some(xml) => read_shared_strings(&xml)?,
+            None => Vec::new(),
+        },
+        None => Vec::new(),
+    };
 
     let mut sheets = Vec::new();
     let mut sheet_parts = Vec::new();
@@ -41,7 +49,7 @@ pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, Layout), XlsxError> {
         }
         let xml = read_part(&mut archive, &relationship.target)?
             .ok_or_else(|| XlsxError::Invalid(format!("missing {}", relationship.target)))?;
-        sheets.push(read_sheet(&name, &xml)?);
+        sheets.push(read_sheet(&name, &xml, &shared_strings)?);
         sheet_parts.push(relationship.target.clone());
     }
     if sheets.is_empty() {
@@ -157,35 +165,151 @@ fn read_sheet_list(
     }
 }
 
-fn read_sheet(name: &str, xml: &str) -> Result<Sheet, XlsxError> {
-    let mut sheet = Sheet::new(name);
+/// Reads all `<si>` entries; rich text runs are joined and phonetic hints dropped.
+fn read_shared_strings(xml: &str) -> Result<Vec<String>, XlsxError> {
     let mut reader = Reader::from_str(xml);
-    let mut position = None;
-    let mut in_value = false;
-    let mut raw = String::new();
+    let mut strings = Vec::new();
+    let mut current = String::new();
+    let mut in_text = false;
+    let mut in_phonetic = false;
     loop {
         let event = reader.read_event().map_err(xml_error)?;
         match &event {
             Event::Start(element) => match local_name(element).as_str() {
-                "c" => {
-                    position = attr(element, "r").and_then(|r| CellRef::parse(&r));
-                    raw.clear();
-                }
-                "v" => in_value = true,
+                "si" => current.clear(),
+                "rPh" => in_phonetic = true,
+                "t" => in_text = !in_phonetic,
                 _ => {}
             },
+            Event::Empty(element) if local_name(element) == "si" => strings.push(String::new()),
             Event::End(element) => match AsRef::<str>::as_ref(&element.local_name()) {
-                "v" => in_value = false,
+                "si" => strings.push(std::mem::take(&mut current)),
+                "rPh" => in_phonetic = false,
+                "t" => in_text = false,
+                _ => {}
+            },
+            Event::Eof => return Ok(strings),
+            _ if in_text => push_text(&event, &mut current)?,
+            _ => {}
+        }
+    }
+}
+
+/// Which element's text is currently being collected.
+#[derive(Clone, Copy, PartialEq)]
+enum Capture {
+    Nothing,
+    Value,
+    Formula,
+    Inline,
+}
+
+/// The `<c>` element being read.
+#[derive(Default)]
+struct Draft {
+    at: Option<CellRef>,
+    kind: String,
+    formula: Option<String>,
+    value: String,
+    inline: String,
+}
+
+impl Draft {
+    fn start(element: &BytesStart<'_>, fallback: CellRef) -> Self {
+        let at = attr(element, "r").and_then(|r| CellRef::parse(&r)).unwrap_or(fallback);
+        Self {
+            at: Some(at),
+            kind: attr(element, "t").unwrap_or_default(),
+            ..Self::default()
+        }
+    }
+
+    fn into_cell(self, shared_strings: &[String]) -> Cell {
+        let value = match self.kind.as_str() {
+            "s" => self
+                .value
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| shared_strings.get(index).cloned())
+                .map_or(CellValue::Empty, CellValue::Text),
+            "b" => CellValue::Bool(self.value == "1"),
+            "e" => CellValue::Error(self.value),
+            "inlineStr" => CellValue::Text(self.inline),
+            "str" | "d" => CellValue::Text(self.value),
+            _ if self.value.is_empty() => CellValue::Empty,
+            _ => self
+                .value
+                .parse()
+                .map_or_else(|_| CellValue::Text(self.value), CellValue::Number),
+        };
+        Cell { value, formula: self.formula }
+    }
+}
+
+fn read_sheet(name: &str, xml: &str, shared_strings: &[String]) -> Result<Sheet, XlsxError> {
+    let mut sheet = Sheet::new(name);
+    let mut reader = Reader::from_str(xml);
+    let mut draft = Draft::default();
+    let mut capture = Capture::Nothing;
+    let mut in_phonetic = false;
+    // Rows and cells may omit `r`, in which case they follow their predecessor.
+    let mut next = CellRef { col: 0, row: 0 };
+    let mut row_seen = false;
+    loop {
+        let event = reader.read_event().map_err(xml_error)?;
+        match &event {
+            Event::Start(element) | Event::Empty(element) => {
+                let empty = matches!(event, Event::Empty(_));
+                match local_name(element).as_str() {
+                    "row" => {
+                        next.row = attr(element, "r")
+                            .and_then(|r| r.parse::<u32>().ok())
+                            .and_then(|r| r.checked_sub(1))
+                            .unwrap_or(if row_seen { next.row + 1 } else { 0 });
+                        next.col = 0;
+                        row_seen = true;
+                    }
+                    "c" => {
+                        draft = Draft::start(element, next);
+                        next.col = draft.at.map_or(next.col, |at| at.col) + 1;
+                        if empty {
+                            draft = Draft::default();
+                        }
+                    }
+                    "v" if !empty => capture = Capture::Value,
+                    "f" => {
+                        draft.formula = Some(String::new());
+                        if !empty {
+                            capture = Capture::Formula;
+                        }
+                    }
+                    "rPh" => in_phonetic = !empty,
+                    "t" if !empty && !in_phonetic => capture = Capture::Inline,
+                    _ => {}
+                }
+            }
+            Event::End(element) => match AsRef::<str>::as_ref(&element.local_name()) {
+                "v" | "f" | "t" => capture = Capture::Nothing,
+                "rPh" => in_phonetic = false,
                 "c" => {
-                    if let (Some(at), Ok(number)) = (position.take(), raw.parse()) {
-                        sheet.load_cell(at, Cell::value(CellValue::Number(number)));
+                    let finished = std::mem::take(&mut draft);
+                    if let Some(at) = finished.at {
+                        sheet.load_cell(at, finished.into_cell(shared_strings));
                     }
                 }
                 _ => {}
             },
             Event::Eof => return Ok(sheet),
-            _ if in_value => push_text(&event, &mut raw)?,
-            _ => {}
+            _ => match capture {
+                Capture::Nothing => {}
+                Capture::Value => push_text(&event, &mut draft.value)?,
+                Capture::Inline => push_text(&event, &mut draft.inline)?,
+                Capture::Formula => {
+                    if let Some(formula) = &mut draft.formula {
+                        push_text(&event, formula)?;
+                    }
+                }
+            },
         }
     }
 }
