@@ -74,3 +74,39 @@ fn locates_cells_that_omit_their_reference() {
     assert_eq!(book.sheets[0].cell(a1("B1")).value, CellValue::Number(2.0));
     assert_eq!(book.sheets[0].cell(a1("A2")).value, CellValue::Number(3.0));
 }
+
+#[test]
+fn ignores_chartsheets_and_keeps_worksheet_order() {
+    let workbook = r#"<workbook xmlns:r="x"><sheets><sheet name="Chart" sheetId="1" r:id="rId9"/><sheet name="Data" sheetId="2" r:id="rId1"/></sheets></workbook>"#;
+    let rels = r#"<Relationships><Relationship Id="rId1" Type="http://x/worksheet" Target="/xl/worksheets/sheet1.xml"/><Relationship Id="rId9" Type="http://x/chartsheet" Target="chartsheets/sheet1.xml"/></Relationships>"#;
+    let bytes = package(&[
+        ("_rels/.rels", ROOT_RELS),
+        ("xl/workbook.xml", workbook),
+        ("xl/_rels/workbook.xml.rels", rels),
+        ("xl/worksheets/sheet1.xml", &sheet("")),
+    ]);
+
+    let book = Workbook::open(&write_temp(&bytes).path).unwrap();
+
+    let names: Vec<_> = book.sheets.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["Data"]);
+}
+
+#[test]
+fn reads_namespace_prefixed_worksheets() {
+    let xml = r#"<x:worksheet xmlns:x="urn"><x:sheetData><x:row r="1"><x:c r="A1"><x:v>7</x:v></x:c></x:row></x:sheetData></x:worksheet>"#;
+    let book = Workbook::open(&write_temp(&single_sheet(xml, &[])).path).unwrap();
+    assert_eq!(book.sheets[0].cell(a1("A1")).value, CellValue::Number(7.0));
+}
+
+#[test]
+fn reports_files_that_are_not_workbooks() {
+    let not_zip = write_temp(b"plain text");
+    assert!(Workbook::open(&not_zip.path).is_err());
+
+    let no_rels = write_temp(&package(&[("a.txt", "hi")]));
+    let message = Workbook::open(&no_rels.path).unwrap_err().to_string();
+    assert!(message.contains("_rels/.rels"), "{message}");
+
+    assert!(Workbook::open("does-not-exist.xlsx").is_err());
+}
