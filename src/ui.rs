@@ -4,6 +4,7 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
+use unicode_width::UnicodeWidthChar;
 
 use crate::address::{CellRef, column_name};
 use crate::app::App;
@@ -67,8 +68,18 @@ fn center(text: &str) -> String {
     format!("{}{text}", " ".repeat(left))
 }
 
+/// Cuts text to the column's width in terminal cells and fills the remainder.
 fn pad(text: &str, right_aligned: bool) -> String {
-    let width = text.chars().count();
-    let fill = " ".repeat(CONTENT_WIDTH.saturating_sub(width));
-    if right_aligned { format!("{fill}{text}") } else { format!("{text}{fill}") }
+    let mut fitted = String::new();
+    let mut width = 0;
+    for c in text.chars().map(|c| if c.is_control() { ' ' } else { c }) {
+        let char_width = c.width().unwrap_or(0);
+        if width + char_width > CONTENT_WIDTH {
+            break;
+        }
+        fitted.push(c);
+        width += char_width;
+    }
+    let fill = " ".repeat(CONTENT_WIDTH - width);
+    if right_aligned { format!("{fill}{fitted}") } else { format!("{fitted}{fill}") }
 }

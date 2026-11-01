@@ -110,3 +110,21 @@ fn shows_booleans_errors_formula_results_and_dates() {
     assert_eq!(drawn_cell(row, 1).trim(), "2023-03-15");
     assert_eq!(drawn_cell(row, 2).trim(), "2023-03-15", "the time does not fit the column");
 }
+
+#[test]
+fn long_and_wide_text_stays_inside_its_column() {
+    let (_file, mut app) = app_with(
+        r#"<row r="1"><c r="A1" t="inlineStr"><is><t>far too long for the column</t></is></c><c r="B1"><v>1</v></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>日本語日本語日本語</t></is></c><c r="B2"><v>2</v></c></row><row r="3"><c r="A3" t="inlineStr"><is><t xml:space="preserve">two
+lines</t></is></c></row>"#,
+    );
+
+    let screen = render(&mut app, 40, 10);
+
+    assert_eq!(drawn_cell(grid_line(&screen, 1), 0), "far too lon");
+    assert_eq!(drawn_cell(grid_line(&screen, 1), 1).trim(), "1");
+    let row2 = grid_line(&screen, 2);
+    assert!(row2.contains("日本語日本"), "{row2}");
+    assert!(!row2.contains("日本語日本語"), "{row2}");
+    assert!(row2.trim_end().ends_with('2'), "{row2}");
+    assert_eq!(drawn_cell(grid_line(&screen, 3), 0), "two lines  ");
+}
