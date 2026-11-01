@@ -89,6 +89,9 @@ impl App {
             KeyCode::Char(c) if is_text_input(key) => {
                 self.begin_edit(vec![c]);
             }
+            KeyCode::Delete | KeyCode::Backspace => {
+                self.apply_edit(self.cursor, Cell::default());
+            }
             KeyCode::F(2) => {
                 let cell = self.current_sheet().cell(self.cursor);
                 let text = edit_text(&cell, self.workbook.date1904);
@@ -152,6 +155,12 @@ impl App {
         }
     }
 
+    fn apply_edit(&mut self, at: CellRef, cell: Cell) {
+        if self.current_sheet().cell(at) != cell {
+            self.workbook.sheets[self.sheet].set_cell(at, cell);
+        }
+    }
+
     fn commit_and_move(&mut self, cols: i64, rows: i64) {
         self.commit_edit();
         self.move_by(cols, rows);
@@ -168,7 +177,7 @@ impl App {
             return;
         }
         let cell = parse_input(&text, was_date, date1904);
-        self.workbook.sheets[self.sheet].set_cell(at, cell);
+        self.apply_edit(at, cell);
     }
 
     fn move_by(&mut self, cols: i64, rows: i64) {

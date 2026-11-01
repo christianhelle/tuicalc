@@ -240,3 +240,20 @@ fn arrows_and_tab_confirm_the_edit_and_move() {
     assert_eq!(value("B1"), CellValue::Number(3.0));
     assert_eq!(value("B2"), CellValue::Number(4.0));
 }
+
+#[test]
+fn delete_clears_the_cell() {
+    let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c></row>"#);
+
+    press(&mut app, KeyCode::Delete);
+    press(&mut app, KeyCode::Right);
+    press(&mut app, KeyCode::Backspace);
+
+    assert_eq!(app.current_sheet().cell(a1("A1")), Cell::default());
+    assert_eq!(app.current_sheet().cell(a1("B1")), Cell::default());
+    assert_eq!(app.mode(), Mode::Navigate);
+
+    press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::Delete);
+    assert_eq!(app.current_sheet().dirty_cells().count(), 2, "clearing an empty cell is no edit");
+}
