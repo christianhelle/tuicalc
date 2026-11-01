@@ -11,6 +11,10 @@ use crate::xlsx::Workbook;
 pub enum Mode {
     Normal,
     Insert,
+    /// Selecting a rectangle of cells.
+    Visual,
+    /// Selecting whole rows.
+    VisualRow,
     /// Waiting for the user to decide what happens to unsaved edits.
     ConfirmQuit,
 }
@@ -62,6 +66,8 @@ pub struct App {
     count: Option<u32>,
     /// The first key of a two-key command, as in `gg`.
     pending: Option<char>,
+    /// Where the visual selection started.
+    anchor: CellRef,
 }
 
 impl App {
@@ -72,6 +78,7 @@ impl App {
             scroll: origin,
             count: None,
             pending: None,
+            anchor: origin,
             workbook,
             sheet: 0,
             cursor: CellRef { col: 0, row: 0 },
@@ -156,6 +163,7 @@ impl App {
         match self.mode {
             Mode::Normal => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
+            Mode::Visual | Mode::VisualRow => self.visual_key(key),
             Mode::ConfirmQuit => self.confirm_quit_key(key),
         }
         self.scroll_to_cursor();
@@ -369,6 +377,57 @@ impl App {
         true
     }
 
+    fn begin_visual(&mut self, mode: Mode) {
+        self.anchor = self.cursor;
+        self.mode = mode;
+    }
+
+    /// The selected rectangle, as its top-left and bottom-right cells.
+    pub fn selection(&self) -> Option<(CellRef, CellRef)> {
+        let (a, b) = (self.anchor, self.cursor);
+        let rows = (a.row.min(b.row), a.row.max(b.row));
+        match self.mode {
+            Mode::Visual => Some((
+                CellRef { col: a.col.min(b.col), row: rows.0 },
+                CellRef { col: a.col.max(b.col), row: rows.1 },
+            )),
+            Mode::VisualRow => Some((
+                CellRef { col: 0, row: rows.0 },
+                CellRef { col: MAX_COLS - 1, row: rows.1 },
+            )),
+            _ => None,
+        }
+    }
+
+    fn visual_key(&mut self, key: KeyEvent) {
+        if self.count_digit(key) {
+            return;
+        }
+        let count = self.count.take();
+        if let Some(prefix) = self.pending.take() {
+            self.prefixed_key(prefix, key, count);
+            return;
+        }
+        if let (KeyCode::Char(prefix @ ('g' | 'z')), false) = (key.code, is_ctrl(key)) {
+            self.pending = Some(prefix);
+            self.count = count;
+            return;
+        }
+        if self.motion(key, count) {
+            return;
+        }
+        match (key.code, self.mode) {
+            (KeyCode::Esc, _) | (KeyCode::Char('v'), Mode::Visual) | (KeyCode::Char('V'), Mode::VisualRow) => {
+                self.mode = Mode::Normal;
+            }
+            (KeyCode::Char('c'), _) if is_ctrl(key) => self.mode = Mode::Normal,
+            (KeyCode::Char('v'), _) => self.mode = Mode::Visual,
+            (KeyCode::Char('V'), _) => self.mode = Mode::VisualRow,
+            (KeyCode::Char('o' | 'O'), _) => std::mem::swap(&mut self.anchor, &mut self.cursor),
+            _ => {}
+        }
+    }
+
     /// Finishes a two-key command.
     fn prefixed_key(&mut self, prefix: char, key: KeyEvent, count: Option<u32>) {
         let rows = self.viewport.1;
@@ -376,6 +435,7 @@ impl App {
             ('g', KeyCode::Char('g')) => {
                 self.cursor.row = count.unwrap_or(1).saturating_sub(1).min(MAX_ROWS - 1);
             }
+            ('g', KeyCode::Char('t' | 'T')) if self.selection().is_some() => {}
             ('g', KeyCode::Char('t')) => match count {
                 Some(number) => self.go_to_sheet(number),
                 None => self.switch_sheet(1),
@@ -449,6 +509,9 @@ impl App {
                     self.clear_cells(self.cursor, CellRef { col, ..self.cursor });
                 }
             }
+            KeyCode::Char('v') if is_ctrl(key) => self.begin_visual(Mode::Visual),
+            KeyCode::Char('v') if !ctrl => self.begin_visual(Mode::Visual),
+            KeyCode::Char('V') if !ctrl => self.begin_visual(Mode::VisualRow),
             KeyCode::F(2) => self.edit_existing(),
             KeyCode::Char('a' | 'A') if !ctrl => self.edit_existing(),
             KeyCode::Char('i' | 'I') if !ctrl => {

@@ -809,3 +809,61 @@ fn a_clear_touching_a_read_only_cell_changes_nothing() {
     assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
     assert!(app.status().contains("B1 is part of an array formula"), "{}", app.status());
 }
+
+#[test]
+fn visual_mode_selects_the_rectangle_between_start_and_cursor() {
+    let (_file, mut app) = app_with(RUNS);
+    assert_eq!(app.selection(), None);
+    keys(&mut app, "lljv");
+    assert_eq!(app.mode(), Mode::Visual);
+    assert_eq!(app.selection(), Some((a1("C2"), a1("C2"))));
+
+    keys(&mut app, "2jh");
+    assert_eq!(app.selection(), Some((a1("B2"), a1("C4"))));
+    keys(&mut app, "3k");
+    assert_eq!(app.selection(), Some((a1("B1"), a1("C2"))));
+
+    keys(&mut app, "o");
+    assert_eq!(app.cursor(), a1("C2"));
+    assert_eq!(app.selection(), Some((a1("B1"), a1("C2"))), "same corners, other end");
+
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(app.selection(), None);
+}
+
+#[test]
+fn visual_row_mode_selects_whole_rows_and_the_keys_switch_between_modes() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "lVj");
+    assert_eq!(app.mode(), Mode::VisualRow);
+    assert_eq!(app.selection(), Some((a1("A1"), a1("XFD2"))));
+
+    keys(&mut app, "v");
+    assert_eq!(app.mode(), Mode::Visual);
+    assert_eq!(app.selection(), Some((a1("B1"), a1("B2"))));
+
+    keys(&mut app, "V");
+    assert_eq!(app.mode(), Mode::VisualRow);
+    keys(&mut app, "V");
+    assert_eq!(app.mode(), Mode::Normal);
+
+    keys(&mut app, "vv");
+    assert_eq!(app.mode(), Mode::Normal);
+
+    ctrl(&mut app, KeyCode::Char('v'));
+    assert_eq!(app.mode(), Mode::Visual);
+}
+
+#[test]
+fn every_motion_extends_a_visual_selection() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "v$");
+    assert_eq!(app.selection(), Some((a1("A1"), a1("G1"))));
+    keys(&mut app, "G");
+    assert_eq!(app.selection(), Some((a1("A1"), a1("G6"))));
+    keys(&mut app, "gg");
+    assert_eq!(app.selection(), Some((a1("A1"), a1("G1"))));
+    keys(&mut app, "2h");
+    assert_eq!(app.selection(), Some((a1("A1"), a1("E1"))));
+}
