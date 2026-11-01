@@ -38,6 +38,7 @@ fn type_text(app: &mut App, text: &str) {
 /// Types `text` into the cell under the cursor and confirms it.
 fn enter_value(app: &mut App, text: &str) -> Cell {
     let at = app.cursor();
+    press(app, KeyCode::Char('s'));
     type_text(app, text);
     press(app, KeyCode::Enter);
     app.current_sheet().cell(at)
@@ -102,6 +103,7 @@ fn paging_and_jumping() {
 fn typing_replaces_the_cell_and_enter_confirms_and_moves_down() {
     let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
 
+    press(&mut app, KeyCode::Char('s'));
     type_text(&mut app, "42");
     assert_eq!(app.mode(), Mode::Insert);
     assert_eq!(app.buffer(), "42");
@@ -127,6 +129,7 @@ fn control_shortcuts_do_not_type_but_altgr_characters_do() {
     app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
     assert_eq!(app.mode(), Mode::Normal);
 
+    press(&mut app, KeyCode::Char('s'));
     let altgr = KeyModifiers::CONTROL | KeyModifiers::ALT;
     app.handle_key(KeyEvent::new(KeyCode::Char('@'), altgr));
     assert_eq!(app.buffer(), "@");
@@ -191,6 +194,7 @@ fn f2_edits_the_existing_content_at_the_caret() {
 fn escape_cancels_and_confirming_unchanged_text_changes_nothing() {
     let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><f>B1*2</f><v>4</v></c></row>"#);
 
+    press(&mut app, KeyCode::Char('s'));
     type_text(&mut app, "9");
     press(&mut app, KeyCode::Esc);
     assert_eq!(app.mode(), Mode::Normal);
@@ -245,14 +249,18 @@ fn arrows_and_tab_confirm_the_edit_and_move() {
     let (_file, mut app) = app_with("");
     press(&mut app, KeyCode::Down);
 
+    press(&mut app, KeyCode::Char('s'));
     type_text(&mut app, "1");
     press(&mut app, KeyCode::Tab);
     assert_eq!(app.cursor(), a1("B2"));
+    press(&mut app, KeyCode::Char('s'));
     type_text(&mut app, "2");
     press(&mut app, KeyCode::Up);
     assert_eq!(app.cursor(), a1("B1"));
+    press(&mut app, KeyCode::Char('s'));
     type_text(&mut app, "3");
     press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::Char('s'));
     type_text(&mut app, "4");
     press(&mut app, KeyCode::BackTab);
     assert_eq!(app.cursor(), a1("A2"));
@@ -291,7 +299,7 @@ fn array_formula_regions_cannot_be_edited() {
         r#"<row r="1"><c r="A1"><f t="array" ref="A1:A2">B1:B2*2</f><v>2</v></c></row><row r="2"><c r="A2"><v>4</v></c></row>"#,
     );
 
-    for attempt in [KeyCode::Char('9'), KeyCode::F(2), KeyCode::Delete] {
+    for attempt in [KeyCode::Char('s'), KeyCode::F(2), KeyCode::Delete] {
         press(&mut app, attempt);
         assert_eq!(app.mode(), Mode::Normal);
         assert!(app.status().contains("array formula"), "{}", app.status());
@@ -520,4 +528,55 @@ fn shrinking_the_view_keeps_the_cursor_visible() {
     app.set_viewport(10, 3);
 
     assert_eq!(app.scroll(), a1("A7"));
+}
+
+/// Presses each character as its own key, as in vim's notation.
+fn keys(app: &mut App, sequence: &str) {
+    for c in sequence.chars() {
+        press(app, KeyCode::Char(c));
+    }
+}
+
+/// A1 B1 . D1 E1 . G1 across, and A1 A2 A3 . A5 A6 down.
+const RUNS: &str = r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c><c r="D1"><v>4</v></c><c r="E1"><v>5</v></c><c r="G1"><v>7</v></c></row><row r="2"><c r="A2"><v>12</v></c></row><row r="3"><c r="A3"><v>13</v></c></row><row r="5"><c r="A5"><v>15</v></c></row><row r="6"><c r="A6"><v>16</v></c></row>"#;
+
+fn value(app: &App, at: &str) -> CellValue {
+    app.current_sheet().cell(a1(at)).value
+}
+
+#[test]
+fn i_and_a_edit_the_cell_with_the_caret_at_either_end() {
+    let (_file, mut app) = app_with(r#"<row r="1"><c r="A1" t="inlineStr"><is><t>word</t></is></c></row>"#);
+
+    keys(&mut app, "i");
+    assert_eq!(app.mode(), Mode::Insert);
+    assert_eq!(app.buffer(), "word");
+    assert_eq!(app.caret(), 0);
+    press(&mut app, KeyCode::Esc);
+
+    keys(&mut app, "a");
+    assert_eq!(app.mode(), Mode::Insert);
+    assert_eq!(app.caret(), 4);
+}
+
+#[test]
+fn s_replaces_the_cell_and_equals_starts_a_formula() {
+    let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
+
+    keys(&mut app, "s");
+    assert_eq!(app.buffer(), "");
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(value(&app, "A1"), CellValue::Empty, "confirming nothing clears the cell");
+
+    keys(&mut app, "=");
+    assert_eq!(app.buffer(), "=");
+    assert_eq!(app.caret(), 1);
+}
+
+#[test]
+fn letters_with_no_command_do_nothing_in_normal_mode() {
+    let (_file, mut app) = app_with("");
+    keys(&mut app, "Q");
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(app.current_sheet().cell(a1("A1")), Cell::default());
 }

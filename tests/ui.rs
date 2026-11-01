@@ -191,6 +191,7 @@ fn the_formula_bar_shows_the_address_and_full_contents() {
 #[test]
 fn editing_shows_the_buffer_with_the_terminal_cursor_at_the_caret() {
     let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('s'));
     for c in "日本x".chars() {
         press(&mut app, KeyCode::Char(c));
     }
@@ -211,6 +212,7 @@ fn editing_shows_the_buffer_with_the_terminal_cursor_at_the_caret() {
 fn long_edits_scroll_to_keep_the_caret_visible() {
     let (_file, mut app) = app_with("");
     let text: String = ('a'..='z').cycle().take(60).collect();
+    press(&mut app, KeyCode::Char('s'));
     for c in text.chars() {
         press(&mut app, KeyCode::Char(c));
     }
@@ -283,6 +285,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
         screen[9]
     );
 
+    press(&mut app, KeyCode::Char('s'));
     press(&mut app, KeyCode::Char('1'));
     let screen = render(&mut app, 80, 10);
     assert!(screen[9].contains("Enter confirm"), "{}", screen[9]);
@@ -300,6 +303,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     );
 
     press(&mut app, KeyCode::Up);
+    press(&mut app, KeyCode::Char('s'));
     press(&mut app, KeyCode::Char('2'));
     press(&mut app, KeyCode::Enter);
     app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
@@ -310,7 +314,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
 #[test]
 fn draws_at_any_terminal_size_without_panicking() {
     let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
-    press(&mut app, KeyCode::Char('x'));
+    press(&mut app, KeyCode::Char('s'));
     for width in 1..30 {
         for height in 1..8 {
             render(&mut app, width, height);

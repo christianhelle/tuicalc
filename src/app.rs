@@ -149,9 +149,6 @@ impl App {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         match key.code {
-            KeyCode::Char(c) if is_text_input(key) => {
-                self.begin_edit(vec![c]);
-            }
             KeyCode::PageDown if ctrl => self.switch_sheet(1),
             KeyCode::PageUp if ctrl => self.switch_sheet(-1),
             KeyCode::F(6) if shift => self.switch_sheet(-1),
@@ -171,11 +168,14 @@ impl App {
             KeyCode::Delete | KeyCode::Backspace => {
                 self.apply_edit(self.cursor, Cell::default());
             }
-            KeyCode::F(2) => {
-                let cell = self.current_sheet().cell(self.cursor);
-                let text = edit_text(&cell, self.workbook.date1904);
-                self.begin_edit(text.chars().collect());
+            KeyCode::F(2) => self.edit_existing(),
+            KeyCode::Char('a' | 'A') if !ctrl => self.edit_existing(),
+            KeyCode::Char('i' | 'I') if !ctrl => {
+                self.edit_existing();
+                self.caret = 0;
             }
+            KeyCode::Char('s') if !ctrl => self.begin_edit(Vec::new()),
+            KeyCode::Char('=') if !ctrl => self.begin_edit(vec!['=']),
             KeyCode::Left => self.move_by(-1, 0),
             KeyCode::Right => self.move_by(1, 0),
             KeyCode::Up => self.move_by(0, -1),
@@ -268,6 +268,12 @@ impl App {
         self.cursors[self.sheet] = self.cursor;
         self.sheet = sheet;
         self.cursor = at;
+    }
+
+    fn edit_existing(&mut self) {
+        let cell = self.current_sheet().cell(self.cursor);
+        let text = edit_text(&cell, self.workbook.date1904);
+        self.begin_edit(text.chars().collect());
     }
 
     fn begin_edit(&mut self, initial: Vec<char>) {
