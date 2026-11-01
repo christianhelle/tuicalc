@@ -16,7 +16,7 @@ const COLUMN_WIDTH: u16 = 12;
 const CONTENT_WIDTH: usize = COLUMN_WIDTH as usize - 1;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
-    let [formula_bar, grid, _tabs, _status] = Layout::vertical([
+    let [formula_bar, grid, tabs, status] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(1),
@@ -28,6 +28,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     app.set_viewport(visible_cols, visible_rows);
     draw_grid(frame.buffer_mut(), grid, app, visible_cols, visible_rows);
     draw_formula_bar(frame, formula_bar, app);
+    draw_tabs(frame.buffer_mut(), tabs, app);
+    draw_status(frame.buffer_mut(), status, app);
 }
 
 /// Shows the cursor's address and contents, or the text being edited with its caret.
@@ -67,6 +69,55 @@ fn draw_formula_bar(frame: &mut Frame, area: Rect, app: &App) {
 
 fn text_width(chars: &[char]) -> usize {
     chars.iter().map(|c| c.width().unwrap_or(0)).sum()
+}
+
+/// Shows the sheet names, starting late enough to keep the current one on screen.
+fn draw_tabs(buffer: &mut Buffer, area: Rect, app: &App) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let names: Vec<String> =
+        app.workbook.sheets.iter().map(|sheet| format!(" {} ", sheet.name)).collect();
+    let width_of = |name: &String| name.chars().map(|c| c.width().unwrap_or(0)).sum::<usize>();
+    let current = app.sheet_index();
+    let mut first = 0;
+    while first < current
+        && names[first..=current].iter().map(width_of).sum::<usize>() > usize::from(area.width)
+    {
+        first += 1;
+    }
+    let mut x = area.x;
+    for (index, name) in names.iter().enumerate().skip(first) {
+        if x >= area.right() {
+            break;
+        }
+        let style = if index == current {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default()
+        };
+        let room = usize::from(area.right() - x);
+        buffer.set_stringn(x, area.y, name, room, style);
+        x = x.saturating_add(width_of(name) as u16);
+    }
+}
+
+const HELP: &str = "F2 edit | Ctrl+S save | Ctrl+Z undo | F6 sheet | Ctrl+Q quit";
+const CONFIRM_QUIT: &str = "Unsaved changes: [s]ave and quit, [d]iscard, Esc to stay";
+
+fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let marker = if app.workbook.is_dirty() { "*" } else { "" };
+    let message = match app.mode() {
+        Mode::ConfirmQuit => CONFIRM_QUIT,
+        _ if !app.status().is_empty() => app.status(),
+        Mode::Edit => "Enter confirm | Esc cancel",
+        Mode::Navigate => HELP,
+    };
+    let line = format!("{}{marker} | {message}", app.file_name());
+    buffer.set_stringn(area.x, area.y, line, usize::from(area.width), Style::default());
 }
 
 fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {

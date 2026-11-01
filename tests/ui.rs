@@ -200,3 +200,68 @@ fn long_edits_scroll_to_keep_the_caret_visible() {
     let line: String = (8..30).map(|x| buffer[(x, 0)].symbol().to_string()).collect();
     assert!(text.ends_with(line.trim_end()), "{line}");
 }
+
+fn many_sheets(count: usize) -> Vec<u8> {
+    let tags: String = (0..count)
+        .map(|i| format!(r#"<sheet name="Sheet{i}" sheetId="{i}" r:id="rId{i}"/>"#))
+        .collect();
+    let workbook = format!(r#"<workbook xmlns:r="x"><sheets>{tags}</sheets></workbook>"#);
+    let rels: String = (0..count)
+        .map(|i| format!(r#"<Relationship Id="rId{i}" Type="x/worksheet" Target="worksheets/s{i}.xml"/>"#))
+        .collect();
+    let rels = format!("<Relationships>{rels}</Relationships>");
+    let sheet_xml = sheet("");
+    let names: Vec<String> = (0..count).map(|i| format!("xl/worksheets/s{i}.xml")).collect();
+    let mut parts = vec![
+        ("_rels/.rels", ROOT_RELS),
+        ("xl/workbook.xml", workbook.as_str()),
+        ("xl/_rels/workbook.xml.rels", rels.as_str()),
+    ];
+    parts.extend(names.iter().map(|name| (name.as_str(), sheet_xml.as_str())));
+    package(&parts)
+}
+
+#[test]
+fn tabs_mark_the_current_sheet_and_keep_it_on_screen() {
+    let (_file, mut app) = app_from(&many_sheets(10));
+
+    let screen = render(&mut app, 30, 10);
+    assert!(screen[8].starts_with(" Sheet0  Sheet1 "), "{}", screen[8]);
+
+    for _ in 0..9 {
+        press(&mut app, KeyCode::F(6));
+    }
+    let terminal = terminal_for(&mut app, 30, 10);
+    let buffer = terminal.backend().buffer();
+    let line: String = (0..30).map(|x| buffer[(x, 8)].symbol().to_string()).collect();
+    assert!(line.contains(" Sheet9 "), "{line}");
+    let start = line.find(" Sheet9 ").unwrap() as u16;
+    assert!(buffer[(start + 1, 8)].modifier.contains(Modifier::REVERSED));
+}
+
+#[test]
+fn the_status_line_shows_file_state_help_messages_and_prompts() {
+    let (_file, mut app) = app_with("");
+
+    let screen = render(&mut app, 80, 10);
+    assert!(screen[9].starts_with("book.xlsx | F2 edit"), "{}", screen[9]);
+
+    press(&mut app, KeyCode::Char('1'));
+    let screen = render(&mut app, 80, 10);
+    assert!(screen[9].contains("Enter confirm"), "{}", screen[9]);
+
+    press(&mut app, KeyCode::Enter);
+    let screen = render(&mut app, 80, 10);
+    assert!(screen[9].starts_with("book.xlsx* |"), "{}", screen[9]);
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    let screen = render(&mut app, 80, 10);
+    assert!(screen[9].starts_with("book.xlsx | Saved book.xlsx"), "{}", screen[9]);
+
+    press(&mut app, KeyCode::Up);
+    press(&mut app, KeyCode::Char('2'));
+    press(&mut app, KeyCode::Enter);
+    app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
+    let screen = render(&mut app, 80, 10);
+    assert!(screen[9].contains("[s]ave and quit"), "{}", screen[9]);
+}
