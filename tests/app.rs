@@ -387,3 +387,61 @@ fn save_and_quit_stays_open_if_the_save_fails() {
 
     std::fs::remove_file(&file.path).unwrap();
 }
+
+fn two_sheets() -> Vec<u8> {
+    let workbook = WORKBOOK.replace(
+        "</sheets>",
+        r#"<sheet name="Second" sheetId="2" r:id="rId4"/></sheets>"#,
+    );
+    let rels = WORKBOOK_RELS.replace(
+        "</Relationships>",
+        r#"<Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>"#,
+    );
+    package(&[
+        ("[Content_Types].xml", CONTENT_TYPES),
+        ("_rels/.rels", ROOT_RELS),
+        ("xl/workbook.xml", &workbook),
+        ("xl/_rels/workbook.xml.rels", &rels),
+        ("xl/worksheets/sheet1.xml", &sheet("")),
+        ("xl/worksheets/sheet2.xml", &sheet("")),
+    ])
+}
+
+#[test]
+fn sheets_switch_in_a_cycle_and_remember_their_cursors() {
+    let (_file, mut app) = app_from(&two_sheets());
+    press(&mut app, KeyCode::Down);
+
+    ctrl(&mut app, KeyCode::PageDown);
+    assert_eq!(app.current_sheet().name, "Second");
+    assert_eq!(app.cursor(), a1("A1"));
+    press(&mut app, KeyCode::Right);
+
+    press(&mut app, KeyCode::F(6));
+    assert_eq!(app.current_sheet().name, "Sheet1");
+    assert_eq!(app.cursor(), a1("A2"));
+
+    ctrl(&mut app, KeyCode::PageUp);
+    assert_eq!(app.current_sheet().name, "Second");
+    assert_eq!(app.cursor(), a1("B1"));
+
+    app.handle_key(KeyEvent::new(KeyCode::F(6), KeyModifiers::SHIFT));
+    assert_eq!(app.current_sheet().name, "Sheet1");
+}
+
+#[test]
+fn undo_returns_to_the_sheet_of_the_edit_and_saves_only_edited_sheets() {
+    let (file, mut app) = app_from(&two_sheets());
+    enter_value(&mut app, "1");
+    ctrl(&mut app, KeyCode::PageDown);
+    enter_value(&mut app, "2");
+    ctrl(&mut app, KeyCode::Char('s'));
+    let reloaded = Workbook::open(&file.path).unwrap();
+    assert_eq!(reloaded.sheets[0].cell(a1("A1")).value, CellValue::Number(1.0));
+    assert_eq!(reloaded.sheets[1].cell(a1("A1")).value, CellValue::Number(2.0));
+
+    ctrl(&mut app, KeyCode::Char('z'));
+    ctrl(&mut app, KeyCode::Char('z'));
+    assert_eq!(app.current_sheet().name, "Sheet1");
+    assert_eq!(app.current_sheet().cell(a1("A1")), Cell::default());
+}

@@ -45,11 +45,15 @@ pub struct App {
     undo: Vec<Change>,
     redo: Vec<Change>,
     should_quit: bool,
+    /// The cursor position left behind on each sheet.
+    cursors: Vec<CellRef>,
 }
 
 impl App {
     pub fn new(workbook: Workbook) -> Self {
+        let origin = CellRef { col: 0, row: 0 };
         Self {
+            cursors: vec![origin; workbook.sheets.len()],
             workbook,
             sheet: 0,
             cursor: CellRef { col: 0, row: 0 }, viewport: (10, 20),
@@ -66,6 +70,10 @@ impl App {
 
     pub fn cursor(&self) -> CellRef {
         self.cursor
+    }
+
+    pub fn sheet_index(&self) -> usize {
+        self.sheet
     }
 
     pub fn current_sheet(&self) -> &Sheet {
@@ -114,10 +122,15 @@ impl App {
 
     fn navigate_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         match key.code {
             KeyCode::Char(c) if is_text_input(key) => {
                 self.begin_edit(vec![c]);
             }
+            KeyCode::PageDown if ctrl => self.switch_sheet(1),
+            KeyCode::PageUp if ctrl => self.switch_sheet(-1),
+            KeyCode::F(6) if shift => self.switch_sheet(-1),
+            KeyCode::F(6) => self.switch_sheet(1),
             KeyCode::Char('q' | 'c') if ctrl => {
                 if self.workbook.is_dirty() {
                     self.mode = Mode::ConfirmQuit;
@@ -194,6 +207,15 @@ impl App {
         }
     }
 
+    /// Moves between sheets, each of which remembers its own cursor.
+    fn switch_sheet(&mut self, offset: isize) {
+        let count = self.workbook.sheets.len() as isize;
+        let next = (self.sheet as isize + offset).rem_euclid(count) as usize;
+        self.cursors[self.sheet] = self.cursor;
+        self.sheet = next;
+        self.cursor = self.cursors[next];
+    }
+
     fn undo(&mut self) {
         let Some(change) = self.undo.pop() else {
             self.status = "Nothing to undo".into();
@@ -215,6 +237,7 @@ impl App {
     /// Writes a cell back and shows it to the user.
     fn restore(&mut self, sheet: usize, at: CellRef, cell: Cell) {
         self.workbook.sheets[sheet].set_cell(at, cell);
+        self.cursors[self.sheet] = self.cursor;
         self.sheet = sheet;
         self.cursor = at;
     }
