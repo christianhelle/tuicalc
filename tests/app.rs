@@ -1225,3 +1225,20 @@ fn prefixed_keys_that_are_not_motions_cancel_a_waiting_operator() {
     keys(&mut app, "j");
     assert_eq!(value(&app, "A2"), CellValue::Number(12.0), "nothing is left waiting");
 }
+
+#[test]
+fn backward_operators_that_cannot_move_change_nothing() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "dh");
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+    keys(&mut app, "db");
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+}
+
+#[test]
+fn dw_on_the_last_run_takes_the_cursor_cell() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "$dw");
+    assert_eq!(value(&app, "G1"), CellValue::Empty);
+    assert_eq!(value(&app, "E1"), CellValue::Number(5.0));
+}

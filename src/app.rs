@@ -440,17 +440,12 @@ impl App {
             return;
         };
         let target = self.cursor;
-        let (mut first, mut last) = (
+        let (first, mut last) = (
             CellRef { col: origin.col.min(target.col), row: origin.row.min(target.row) },
             CellRef { col: origin.col.max(target.col), row: origin.row.max(target.row) },
         );
-        if exclusive && target.col > origin.col {
+        if exclusive && target.col != origin.col {
             last.col -= 1;
-        } else if exclusive && target.col < origin.col {
-            last.col -= 1;
-        } else if exclusive && target == origin && target.col == 0 {
-            first = origin;
-            last = origin;
         }
         self.cursor = origin;
         self.operate(operator, first, last, false, first);
@@ -631,6 +626,11 @@ impl App {
                 key.code,
                 KeyCode::Char('h' | 'l' | 'w' | 'b') | KeyCode::Left | KeyCode::Right
             );
+            let backward = matches!(key.code, KeyCode::Char('h' | 'b') | KeyCode::Left);
+            if backward && self.operator.is_some_and(|(_, origin)| origin == self.cursor) {
+                self.operator = None;
+                return;
+            }
             self.finish_operator(exclusive);
             return;
         }
