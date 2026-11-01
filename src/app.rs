@@ -55,6 +55,8 @@ pub struct App {
     scroll: CellRef,
     /// The count typed so far, as in `5j`.
     count: Option<u32>,
+    /// The first key of a two-key command, as in `gg`.
+    pending: Option<char>,
 }
 
 impl App {
@@ -64,6 +66,7 @@ impl App {
             cursors: vec![origin; workbook.sheets.len()],
             scroll: origin,
             count: None,
+            pending: None,
             workbook,
             sheet: 0,
             cursor: CellRef { col: 0, row: 0 },
@@ -189,6 +192,10 @@ impl App {
                     self.cursor.col = col;
                 }
             }
+            KeyCode::Char('G') if !ctrl => {
+                let last = self.current_sheet().extent().map_or(0, |extent| extent.row);
+                self.cursor.row = count.map_or(last, |row| row.saturating_sub(1));
+            }
             KeyCode::Char('h') if !ctrl => self.move_by(-n, 0),
             KeyCode::Char('l') if !ctrl => self.move_by(n, 0),
             KeyCode::Char('k') if !ctrl => self.move_by(0, -n),
@@ -234,11 +241,27 @@ impl App {
         true
     }
 
+    /// Finishes a two-key command.
+    fn prefixed_key(&mut self, prefix: char, key: KeyEvent, count: Option<u32>) {
+        if let ('g', KeyCode::Char('g')) = (prefix, key.code) {
+            self.cursor.row = count.unwrap_or(1).saturating_sub(1).min(MAX_ROWS - 1);
+        }
+    }
+
     fn normal_key(&mut self, key: KeyEvent) {
         if self.count_digit(key) {
             return;
         }
         let count = self.count.take();
+        if let Some(prefix) = self.pending.take() {
+            self.prefixed_key(prefix, key, count);
+            return;
+        }
+        if let (KeyCode::Char('g'), false) = (key.code, is_ctrl(key)) {
+            self.pending = Some('g');
+            self.count = count;
+            return;
+        }
         if self.motion(key, count) {
             return;
         }

@@ -650,3 +650,20 @@ fn line_motions_find_the_row_ends() {
     keys(&mut app, "^");
     assert_eq!(app.cursor(), a1("A11"));
 }
+
+#[test]
+fn gg_and_g_go_to_rows_and_keep_the_column() {
+    let (_file, mut app) = app_with(RUNS);
+    keys(&mut app, "lG");
+    assert_eq!(app.cursor(), a1("B6"));
+    keys(&mut app, "gg");
+    assert_eq!(app.cursor(), a1("B1"));
+    keys(&mut app, "12G");
+    assert_eq!(app.cursor(), a1("B12"));
+    keys(&mut app, "3gg");
+    assert_eq!(app.cursor(), a1("B3"));
+    keys(&mut app, "gq");
+    assert_eq!(app.cursor(), a1("B3"), "an unknown second key does nothing");
+    keys(&mut app, "j");
+    assert_eq!(app.cursor(), a1("B4"), "and the prefix is gone");
+}
