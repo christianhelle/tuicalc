@@ -217,3 +217,26 @@ fn f2_shows_each_kind_of_cell_as_text_that_recreates_it() {
         press(&mut app, KeyCode::Right);
     }
 }
+
+#[test]
+fn arrows_and_tab_confirm_the_edit_and_move() {
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Down);
+
+    type_text(&mut app, "1");
+    press(&mut app, KeyCode::Tab);
+    assert_eq!(app.cursor(), a1("B2"));
+    type_text(&mut app, "2");
+    press(&mut app, KeyCode::Up);
+    assert_eq!(app.cursor(), a1("B1"));
+    type_text(&mut app, "3");
+    press(&mut app, KeyCode::Down);
+    type_text(&mut app, "4");
+    press(&mut app, KeyCode::BackTab);
+    assert_eq!(app.cursor(), a1("A2"));
+
+    let value = |at| app.current_sheet().cell(a1(at)).value;
+    assert_eq!(value("A2"), CellValue::Number(1.0));
+    assert_eq!(value("B1"), CellValue::Number(3.0));
+    assert_eq!(value("B2"), CellValue::Number(4.0));
+}

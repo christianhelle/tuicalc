@@ -129,10 +129,10 @@ impl App {
     fn edit_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => self.mode = Mode::Navigate,
-            KeyCode::Enter => {
-                self.commit_edit();
-                self.move_by(0, 1);
-            }
+            KeyCode::Enter | KeyCode::Down => self.commit_and_move(0, 1),
+            KeyCode::Up => self.commit_and_move(0, -1),
+            KeyCode::Tab => self.commit_and_move(1, 0),
+            KeyCode::BackTab => self.commit_and_move(-1, 0),
             KeyCode::Char(c) if is_text_input(key) => {
                 self.buffer.insert(self.caret, c);
                 self.caret += 1;
@@ -150,6 +150,11 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn commit_and_move(&mut self, cols: i64, rows: i64) {
+        self.commit_edit();
+        self.move_by(cols, rows);
     }
 
     fn commit_edit(&mut self) {
