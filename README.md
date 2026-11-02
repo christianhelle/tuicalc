@@ -5,7 +5,10 @@ View and edit Excel `.xlsx` workbooks from the terminal.
 ```
 cargo install --path .
 tcalc path/to/book.xlsx
+tcalc
 ```
+
+With no file, `tcalc` opens a blank workbook.
 
 The project is tuicalc, and the command is `tcalc`, which is quicker to type.
 
@@ -69,9 +72,24 @@ Every motion extends the selection.
 | Command | Action |
 | --- | --- |
 | `:w` | Save |
+| `:w book.xlsx` | Save a new workbook to this file, refusing one that exists |
 | `:q` `:q!` | Quit, refusing if there are unsaved edits, or discarding them |
 | `:wq` `:x` | Save and quit |
+| `:wq book.xlsx` `:x book.xlsx` | Save a new workbook to this file and quit |
 | `:25` `:C7` | Go to a row or a cell |
+
+### Save dialog
+
+Saving a new workbook without giving a name opens a dialog. It lists folders and `.xlsx` files, and
+adds `.xlsx` to a name with no extension. After `:wq`, `ZZ`, `:x` or the quit prompt, tuicalc quits
+once the save succeeds.
+
+| Key | Action |
+| --- | --- |
+| Typing, `Backspace` | Edit the name, which can also be a path |
+| `Up` `Down` | Highlight a line, and a file's name fills in the name |
+| `Enter` | Open the highlighted folder, or otherwise save, asking before overwriting a file |
+| `Esc` `Ctrl+C` | Close without saving, keeping the edits |
 
 ## Entering values
 
@@ -95,7 +113,8 @@ file after it was opened.
 - **Number formats** other than dates aren't applied: currency and percentages show as plain numbers.
 - **Column widths** are fixed in the grid. The formula bar shows a cell's full contents.
 - Array formula and data table regions are read-only.
-- New workbooks, Save As, and adding or removing sheets, rows or columns aren't supported yet.
+- Saving an opened workbook under another name (Save As), and adding or removing sheets, rows or
+  columns, aren't supported yet.
 - Vim's modes work on the grid, so a cell's text is edited in insert mode only, without a normal
   mode inside the cell. Search (`/`), `.`, macros, marks and named registers aren't supported yet.
 - Rows aren't inserted or removed, so `dd` clears a row and `p` overwrites the row below.
