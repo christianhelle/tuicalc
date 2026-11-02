@@ -2014,17 +2014,111 @@ fn saving_still_opens_the_dialog_for_saving() {
 }
 
 #[test]
-fn e_and_ctrl_o_refuse_while_there_are_unsaved_edits() {
+fn e_refuses_while_there_are_unsaved_edits() {
     let (_file, mut app) = app_with("");
     enter_value(&mut app, "5");
 
     run(&mut app, "e");
     assert!(app.status().starts_with("E37"), "{}", app.status());
     assert_eq!(app.mode(), Mode::Normal);
+}
+
+#[test]
+fn ctrl_o_asks_about_unsaved_edits() {
+    let (_file, mut app) = app_with("");
+    enter_value(&mut app, "5");
 
     ctrl(&mut app, KeyCode::Char('o'));
-    assert!(app.status().starts_with("E37"), "{}", app.status());
+    assert_eq!(app.mode(), Mode::ConfirmDiscard);
+    press(&mut app, KeyCode::Esc);
     assert_eq!(app.mode(), Mode::Normal);
+    assert!(app.workbook.is_dirty());
+}
+
+#[test]
+fn discarding_at_ctrl_o_keeps_the_edits_until_a_file_is_chosen() {
+    let dir = open_folder();
+    let (_file, mut app) = app_with("");
+    app.set_dialog_directory(dir.path());
+    enter_value(&mut app, "5");
+
+    ctrl(&mut app, KeyCode::Char('o'));
+    press(&mut app, KeyCode::Char('d'));
+    assert_eq!(app.file_dialog().unwrap().kind(), DialogKind::Open);
+
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
+    assert!(app.workbook.is_dirty());
+}
+
+#[test]
+fn saving_at_ctrl_o_saves_and_then_opens_the_dialog() {
+    let dir = open_folder();
+    let (file, mut app) = app_with("");
+    app.set_dialog_directory(dir.path());
+    enter_value(&mut app, "5");
+
+    ctrl(&mut app, KeyCode::Char('o'));
+    press(&mut app, KeyCode::Char('s'));
+
+    assert_eq!(app.file_dialog().unwrap().kind(), DialogKind::Open);
+    assert!(!app.workbook.is_dirty());
+    let on_disk = Workbook::open(&file.path).unwrap();
+    assert_eq!(
+        on_disk.sheets[0].cell(a1("A1")).value,
+        CellValue::Number(5.0)
+    );
+}
+
+#[test]
+fn saving_an_unnamed_workbook_at_ctrl_o_names_it_and_then_opens_the_dialog() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = App::new(Workbook::blank().unwrap());
+    app.set_dialog_directory(dir.path());
+    enter_value(&mut app, "5");
+
+    ctrl(&mut app, KeyCode::Char('o'));
+    press(&mut app, KeyCode::Char('s'));
+    assert_eq!(app.file_dialog().unwrap().kind(), DialogKind::Save);
+    for c in "named".chars() {
+        press(&mut app, KeyCode::Char(c));
+    }
+    press(&mut app, KeyCode::Enter);
+
+    assert!(dir.path().join("named.xlsx").exists());
+    assert_eq!(app.file_dialog().unwrap().kind(), DialogKind::Open);
+}
+
+#[test]
+fn cancelling_the_save_dialog_at_ctrl_o_keeps_the_edits_and_does_not_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = App::new(Workbook::blank().unwrap());
+    app.set_dialog_directory(dir.path());
+    enter_value(&mut app, "5");
+
+    ctrl(&mut app, KeyCode::Char('o'));
+    press(&mut app, KeyCode::Char('s'));
+    press(&mut app, KeyCode::Esc);
+
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(app.file_dialog().is_none());
+    assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
+}
+
+#[test]
+fn a_failed_save_at_ctrl_o_stays_put_with_the_error() {
+    let (file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+    ctrl(&mut app, KeyCode::Char('o'));
+    std::fs::write(&file.path, b"changed").unwrap();
+
+    press(&mut app, KeyCode::Char('s'));
+
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(app.file_dialog().is_none());
+    assert!(app.status().starts_with("Save failed:"), "{}", app.status());
+    assert!(app.status_is_error());
+    assert!(app.next_step().is_none());
 }
 
 #[test]

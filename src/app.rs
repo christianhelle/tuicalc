@@ -800,7 +800,7 @@ impl App {
             KeyCode::Char('s') if ctrl => {
                 self.save();
             }
-            KeyCode::Char('o') if ctrl => self.choose_file_to_open(),
+            KeyCode::Char('o') if ctrl => self.ask_before_losing_edits(NextStep::OpenFile),
             KeyCode::Char('z') if ctrl => self.undo(),
             KeyCode::Char('y') if ctrl => self.redo(),
             KeyCode::Delete | KeyCode::Backspace => {
