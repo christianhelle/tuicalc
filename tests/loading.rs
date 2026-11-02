@@ -12,6 +12,8 @@ use tuicalc::app::{App, Mode};
 use tuicalc::model::{Cell, CellValue};
 use tuicalc::xlsx::{LoadEvent, SheetQueue, Workbook, WorkbookLoad};
 
+const STILL_OPENING: &str = "Still opening: Esc cancels";
+
 fn a1(text: &str) -> CellRef {
     CellRef::parse(text).unwrap()
 }
@@ -299,4 +301,85 @@ fn a_problem_deep_in_the_only_workbook_ends_the_app_and_says_why() {
     assert!(app.should_quit());
     assert!(!app.is_loading());
     assert!(app.load_failure().unwrap().contains("malformed XML"));
+}
+
+#[test]
+fn nothing_can_change_or_be_copied_until_the_workbook_has_arrived() {
+    let (file, mut app) = app_opening(5000);
+    app.absorb_next_chunk();
+    let before = std::fs::read(&file.path).unwrap();
+
+    for keys in [
+        "s", "i", "a", "=", "o", "x", "D", "dd", "cc", "yy", "S", "C", "Vd", "Vy", "Vc",
+    ] {
+        type_keys(&mut app, keys);
+        assert_eq!(app.status(), STILL_OPENING, "{keys}");
+        assert!(
+            matches!(app.mode(), Mode::Normal | Mode::Visual | Mode::VisualRow),
+            "{keys}"
+        );
+        assert_eq!(app.mode() == Mode::Insert, false, "{keys}");
+        key(&mut app, KeyCode::Char('j'));
+        if app.selection().is_some() {
+            key(&mut app, KeyCode::Char('v'));
+        }
+        if app.selection().is_some() {
+            key(&mut app, KeyCode::Char('v'));
+        }
+        assert!(!app.workbook.is_dirty(), "{keys}");
+    }
+
+    ctrl(&mut app, 's');
+    assert_eq!(app.status(), STILL_OPENING, "saving");
+    ctrl(&mut app, 'o');
+    assert_eq!(app.status(), STILL_OPENING, "opening another");
+    assert_eq!(app.mode(), Mode::Normal);
+    key(&mut app, KeyCode::F(5));
+    assert_eq!(app.status(), STILL_OPENING, "reloading");
+    assert_eq!(std::fs::read(&file.path).unwrap(), before);
+}
+
+#[test]
+fn zz_just_quits_while_loading_as_there_is_nothing_to_save() {
+    let (_file, mut app) = app_opening(5000);
+
+    type_keys(&mut app, "ZZ");
+
+    assert!(app.should_quit());
+}
+
+#[test]
+fn editing_and_saving_work_once_the_workbook_has_arrived() {
+    let (file, mut app) = app_opening(5000);
+    app.finish_loading();
+
+    type_keys(&mut app, "s7");
+    key(&mut app, KeyCode::Enter);
+    ctrl(&mut app, 's');
+
+    assert_eq!(app.status(), "Saved book.xlsx");
+    let saved = Workbook::open(&file.path).unwrap();
+    assert_eq!(saved.sheets[0].cell(a1("A1")).value, CellValue::Number(7.0));
+    assert_eq!(
+        saved.sheets[0].cell(a1("A5000")).value,
+        CellValue::Number(5000.0)
+    );
+}
+
+#[test]
+fn a_search_while_loading_says_it_only_covered_what_has_arrived() {
+    let (_file, mut app) = app_opening(5000);
+    app.absorb_next_chunk();
+
+    type_keys(&mut app, "/plums");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.status(), "No match for plums in what has loaded so far");
+
+    type_keys(&mut app, "/");
+    type_keys(&mut app, "=");
+    key(&mut app, KeyCode::Esc);
+    app.finish_loading();
+    type_keys(&mut app, "/plums");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.status(), "No match for plums");
 }

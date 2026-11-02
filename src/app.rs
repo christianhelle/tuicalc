@@ -228,6 +228,15 @@ impl App {
         self.loading = None;
     }
 
+    /// Says why something that needs the whole workbook isn't happening; returns whether it isn't.
+    fn refuse_while_loading(&mut self) -> bool {
+        let loading = self.is_loading();
+        if loading {
+            self.status = "Still opening: Esc cancels".into();
+        }
+        loading
+    }
+
     /// Stops loading at the user's request.
     fn cancel_load(&mut self) {
         self.loading = None;
@@ -686,6 +695,9 @@ impl App {
 
     /// Runs `d`, `y` or `c` on a rectangle, leaving the cursor at `at`.
     fn operate(&mut self, operator: char, first: CellRef, last: CellRef, rows: bool, at: CellRef) {
+        if self.refuse_while_loading() {
+            return;
+        }
         let yanked = self.yank(first, last, rows);
         if operator != 'y' && !self.clear_cells(first, last) {
             return;
@@ -992,7 +1004,8 @@ impl App {
 
     /// `ZZ`: saves and quits, except that a blank workbook with no edits has nothing to save.
     fn save_if_edited_and_quit(&mut self) {
-        if self.workbook.path().is_none() && !self.workbook.is_dirty() {
+        let unsaved_file = self.workbook.path().is_none() || self.is_loading();
+        if unsaved_file && !self.workbook.is_dirty() {
             self.should_quit = true;
         } else {
             self.save_and_quit();
@@ -1007,6 +1020,9 @@ impl App {
 
     /// Saves and reports the outcome; returns whether the file is now up to date.
     fn save(&mut self) -> bool {
+        if self.refuse_while_loading() {
+            return false;
+        }
         if self.workbook.path().is_none() {
             self.open_file_dialog(DialogKind::Save);
             return false;
@@ -1133,6 +1149,9 @@ impl App {
 
     /// Takes the step now, or asks first if it would lose unsaved edits.
     fn ask_before_losing_edits(&mut self, step: NextStep) {
+        if step != NextStep::Quit && self.refuse_while_loading() {
+            return;
+        }
         if self.workbook.is_dirty() {
             self.next_step = Some(step);
             self.mode = Mode::ConfirmDiscard;
@@ -1375,6 +1394,9 @@ impl App {
             .map(|(at, _)| *at);
         match next {
             Some(at) => self.cursor = at,
+            None if self.is_loading() => {
+                self.report_error(format!("No match for {query} in what has loaded so far"));
+            }
             None => self.report_error(format!("No match for {query}")),
         }
     }
@@ -1393,6 +1415,9 @@ impl App {
     }
 
     fn begin_edit(&mut self, initial: Vec<char>) {
+        if self.refuse_while_loading() {
+            return;
+        }
         if self.refuse_if_locked() {
             return;
         }
@@ -1463,6 +1488,9 @@ impl App {
 
     /// Applies edits as one undoable change, or none of them if any cell is read-only.
     fn apply_edits(&mut self, cells: Vec<(CellRef, Cell)>) -> bool {
+        if self.refuse_while_loading() {
+            return false;
+        }
         if let Some((at, _)) = cells
             .iter()
             .find(|(at, _)| self.current_sheet().is_locked(*at))
