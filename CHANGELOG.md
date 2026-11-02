@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its cells fill in behind the scenes, the visible sheet first, with progress on
   the status line. Moving and searching work while it loads, and `Esc` stops it,
   returning to the last workbook if there was one.
+- Saving without waiting: a save runs in the background, so moving, searching and
+  copying keep working while editing waits for it. Quitting during a save waits
+  for it too, and stays open if it fails.
 - New workbooks: `tcalc` with no arguments opens a blank workbook. Saving it
   opens a dialog for browsing folders and naming the file, which asks before
   overwriting one.
