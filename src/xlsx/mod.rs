@@ -1,5 +1,6 @@
 //! Reading and patching .xlsx packages.
 
+mod loading;
 mod reader;
 mod writer;
 mod xml;
@@ -7,8 +8,12 @@ mod xml;
 use std::fmt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::model::Sheet;
+
+pub use loading::{LoadEvent, SheetQueue, Waited, WorkbookLoad};
+pub use reader::SheetChunk;
 
 #[derive(Debug)]
 pub enum XlsxError {
@@ -58,7 +63,7 @@ pub struct Workbook {
     pub date1904: bool,
     /// The file this workbook belongs to, which a blank one doesn't have yet.
     path: Option<PathBuf>,
-    source: Vec<u8>,
+    source: Arc<Vec<u8>>,
     layout: reader::Layout,
 }
 
@@ -71,9 +76,30 @@ impl Workbook {
             sheets,
             date1904,
             path: Some(path),
-            source,
+            source: Arc::new(source),
             layout,
         })
+    }
+
+    /// Opens a workbook whose sheets start out empty, with their cells on the way through the
+    /// returned load, preferring the given sheet. A file that isn't a workbook fails here, and a
+    /// problem further in arrives as an event. It mustn't be saved until the load has ended.
+    pub fn open_loading(
+        path: impl AsRef<Path>,
+        preferred_sheet: usize,
+    ) -> Result<(Self, WorkbookLoad), XlsxError> {
+        let path = path.as_ref().to_path_buf();
+        let source = Arc::new(std::fs::read(&path)?);
+        let plan = reader::read_plan(&source)?;
+        let load = WorkbookLoad::start(Arc::clone(&source), &plan, preferred_sheet);
+        let workbook = Self {
+            sheets: plan.sheet_names.iter().map(Sheet::new).collect(),
+            date1904: plan.date1904,
+            path: Some(path),
+            source,
+            layout: plan.layout,
+        };
+        Ok((workbook, load))
     }
 
     /// An empty one-sheet workbook that isn't tied to a file yet.
@@ -84,7 +110,7 @@ impl Workbook {
             sheets,
             date1904,
             path: None,
-            source,
+            source: Arc::new(source),
             layout,
         })
     }
@@ -101,12 +127,12 @@ impl Workbook {
         if !self.is_dirty() {
             return Ok(());
         }
-        if std::fs::read(path)? != self.source {
+        if std::fs::read(path)? != *self.source {
             return Err(XlsxError::ChangedOnDisk);
         }
         let patched = writer::patch(&self.source, &self.layout, &self.sheets)?;
         replace_file(path, &patched)?;
-        self.source = patched;
+        self.source = Arc::new(patched);
         self.sheets.iter_mut().for_each(Sheet::mark_saved);
         Ok(())
     }
@@ -132,14 +158,14 @@ impl Workbook {
         if self.is_dirty() {
             writer::patch(&self.source, &self.layout, &self.sheets)
         } else {
-            Ok(self.source.clone())
+            Ok((*self.source).clone())
         }
     }
 
     /// Records that the workbook now lives in `path`, holding `bytes`.
     fn adopt(&mut self, path: &Path, bytes: Vec<u8>) {
         self.path = Some(path.to_path_buf());
-        self.source = bytes;
+        self.source = Arc::new(bytes);
         self.sheets.iter_mut().for_each(Sheet::mark_saved);
     }
 
