@@ -1609,14 +1609,14 @@ fn a_failed_save_shows_the_error_and_leaves_the_dialog_open() {
 }
 
 #[test]
-fn wq_and_the_quit_prompt_quit_once_the_dialog_has_saved() {
+fn zz_and_the_quit_prompt_quit_once_the_dialog_has_saved() {
     let dir = save_folder();
-    let open_with_wq = |app: &mut App| run(app, "wq");
+    let open_with_zz = |app: &mut App| keys(app, "ZZ");
     let open_with_prompt = |app: &mut App| {
         ctrl(app, KeyCode::Char('q'));
         press(app, KeyCode::Char('s'));
     };
-    let openers: [&dyn Fn(&mut App); 2] = [&open_with_wq, &open_with_prompt];
+    let openers: [&dyn Fn(&mut App); 2] = [&open_with_zz, &open_with_prompt];
     for (index, open) in openers.into_iter().enumerate() {
         let mut app = blank_app();
         enter_value(&mut app, "5");
@@ -1700,13 +1700,20 @@ fn other_workbook() -> TempXlsx {
     ))
 }
 
+/// Opens a file through the dialog, typing its whole path.
+fn open_file(app: &mut App, path: &Path) {
+    ctrl(app, KeyCode::Char('o'));
+    type_text(app, &path.display().to_string());
+    press(app, KeyCode::Enter);
+}
+
 #[test]
-fn e_with_a_name_opens_that_file_at_the_top_of_its_first_sheet() {
+fn opening_a_file_starts_at_the_top_of_its_first_sheet() {
     let (_first, mut app) = app_with("");
     let second = other_workbook();
     keys(&mut app, "50jl");
 
-    run(&mut app, &format!("e {}", second.path.display()));
+    open_file(&mut app, &second.path);
 
     assert_eq!(app.status(), "Opened book.xlsx");
     assert_eq!(app.workbook.path(), Some(second.path.as_path()));
@@ -1716,12 +1723,12 @@ fn e_with_a_name_opens_that_file_at_the_top_of_its_first_sheet() {
 }
 
 #[test]
-fn e_adds_the_xlsx_extension_to_a_name_without_one() {
+fn opening_adds_the_xlsx_extension_to_a_name_without_one() {
     let (_first, mut app) = app_with("");
     let second = other_workbook();
     let name = second.path.with_extension("");
 
-    run(&mut app, &format!("e {}", name.display()));
+    open_file(&mut app, &name);
 
     assert_eq!(app.workbook.path(), Some(second.path.as_path()));
 }
@@ -1735,7 +1742,7 @@ fn opening_a_file_returns_to_its_first_sheet() {
     assert_eq!(app.sheet_index(), 1);
     let second = other_workbook();
 
-    run(&mut app, &format!("e {}", second.path.display()));
+    open_file(&mut app, &second.path);
 
     assert_eq!(app.sheet_index(), 0);
     keys(&mut app, "gt");
@@ -1749,7 +1756,7 @@ fn undo_history_does_not_follow_into_another_file() {
     ctrl(&mut app, KeyCode::Char('s'));
     let second = other_workbook();
 
-    run(&mut app, &format!("e {}", second.path.display()));
+    open_file(&mut app, &second.path);
     press(&mut app, KeyCode::Char('u'));
 
     assert_eq!(app.status(), "Nothing to undo");
@@ -1761,7 +1768,7 @@ fn saving_after_opening_writes_to_the_opened_file() {
     let (first, mut app) = app_with("");
     let before = std::fs::read(&first.path).unwrap();
     let second = other_workbook();
-    run(&mut app, &format!("e {}", second.path.display()));
+    open_file(&mut app, &second.path);
 
     press(&mut app, KeyCode::Char('j'));
     enter_value(&mut app, "7");
@@ -1779,7 +1786,7 @@ fn yanked_cells_can_be_pasted_into_another_file() {
     keys(&mut app, "kyy");
     ctrl(&mut app, KeyCode::Char('s'));
     let second = other_workbook();
-    run(&mut app, &format!("e {}", second.path.display()));
+    open_file(&mut app, &second.path);
 
     keys(&mut app, "p");
 
@@ -1797,43 +1804,21 @@ fn a_file_that_cannot_be_opened_keeps_the_current_workbook() {
         broken.path.clone(),
         broken.path.with_file_name("missing.xlsx"),
     ] {
-        run(&mut app, &format!("e {}", target.display()));
+        open_file(&mut app, &target);
+        assert!(
+            app.file_dialog()
+                .unwrap()
+                .message()
+                .starts_with("Open failed"),
+            "{}",
+            app.file_dialog().unwrap().message()
+        );
+        press(&mut app, KeyCode::Esc);
 
-        assert!(app.status().starts_with("Open failed"), "{}", app.status());
         assert_eq!(app.workbook.path(), Some(first.path.as_path()));
         assert_eq!(app.cursor(), a1("A2"));
         assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
     }
-}
-
-#[test]
-fn e_with_a_name_refuses_while_there_are_unsaved_edits() {
-    let (first, mut app) = app_with("");
-    enter_value(&mut app, "5");
-    let second = other_workbook();
-
-    run(&mut app, &format!("e {}", second.path.display()));
-
-    assert_eq!(
-        app.status(),
-        "E37: No write since last change (add ! to override)"
-    );
-    assert_eq!(app.workbook.path(), Some(first.path.as_path()));
-    assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
-}
-
-#[test]
-fn e_bang_with_a_name_discards_unsaved_edits() {
-    let (first, mut app) = app_with("");
-    let before = std::fs::read(&first.path).unwrap();
-    enter_value(&mut app, "5");
-    let second = other_workbook();
-
-    run(&mut app, &format!("e! {}", second.path.display()));
-
-    assert_eq!(app.workbook.path(), Some(second.path.as_path()));
-    assert!(!app.workbook.is_dirty());
-    assert_eq!(std::fs::read(&first.path).unwrap(), before);
 }
 
 /// A folder with a workbook holding 42 in A1, and a file that isn't really a workbook.
@@ -1846,18 +1831,15 @@ fn open_folder() -> tempfile::TempDir {
 }
 
 #[test]
-fn e_and_ctrl_o_open_the_dialog_for_choosing_a_file() {
+fn ctrl_o_opens_the_dialog_for_choosing_a_file() {
     let dir = open_folder();
-    let open_with_e = |app: &mut App| run(app, "e");
-    let open_with_ctrl_o = |app: &mut App| ctrl(app, KeyCode::Char('o'));
-    let openers: [&dyn Fn(&mut App); 2] = [&open_with_e, &open_with_ctrl_o];
-    for open in openers {
-        let mut app = blank_app();
-        app.set_dialog_directory(dir.path());
-        open(&mut app);
-        assert_eq!(app.mode(), Mode::FileDialog);
-        assert_eq!(app.file_dialog().unwrap().kind(), DialogKind::Open);
-    }
+    let mut app = blank_app();
+    app.set_dialog_directory(dir.path());
+
+    ctrl(&mut app, KeyCode::Char('o'));
+
+    assert_eq!(app.mode(), Mode::FileDialog);
+    assert_eq!(app.file_dialog().unwrap().kind(), DialogKind::Open);
 }
 
 #[test]
@@ -2171,16 +2153,6 @@ fn f1_helps_while_editing_and_question_mark_is_still_text() {
 }
 
 #[test]
-fn e_refuses_while_there_are_unsaved_edits() {
-    let (_file, mut app) = app_with("");
-    enter_value(&mut app, "5");
-
-    run(&mut app, "e");
-    assert!(app.status().starts_with("E37"), "{}", app.status());
-    assert_eq!(app.mode(), Mode::Normal);
-}
-
-#[test]
 fn ctrl_o_asks_about_unsaved_edits() {
     let (_file, mut app) = app_with("");
     enter_value(&mut app, "5");
@@ -2279,13 +2251,14 @@ fn a_failed_save_at_ctrl_o_stays_put_with_the_error() {
 }
 
 #[test]
-fn e_bang_opens_the_dialog_and_cancelling_keeps_the_edits() {
+fn discarding_and_then_cancelling_the_dialog_keeps_the_edits() {
     let dir = open_folder();
     let (file, mut app) = app_with("");
     app.set_dialog_directory(dir.path());
     enter_value(&mut app, "5");
 
-    run(&mut app, "e!");
+    ctrl(&mut app, KeyCode::Char('o'));
+    press(&mut app, KeyCode::Char('d'));
     assert_eq!(app.mode(), Mode::FileDialog);
 
     press(&mut app, KeyCode::Esc);
@@ -2295,12 +2268,13 @@ fn e_bang_opens_the_dialog_and_cancelling_keeps_the_edits() {
     assert_eq!(app.workbook.path(), Some(file.path.as_path()));
 }
 
-/// A workbook with unsaved edits and the open dialog on `dir`, as `:e!` leaves it.
+/// A workbook with unsaved edits and the open dialog on `dir`, after choosing to discard them.
 fn app_choosing_a_file_to_open(dir: &Path) -> (TempXlsx, App) {
     let (file, mut app) = app_with("");
     app.set_dialog_directory(dir);
     enter_value(&mut app, "5");
-    run(&mut app, "e!");
+    ctrl(&mut app, KeyCode::Char('o'));
+    press(&mut app, KeyCode::Char('d'));
     (file, app)
 }
 
