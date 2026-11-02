@@ -568,6 +568,30 @@ fn the_cursors_column_and_row_headers_stand_out_in_yellow() {
 }
 
 #[test]
+fn errors_on_the_status_line_are_red_and_other_messages_are_not() {
+    use ratatui::style::Color;
+
+    let (file, mut app) = app_with("");
+    let message_colour = |app: &mut App| {
+        let terminal = terminal_for(app, 60, 14);
+        terminal.backend().buffer()[(10, 13)].fg
+    };
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    assert_ne!(message_colour(&mut app), Color::Red, "a save that worked");
+
+    press(&mut app, KeyCode::Char('s'));
+    press(&mut app, KeyCode::Char('1'));
+    press(&mut app, KeyCode::Enter);
+    std::fs::write(&file.path, b"changed by something else").unwrap();
+    app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    assert_eq!(message_colour(&mut app), Color::Red, "a save that failed");
+
+    press(&mut app, KeyCode::Char('j'));
+    assert_ne!(message_colour(&mut app), Color::Red, "the hints again");
+}
+
+#[test]
 fn the_status_line_badge_is_black_on_the_modes_colour() {
     use ratatui::style::Color;
 

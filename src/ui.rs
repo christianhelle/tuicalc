@@ -322,6 +322,11 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     };
     let badge = format!(" {name} ");
     let badge_style = Style::new().fg(Color::Black).bg(color);
+    let message_style = if app.status_is_error() {
+        Style::new().fg(Color::Red)
+    } else {
+        Style::default()
+    };
     let room = usize::from(area.width);
     buffer.set_stringn(area.x, area.y, &badge, room, badge_style);
     let badge_width = badge.len() as u16;
@@ -331,7 +336,7 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
             area.y,
             message,
             room - usize::from(badge_width),
-            Style::default(),
+            message_style,
         );
     }
     let pending = app.pending_keys();

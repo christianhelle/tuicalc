@@ -74,6 +74,7 @@ pub struct App {
     /// The cell as it was when editing began.
     original: Cell,
     status: String,
+    status_is_error: bool,
     undo: Vec<Change>,
     redo: Vec<Change>,
     should_quit: bool,
@@ -121,6 +122,7 @@ impl App {
             caret: 0,
             original: Cell::default(),
             status: String::new(),
+            status_is_error: false,
             undo: Vec::new(),
             redo: Vec::new(),
             should_quit: false,
@@ -177,6 +179,16 @@ impl App {
         &self.status
     }
 
+    /// Whether the latest message reports something going wrong.
+    pub fn status_is_error(&self) -> bool {
+        self.status_is_error
+    }
+
+    fn report_error(&mut self, message: String) {
+        self.status = message;
+        self.status_is_error = true;
+    }
+
     pub fn should_quit(&self) -> bool {
         self.should_quit
     }
@@ -221,6 +233,7 @@ impl App {
             return;
         }
         self.status.clear();
+        self.status_is_error = false;
         match self.mode {
             Mode::Normal => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
@@ -893,7 +906,7 @@ impl App {
                 true
             }
             Err(error) => {
-                self.status = format!("Save failed: {error}");
+                self.report_error(format!("Save failed: {error}"));
                 false
             }
         }
@@ -976,7 +989,7 @@ impl App {
     fn open_named(&mut self, name: &str) {
         match Workbook::open(with_default_extension(name)) {
             Ok(workbook) => self.load_workbook(workbook),
-            Err(error) => self.status = format!("Open failed: {error}"),
+            Err(error) => self.report_error(format!("Open failed: {error}")),
         }
     }
 
@@ -1006,7 +1019,7 @@ impl App {
                 true
             }
             Err(error) => {
-                self.status = format!("Save failed: {error}");
+                self.report_error(format!("Save failed: {error}"));
                 false
             }
         }
@@ -1221,10 +1234,10 @@ impl App {
     fn refuse_if_locked(&mut self) -> bool {
         let locked = self.current_sheet().is_locked(self.cursor);
         if locked {
-            self.status = format!(
+            self.report_error(format!(
                 "{} is part of an array formula and is read-only",
                 self.cursor
-            );
+            ));
         }
         locked
     }
@@ -1239,7 +1252,7 @@ impl App {
             .iter()
             .find(|(at, _)| self.current_sheet().is_locked(*at))
         {
-            self.status = format!("{at} is part of an array formula and is read-only");
+            self.report_error(format!("{at} is part of an array formula and is read-only"));
             return false;
         }
         let mut edits = Vec::new();
