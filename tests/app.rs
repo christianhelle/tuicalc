@@ -1630,3 +1630,29 @@ fn an_existing_file_asks_before_it_is_overwritten() {
     assert_eq!(app.status(), "Saved z.xlsx");
     assert!(Workbook::open(&target).is_ok(), "now a real workbook");
 }
+
+#[test]
+fn esc_and_ctrl_c_close_the_save_dialog_and_keep_the_edits() {
+    let dir = save_folder();
+    for cancel in [
+        KeyEvent::from(KeyCode::Esc),
+        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+    ] {
+        let mut app = blank_app();
+        enter_value(&mut app, "5");
+        app.set_save_directory(dir.path());
+        ctrl(&mut app, KeyCode::Char('s'));
+        type_text(&mut app, "cancelled");
+
+        app.handle_key(cancel);
+
+        assert_eq!(app.mode(), Mode::Normal);
+        assert!(app.save_dialog().is_none());
+        assert!(app.workbook.is_dirty());
+        assert_eq!(
+            app.current_sheet().cell(a1("A1")).value,
+            CellValue::Number(5.0)
+        );
+        assert!(!dir.path().join("cancelled.xlsx").exists());
+    }
+}

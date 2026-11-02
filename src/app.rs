@@ -36,7 +36,7 @@ pub(crate) fn is_text_input(key: KeyEvent) -> bool {
 }
 
 /// Ctrl alone, not the Ctrl+Alt that Windows reports for AltGr.
-fn is_ctrl(key: KeyEvent) -> bool {
+pub(crate) fn is_ctrl(key: KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT)
 }
 
@@ -887,6 +887,7 @@ impl App {
         };
         match dialog.handle_key(key) {
             DialogAction::Stay => {}
+            DialogAction::Cancel => self.close_save_dialog(),
             DialogAction::Save(path) => {
                 let result = self.workbook.save_as(path);
                 self.finish_dialog_save(result);

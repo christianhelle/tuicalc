@@ -5,7 +5,7 @@ use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::app::is_text_input;
+use crate::app::{is_ctrl, is_text_input};
 
 /// One line of the dialog's list.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +33,8 @@ pub enum DialogAction {
     Save(PathBuf),
     /// Replace a file the user agreed to overwrite.
     Overwrite(PathBuf),
+    /// Close the dialog without saving.
+    Cancel,
 }
 
 #[derive(Debug)]
@@ -94,6 +96,8 @@ impl SaveDialog {
             KeyCode::Down => self.move_highlight(1),
             KeyCode::Up => self.move_highlight(-1),
             KeyCode::Enter => return self.confirm(),
+            KeyCode::Esc => return DialogAction::Cancel,
+            KeyCode::Char('c') if is_ctrl(key) => return DialogAction::Cancel,
             KeyCode::Backspace => {
                 self.name.pop();
                 self.highlight = None;
