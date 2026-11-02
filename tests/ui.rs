@@ -986,6 +986,45 @@ fn the_way_to_quit_fits_on_an_80_column_terminal() {
     );
 }
 
+/// A small sheet with some text and numbers to look at.
+fn sample_rows() -> &'static str {
+    r#"<row r="1"><c r="A1" t="inlineStr"><is><t>Item</t></is></c><c r="B1" t="inlineStr"><is><t>Price</t></is></c><c r="C1" t="inlineStr"><is><t>Qty</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>Apples</t></is></c><c r="B2"><v>1.2</v></c><c r="C2"><v>4</v></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>Pears</t></is></c><c r="B3"><v>0.9</v></c><c r="C3"><f>C2+3</f><v>7</v></c></row>"#
+}
+
+#[test]
+fn the_whole_screen_looks_right_in_each_state() {
+    let (_file, mut app) = app_with(sample_rows());
+    let shot = |app: &mut App| render(app, 80, 20).join("\n");
+    insta::assert_snapshot!("screen_in_normal_mode", shot(&mut app));
+
+    for c in "jl".chars() {
+        press(&mut app, KeyCode::Char(c));
+    }
+    press(&mut app, KeyCode::Char('A'));
+    press(&mut app, KeyCode::Char('5'));
+    insta::assert_snapshot!("screen_while_editing", shot(&mut app));
+    press(&mut app, KeyCode::Esc);
+
+    press(&mut app, KeyCode::Char('V'));
+    press(&mut app, KeyCode::Char('j'));
+    insta::assert_snapshot!("screen_while_selecting", shot(&mut app));
+    press(&mut app, KeyCode::Esc);
+
+    press(&mut app, KeyCode::Char('q'));
+    insta::assert_snapshot!("screen_asking_about_unsaved_changes", shot(&mut app));
+    press(&mut app, KeyCode::Esc);
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL));
+    press(&mut app, KeyCode::Char('C'));
+    press(&mut app, KeyCode::Char('7'));
+    insta::assert_snapshot!("screen_going_to_a_cell", shot(&mut app));
+    press(&mut app, KeyCode::Esc);
+
+    press(&mut app, KeyCode::Char('/'));
+    press(&mut app, KeyCode::Char('p'));
+    insta::assert_snapshot!("screen_searching", shot(&mut app));
+}
+
 #[test]
 fn the_save_dialog_marks_the_highlighted_line() {
     let dir = tempfile::tempdir().unwrap();
