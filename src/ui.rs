@@ -482,6 +482,11 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     // The go-to dialog shows its own complaints.
     let message = if app.mode() == Mode::Search {
         format!(" /{}", app.buffer())
+    } else if let (Mode::Normal, true, Some(progress)) =
+        (app.mode(), app.status().is_empty(), app.loading_progress())
+    {
+        let percent = (progress * 100.0) as u32;
+        format!(" Opening {}… {percent}% · Esc cancel", app.file_name())
     } else if app.status().is_empty() || app.mode() == Mode::GoTo {
         hint.to_string()
     } else {

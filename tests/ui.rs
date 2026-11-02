@@ -1026,6 +1026,26 @@ fn the_whole_screen_looks_right_in_each_state() {
 }
 
 #[test]
+fn the_status_line_shows_how_far_opening_has_got_and_how_to_stop() {
+    let file = write_temp(&single_sheet(&sheet(""), &[]));
+    let (workbook, load) = Workbook::open_loading(&file.path, 0).unwrap();
+    let mut app = App::opening(workbook, load);
+
+    let screen = render(&mut app, 80, 14);
+    let status = status_line(&screen);
+    assert!(
+        status.starts_with(" NORMAL  Opening book.xlsx… "),
+        "{status}"
+    );
+    assert!(status.contains("%"), "{status}");
+    assert!(status.contains("Esc cancel"), "{status}");
+
+    app.finish_loading();
+    let screen = render(&mut app, 80, 14);
+    assert!(status_line(&screen).contains("? help"));
+}
+
+#[test]
 fn the_save_dialog_marks_the_highlighted_line() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("old.xlsx"), b"x").unwrap();
