@@ -573,3 +573,25 @@ fn column_and_row_headers_are_bold_but_the_cursor_is_not() {
     assert!(!is_bold(8, 2), "the cursor");
     assert!(!is_bold(30, 2), "cell contents");
 }
+
+/// A blank workbook with the open dialog on `dir`.
+fn app_in_open_dialog(dir: &std::path::Path) -> App {
+    let mut app = App::new(Workbook::blank().unwrap());
+    app.set_dialog_directory(dir);
+    app.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
+    app
+}
+
+#[test]
+fn the_open_dialog_is_labelled_for_opening() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app_in_open_dialog(dir.path());
+
+    let screen = render(&mut app, 100, 20);
+    let text = screen.join("\n");
+
+    assert!(text.contains(" Open "), "{text}");
+    assert!(!text.contains("Save as"), "{text}");
+    assert!(text.contains("Enter open"), "{text}");
+    assert!(screen[19].starts_with("-- OPEN --"), "{}", screen[19]);
+}

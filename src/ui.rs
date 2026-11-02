@@ -9,7 +9,7 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::address::{CellRef, column_name};
 use crate::app::{App, Mode};
-use crate::file_dialog::FileDialog;
+use crate::file_dialog::{DialogKind, FileDialog};
 use crate::text::{display_text, edit_text, is_right_aligned};
 
 /// The header bars and the cursor, as a nod to Lotus 1-2-3. The colors are exact because a terminal
@@ -51,7 +51,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
 const FILE_DIALOG_WIDTH: u16 = 60;
 const FILE_DIALOG_LIST_ROWS: usize = 12;
-const FILE_DIALOG_HINT: &str = "Enter save    Esc cancel";
+const SAVE_DIALOG_HINT: &str = "Enter save    Esc cancel";
+const OPEN_DIALOG_HINT: &str = "Enter open    Esc cancel";
 const FILE_DIALOG_NAME_LABEL: &str = "Name: ";
 
 /// Draws the dialog over the middle of the screen.
@@ -66,7 +67,11 @@ fn draw_file_dialog(frame: &mut Frame, dialog: &FileDialog) {
         width,
         height,
     };
-    let block = Block::bordered().title(" Save as ");
+    let title = match dialog.kind() {
+        DialogKind::Save => " Save as ",
+        DialogKind::Open => " Open ",
+    };
+    let block = Block::bordered().title(title);
     let inner = block.inner(popup);
     frame.render_widget(Clear, popup);
     frame.render_widget(block, popup);
@@ -142,7 +147,10 @@ fn file_dialog_hint(dialog: &FileDialog) -> String {
             .to_string_lossy();
         format!("{name} exists. Overwrite? [y/n]")
     } else if dialog.message().is_empty() {
-        FILE_DIALOG_HINT.to_string()
+        match dialog.kind() {
+            DialogKind::Save => SAVE_DIALOG_HINT.to_string(),
+            DialogKind::Open => OPEN_DIALOG_HINT.to_string(),
+        }
     } else {
         dialog.message().to_string()
     }
@@ -275,7 +283,10 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         Mode::VisualRow => ("V-LINE", VISUAL_HELP),
         Mode::ConfirmQuit => ("NORMAL", CONFIRM_QUIT),
         Mode::Command => ("COMMAND", ""),
-        Mode::FileDialog => ("SAVE", "Choose a folder and a name"),
+        Mode::FileDialog => match app.file_dialog().map(FileDialog::kind) {
+            Some(DialogKind::Open) => ("OPEN", "Choose a workbook"),
+            _ => ("SAVE", "Choose a folder and a name"),
+        },
     };
     let message = if app.status().is_empty() || app.mode() == Mode::ConfirmQuit {
         hint
