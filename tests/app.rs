@@ -1297,3 +1297,53 @@ fn dw_on_the_last_run_takes_the_cursor_cell() {
     assert_eq!(value(&app, "G1"), CellValue::Empty);
     assert_eq!(value(&app, "E1"), CellValue::Number(5.0));
 }
+
+fn blank_app() -> App {
+    App::new(Workbook::blank().unwrap())
+}
+
+#[test]
+fn w_with_a_name_saves_a_blank_workbook_to_that_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("new.xlsx");
+    let mut app = blank_app();
+    enter_value(&mut app, "5");
+
+    run(&mut app, &format!("w {}", path.display()));
+
+    assert_eq!(app.status(), "Saved new.xlsx");
+    assert_eq!(app.file_name(), "new.xlsx");
+    assert!(!app.workbook.is_dirty());
+    assert_eq!(
+        Workbook::open(&path).unwrap().sheets[0]
+            .cell(a1("A1"))
+            .value,
+        CellValue::Number(5.0)
+    );
+}
+
+#[test]
+fn w_adds_the_xlsx_extension_to_a_name_without_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = blank_app();
+
+    run(
+        &mut app,
+        &format!("w {}", dir.path().join("my book").display()),
+    );
+
+    assert_eq!(app.file_name(), "my book.xlsx");
+    assert!(dir.path().join("my book.xlsx").exists());
+}
+
+#[test]
+fn w_with_a_name_refuses_an_existing_file() {
+    let file = write_temp(b"precious");
+    let mut app = blank_app();
+
+    run(&mut app, &format!("w {}", file.path.display()));
+
+    assert!(app.status().starts_with("Save failed"), "{}", app.status());
+    assert_eq!(app.file_name(), "[No Name]");
+    assert_eq!(std::fs::read(&file.path).unwrap(), b"precious");
+}

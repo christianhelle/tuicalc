@@ -1,6 +1,7 @@
 //! Application state: everything the keyboard can change.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
@@ -34,6 +35,16 @@ fn is_text_input(key: KeyEvent) -> bool {
 /// Ctrl alone, not the Ctrl+Alt that Windows reports for AltGr.
 fn is_ctrl(key: KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT)
+}
+
+/// A file name as typed, with `.xlsx` added if it has no extension.
+fn with_default_extension(name: &str) -> PathBuf {
+    let path = Path::new(name);
+    if path.extension().is_some() {
+        path.to_path_buf()
+    } else {
+        PathBuf::from(format!("{name}.xlsx"))
+    }
 }
 
 /// One cell's part in a change.
@@ -857,6 +868,20 @@ impl App {
         }
     }
 
+    /// Saves to a new file and reports the outcome; returns whether it worked.
+    fn save_named(&mut self, name: &str) -> bool {
+        match self.workbook.save_as(with_default_extension(name)) {
+            Ok(()) => {
+                self.status = format!("Saved {}", self.file_name());
+                true
+            }
+            Err(error) => {
+                self.status = format!("Save failed: {error}");
+                false
+            }
+        }
+    }
+
     pub fn file_name(&self) -> String {
         let Some(path) = self.workbook.path() else {
             return "[No Name]".into();
@@ -966,6 +991,10 @@ impl App {
     }
 
     fn run_command(&mut self, command: &str) {
+        if let Some(("w", name)) = command.split_once(' ') {
+            self.save_named(name.trim());
+            return;
+        }
         match command {
             "" => {}
             "w" => {
