@@ -1694,3 +1694,59 @@ fn a_failed_save_shows_the_error_and_leaves_the_dialog_open() {
     assert!(message.starts_with("Save failed"), "{message}");
     assert_eq!(app.file_name(), "[No Name]");
 }
+
+#[test]
+fn wq_and_the_quit_prompt_quit_once_the_dialog_has_saved() {
+    let dir = save_folder();
+    let open_with_wq = |app: &mut App| run(app, "wq");
+    let open_with_prompt = |app: &mut App| {
+        ctrl(app, KeyCode::Char('q'));
+        press(app, KeyCode::Char('s'));
+    };
+    let openers: [&dyn Fn(&mut App); 2] = [&open_with_wq, &open_with_prompt];
+    for (index, open) in openers.into_iter().enumerate() {
+        let mut app = blank_app();
+        enter_value(&mut app, "5");
+        app.set_save_directory(dir.path());
+
+        open(&mut app);
+        assert_eq!(app.mode(), Mode::SaveDialog);
+        assert!(!app.should_quit());
+
+        type_text(&mut app, &format!("quit{index}"));
+        press(&mut app, KeyCode::Enter);
+        assert!(app.should_quit());
+    }
+}
+
+#[test]
+fn cancelling_the_dialog_cancels_the_quit_too() {
+    let dir = save_folder();
+    let mut app = blank_app();
+    enter_value(&mut app, "5");
+    app.set_save_directory(dir.path());
+
+    run(&mut app, "wq");
+    press(&mut app, KeyCode::Esc);
+    assert!(!app.should_quit());
+
+    ctrl(&mut app, KeyCode::Char('s'));
+    type_text(&mut app, "later");
+    press(&mut app, KeyCode::Enter);
+    assert!(app.save_dialog().is_none());
+    assert!(!app.should_quit(), "a plain save afterwards doesn't quit");
+}
+
+#[test]
+fn a_failed_save_in_the_dialog_does_not_quit() {
+    let dir = save_folder();
+    let mut app = blank_app();
+    app.set_save_directory(dir.path());
+    run(&mut app, "wq");
+
+    type_text(&mut app, "no-such-folder/book.xlsx");
+    press(&mut app, KeyCode::Enter);
+
+    assert!(!app.should_quit());
+    assert_eq!(app.mode(), Mode::SaveDialog);
+}

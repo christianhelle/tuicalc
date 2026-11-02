@@ -93,6 +93,8 @@ pub struct App {
     save_dialog: Option<SaveDialog>,
     /// Where the save dialog starts.
     save_directory: PathBuf,
+    /// Whether to quit once the save dialog has saved.
+    quit_after_save: bool,
 }
 
 impl App {
@@ -108,6 +110,7 @@ impl App {
             operator: None,
             operator_count: None,
             save_dialog: None,
+            quit_after_save: false,
             save_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             workbook,
             sheet: 0,
@@ -701,7 +704,7 @@ impl App {
                 None => self.switch_sheet(1),
             },
             ('g', KeyCode::Char('T')) => self.switch_sheet(-1),
-            ('Z', KeyCode::Char('Z')) => self.should_quit = self.save(),
+            ('Z', KeyCode::Char('Z')) => self.save_and_quit(),
             ('Z', KeyCode::Char('Q')) => self.should_quit = true,
             ('z', KeyCode::Char('z')) => self.scroll.row = self.cursor.row.saturating_sub(rows / 2),
             ('z', KeyCode::Char('t')) => self.scroll.row = self.cursor.row,
@@ -862,6 +865,12 @@ impl App {
         }
     }
 
+    /// Saves and quits, leaving the quit to the save dialog if the file needs a name.
+    fn save_and_quit(&mut self) {
+        self.quit_after_save = self.workbook.path().is_none();
+        self.should_quit = self.save();
+    }
+
     /// Saves and reports the outcome; returns whether the file is now up to date.
     fn save(&mut self) -> bool {
         if self.workbook.path().is_none() {
@@ -887,7 +896,10 @@ impl App {
         };
         match dialog.handle_key(key) {
             DialogAction::Stay => {}
-            DialogAction::Cancel => self.close_save_dialog(),
+            DialogAction::Cancel => {
+                self.quit_after_save = false;
+                self.close_save_dialog();
+            }
             DialogAction::Save(path) => {
                 let result = self.workbook.save_as(path);
                 self.finish_dialog_save(result);
@@ -905,6 +917,7 @@ impl App {
             Ok(()) => {
                 self.close_save_dialog();
                 self.status = format!("Saved {}", self.file_name());
+                self.should_quit = self.quit_after_save;
             }
             Err(error) => {
                 if let Some(dialog) = &mut self.save_dialog {
@@ -951,7 +964,7 @@ impl App {
         match key.code {
             KeyCode::Char('s' | 'S') => {
                 self.mode = Mode::Normal;
-                self.should_quit = self.save();
+                self.save_and_quit();
             }
             KeyCode::Char('d' | 'D') => self.should_quit = true,
             KeyCode::Esc => self.mode = Mode::Normal,
@@ -1066,7 +1079,7 @@ impl App {
                 self.status = "E37: No write since last change (add ! to override)".into();
             }
             "q" | "q!" => self.should_quit = true,
-            "wq" | "x" => self.should_quit = self.save(),
+            "wq" | "x" => self.save_and_quit(),
             _ => {
                 if let Ok(row) = command.parse::<u32>() {
                     self.cursor.row = row.saturating_sub(1).min(MAX_ROWS - 1);
