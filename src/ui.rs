@@ -39,7 +39,8 @@ fn layout(area: Rect) -> [Rect; 4] {
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let [formula_bar, grid, tabs, status] = layout(frame.area());
-    let grid_block = section_block(true, &app.current_sheet().name);
+    let editing = app.mode() == Mode::Insert;
+    let grid_block = section_block(!editing, &app.current_sheet().name);
     let grid_inner = grid_block.inner(grid);
     frame.render_widget(grid_block, grid);
     let visible_cols = u32::from(grid_inner.width.saturating_sub(ROW_HEADER_WIDTH) / COLUMN_WIDTH);
@@ -52,7 +53,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         visible_cols,
         visible_rows,
     );
-    let formula_block = section_block(false, &app.cursor().to_string());
+    let formula_block = section_block(editing, &app.cursor().to_string());
     let formula_inner = formula_block.inner(formula_bar);
     frame.render_widget(formula_block, formula_bar);
     draw_formula_bar(frame, formula_inner, app);

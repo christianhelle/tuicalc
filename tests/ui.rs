@@ -517,6 +517,20 @@ fn the_grid_sits_in_a_box_titled_with_the_sheet_name() {
 }
 
 #[test]
+fn the_thick_border_moves_to_the_formula_bar_while_editing() {
+    let (_file, mut app) = app_with("");
+
+    let screen = render(&mut app, 46, 14);
+    assert!(screen[0].starts_with('┌'), "{}", screen[0]);
+    assert!(screen[3].starts_with('┏'), "{}", screen[3]);
+
+    press(&mut app, KeyCode::Char('s'));
+    let screen = render(&mut app, 46, 14);
+    assert!(screen[0].starts_with('┏'), "{}", screen[0]);
+    assert!(screen[3].starts_with('┌'), "{}", screen[3]);
+}
+
+#[test]
 fn the_cursors_column_and_row_headers_stand_out_in_yellow() {
     use ratatui::style::Color;
 
