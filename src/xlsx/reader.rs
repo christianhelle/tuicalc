@@ -1,7 +1,8 @@
 //! Loads a package into the model.
 
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
+use std::io::{BufRead, BufReader, Cursor, Read};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
@@ -27,7 +28,65 @@ pub struct Layout {
 
 type Archive<'a> = ZipArchive<Cursor<&'a [u8]>>;
 
+/// What can be learned from a package without reading its cells.
+pub struct Plan {
+    pub sheet_names: Vec<String>,
+    pub date1904: bool,
+    pub layout: Layout,
+    pub shared_strings_part: Option<String>,
+    pub date_styles: Vec<bool>,
+    /// The uncompressed size of the shared strings and every sheet.
+    pub total_bytes: u64,
+}
+
+/// A run of a sheet's cells and read-only regions, in the order the file holds them.
+#[derive(Default)]
+pub struct SheetChunk {
+    pub cells: Vec<(CellRef, Cell)>,
+    pub locked: Vec<(CellRef, CellRef)>,
+}
+
+impl SheetChunk {
+    pub fn apply_to(self, sheet: &mut Sheet) {
+        for (at, cell) in self.cells {
+            sheet.load_cell(at, cell);
+        }
+        for (first, last) in self.locked {
+            sheet.lock_range(first, last);
+        }
+    }
+}
+
+/// A sheet's first chunk is about a screenful, so that it can be shown as soon as possible.
+const FIRST_CHUNK_CELLS: usize = 256;
+const CHUNK_CELLS: usize = 16_384;
+const READ_BUFFER_BYTES: usize = 64 * 1024;
+
 pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), XlsxError> {
+    let plan = read_plan(source)?;
+    let progress = AtomicU64::new(0);
+    let shared_strings =
+        read_shared_strings(source, plan.shared_strings_part.as_deref(), &progress)?;
+    let mut sheets = Vec::new();
+    for (name, part) in plan.sheet_names.iter().zip(&plan.layout.sheet_parts) {
+        let mut sheet = Sheet::new(name);
+        read_sheet_cells(
+            source,
+            part,
+            &shared_strings,
+            &plan.date_styles,
+            &progress,
+            &mut |chunk| {
+                chunk.apply_to(&mut sheet);
+                true
+            },
+        )?;
+        sheets.push(sheet);
+    }
+    Ok((sheets, plan.date1904, plan.layout))
+}
+
+pub fn read_plan(source: &[u8]) -> Result<Plan, XlsxError> {
     let mut archive = ZipArchive::new(Cursor::new(source))?;
     let workbook_part = find_workbook_part(&mut archive)?;
     let relationships = read_relationships(&mut archive, &workbook_part)?;
@@ -39,18 +98,17 @@ pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), XlsxError> {
         },
         None => Vec::new(),
     };
-    let shared_strings = match relationships
+    let shared_strings_part = relationships
         .values()
         .find(|r| r.kind.ends_with(SHARED_STRINGS))
-    {
-        Some(relationship) => match read_part(&mut archive, &relationship.target)? {
-            Some(xml) => read_shared_strings(&xml)?,
-            None => Vec::new(),
-        },
-        None => Vec::new(),
+        .map(|relationship| relationship.target.clone())
+        .filter(|part| archive.by_name(part).is_ok());
+    let mut total_bytes = match &shared_strings_part {
+        Some(part) => archive.by_name(part)?.size(),
+        None => 0,
     };
 
-    let mut sheets = Vec::new();
+    let mut sheet_names = Vec::new();
     let mut sheet_parts = Vec::new();
     for (name, relationship_id) in declared {
         let Some(relationship) = relationships.get(&relationship_id) else {
@@ -61,22 +119,45 @@ pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), XlsxError> {
         if !relationship.kind.ends_with(WORKSHEET) {
             continue;
         }
-        let xml = read_part(&mut archive, &relationship.target)?
-            .ok_or_else(|| XlsxError::Invalid(format!("missing {}", relationship.target)))?;
-        sheets.push(read_sheet(&name, &xml, &shared_strings, &date_styles)?);
+        let Ok(part) = archive.by_name(&relationship.target) else {
+            return Err(XlsxError::Invalid(format!(
+                "missing {}",
+                relationship.target
+            )));
+        };
+        total_bytes += part.size();
+        drop(part);
+        sheet_names.push(name);
         sheet_parts.push(relationship.target.clone());
     }
-    if sheets.is_empty() {
+    if sheet_names.is_empty() {
         return Err(XlsxError::Invalid("no worksheets".into()));
     }
-    Ok((
-        sheets,
+    Ok(Plan {
+        sheet_names,
         date1904,
-        Layout {
+        layout: Layout {
             workbook_part,
             sheet_parts,
         },
-    ))
+        shared_strings_part,
+        date_styles,
+        total_bytes,
+    })
+}
+
+/// Counts the uncompressed bytes passing through, for showing progress.
+struct Counting<'a, R> {
+    inner: R,
+    count: &'a AtomicU64,
+}
+
+impl<R: Read> Read for Counting<'_, R> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.inner.read(buffer)?;
+        self.count.fetch_add(read as u64, Ordering::Relaxed);
+        Ok(read)
+    }
 }
 
 pub struct Relationship {
@@ -264,14 +345,36 @@ fn is_date_format_code(code: &str) -> bool {
 }
 
 /// Reads all `<si>` entries; rich text runs are joined and phonetic hints dropped.
-fn read_shared_strings(xml: &str) -> Result<Vec<String>, XlsxError> {
-    let mut reader = Reader::from_str(xml);
+pub fn read_shared_strings(
+    source: &[u8],
+    part: Option<&str>,
+    progress: &AtomicU64,
+) -> Result<Vec<String>, XlsxError> {
+    let Some(part) = part else {
+        return Ok(Vec::new());
+    };
+    let mut archive = ZipArchive::new(Cursor::new(source))?;
+    let file = archive.by_name(part)?;
+    let input = BufReader::with_capacity(
+        READ_BUFFER_BYTES,
+        Counting {
+            inner: file,
+            count: progress,
+        },
+    );
+    parse_shared_strings(input)
+}
+
+fn parse_shared_strings(input: impl BufRead) -> Result<Vec<String>, XlsxError> {
+    let mut reader = Reader::from_reader(input);
+    let mut buffer = Vec::new();
     let mut strings = Vec::new();
     let mut current = String::new();
     let mut in_text = false;
     let mut in_phonetic = false;
     loop {
-        let event = reader.read_event().map_err(xml_error)?;
+        buffer.clear();
+        let event = reader.read_event_into(&mut buffer).map_err(xml_error)?;
         match &event {
             Event::Start(element) => {
                 let name = element.local_name();
@@ -410,14 +513,37 @@ impl Draft {
     }
 }
 
-fn read_sheet(
-    name: &str,
-    xml: &str,
+/// Reads a sheet, handing its cells to `sink` in chunks. It stops early if `sink` returns false.
+pub fn read_sheet_cells(
+    source: &[u8],
+    part: &str,
     shared_strings: &[String],
     date_styles: &[bool],
-) -> Result<Sheet, XlsxError> {
-    let mut sheet = Sheet::new(name);
-    let mut reader = Reader::from_str(xml);
+    progress: &AtomicU64,
+    sink: &mut dyn FnMut(SheetChunk) -> bool,
+) -> Result<(), XlsxError> {
+    let mut archive = ZipArchive::new(Cursor::new(source))?;
+    let file = archive.by_name(part)?;
+    let input = BufReader::with_capacity(
+        READ_BUFFER_BYTES,
+        Counting {
+            inner: file,
+            count: progress,
+        },
+    );
+    parse_sheet(input, shared_strings, date_styles, sink)
+}
+
+fn parse_sheet(
+    input: impl BufRead,
+    shared_strings: &[String],
+    date_styles: &[bool],
+    sink: &mut dyn FnMut(SheetChunk) -> bool,
+) -> Result<(), XlsxError> {
+    let mut reader = Reader::from_reader(input);
+    let mut buffer = Vec::new();
+    let mut chunk = SheetChunk::default();
+    let mut chunk_limit = FIRST_CHUNK_CELLS;
     let mut draft = Draft::default();
     let mut capture = Capture::Nothing;
     let mut in_phonetic = false;
@@ -426,7 +552,8 @@ fn read_sheet(
     let mut row_seen = false;
     let mut shared_formulas: HashMap<String, (CellRef, String)> = HashMap::new();
     loop {
-        let event = reader.read_event().map_err(xml_error)?;
+        buffer.clear();
+        let event = reader.read_event_into(&mut buffer).map_err(xml_error)?;
         match &event {
             Event::Start(element) | Event::Empty(element) => {
                 let empty = matches!(event, Event::Empty(_));
@@ -455,7 +582,7 @@ fn read_sheet(
                         if matches!(attr(element, "t").as_deref(), Some("array" | "dataTable")) {
                             let region = attr(element, "ref").unwrap_or_default();
                             if let Some((first, last)) = parse_range(&region) {
-                                sheet.lock_range(first, last);
+                                chunk.locked.push((first, last));
                             }
                         }
                         if !empty {
@@ -473,12 +600,22 @@ fn read_sheet(
                 "c" => {
                     if let Some(at) = draft.at.take() {
                         draft.resolve_formula(at, &mut shared_formulas);
-                        sheet.load_cell(at, draft.take_cell(shared_strings, date_styles));
+                        let cell = draft.take_cell(shared_strings, date_styles);
+                        chunk.cells.push((at, cell));
+                        if chunk.cells.len() >= chunk_limit {
+                            if !sink(std::mem::take(&mut chunk)) {
+                                return Ok(());
+                            }
+                            chunk_limit = CHUNK_CELLS;
+                        }
                     }
                 }
                 _ => {}
             },
-            Event::Eof => return Ok(sheet),
+            Event::Eof => {
+                sink(chunk);
+                return Ok(());
+            }
             _ => match capture {
                 Capture::Nothing => {}
                 Capture::Value => push_text(&event, &mut draft.value)?,
