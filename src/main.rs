@@ -7,25 +7,27 @@ use tuicalc::app::App;
 use tuicalc::ui::draw;
 use tuicalc::xlsx::Workbook;
 
-const USAGE: &str = "Usage: tcalc <file.xlsx>";
+const USAGE: &str = "Usage: tcalc [file.xlsx]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let path = match args.as_slice() {
+    let opened = match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
         }
-        [path] => path,
+        [] => Workbook::blank(),
+        [path] => Workbook::open(path),
         _ => {
             eprintln!("{USAGE}");
             return ExitCode::from(2);
         }
     };
-    let workbook = match Workbook::open(path) {
+    let workbook = match opened {
         Ok(workbook) => workbook,
         Err(error) => {
-            eprintln!("tcalc: cannot open {path}: {error}");
+            let target = args.first().map_or("a blank workbook", String::as_str);
+            eprintln!("tcalc: cannot open {target}: {error}");
             return ExitCode::FAILURE;
         }
     };

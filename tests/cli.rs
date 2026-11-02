@@ -8,17 +8,17 @@ fn tcalc(args: &[&str]) -> Output {
 }
 
 #[test]
-fn prints_usage_when_given_no_file() {
-    let output = tcalc(&[]);
+fn prints_usage_when_given_more_than_one_file() {
+    let output = tcalc(&["one.xlsx", "two.xlsx"]);
     assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Usage: tcalc <file.xlsx>"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Usage: tcalc [file.xlsx]"));
 }
 
 #[test]
 fn help_prints_usage_to_stdout_and_succeeds() {
     let output = tcalc(&["--help"]);
     assert_eq!(output.status.code(), Some(0));
-    assert!(String::from_utf8_lossy(&output.stdout).contains("Usage: tcalc <file.xlsx>"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Usage: tcalc [file.xlsx]"));
 }
 
 #[test]
