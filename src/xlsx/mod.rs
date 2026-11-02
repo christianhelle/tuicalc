@@ -111,6 +111,30 @@ impl Workbook {
         Ok(())
     }
 
+    /// Writes the workbook to a new file, which it then belongs to.
+    pub fn save_as(&mut self, path: impl AsRef<Path>) -> Result<(), XlsxError> {
+        let bytes = self.current_package()?;
+        std::fs::write(&path, &bytes)?;
+        self.adopt(path.as_ref(), bytes);
+        Ok(())
+    }
+
+    /// The package as it would be saved now.
+    fn current_package(&self) -> Result<Vec<u8>, XlsxError> {
+        if self.is_dirty() {
+            writer::patch(&self.source, &self.layout, &self.sheets)
+        } else {
+            Ok(self.source.clone())
+        }
+    }
+
+    /// Records that the workbook now lives in `path`, holding `bytes`.
+    fn adopt(&mut self, path: &Path, bytes: Vec<u8>) {
+        self.path = Some(path.to_path_buf());
+        self.source = bytes;
+        self.sheets.iter_mut().for_each(Sheet::mark_saved);
+    }
+
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
     }

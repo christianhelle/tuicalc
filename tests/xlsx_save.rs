@@ -421,3 +421,33 @@ fn saving_a_blank_workbook_needs_a_file_name() {
     assert!(matches!(book.save(), Err(XlsxError::NoFileName)));
     assert!(book.is_dirty(), "the edit is still unsaved");
 }
+
+#[test]
+fn save_as_writes_a_blank_workbook_that_reopens() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("new.xlsx");
+    let mut book = Workbook::blank().unwrap();
+    book.save_as(&path).unwrap();
+    assert!(!book.is_dirty());
+    assert_eq!(book.path(), Some(path.as_path()));
+    assert_eq!(Workbook::open(&path).unwrap().sheets[0].extent(), None);
+}
+
+#[test]
+fn save_as_keeps_numbers_text_and_formulas() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("new.xlsx");
+    let mut book = Workbook::blank().unwrap();
+    let text = Cell::value(CellValue::Text("hello".into()));
+    let formula = Cell::formula("A1+1".into());
+    book.sheets[0].set_cell(a1("A1"), number(5.0));
+    book.sheets[0].set_cell(a1("B2"), text.clone());
+    book.sheets[0].set_cell(a1("C3"), formula.clone());
+    book.save_as(&path).unwrap();
+    assert!(!book.is_dirty());
+
+    let reopened = Workbook::open(&path).unwrap();
+    assert_eq!(reopened.sheets[0].cell(a1("A1")), number(5.0));
+    assert_eq!(reopened.sheets[0].cell(a1("B2")), text);
+    assert_eq!(reopened.sheets[0].cell(a1("C3")).formula, formula.formula);
+}
