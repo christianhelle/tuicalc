@@ -22,6 +22,8 @@ pub enum Mode {
     VisualRow,
     /// Typing a `:` command.
     Command,
+    /// Typing the cell or row to jump to.
+    GoTo,
     /// Waiting for the user to decide what happens to unsaved edits.
     ConfirmDiscard,
     /// Choosing where to save a workbook that has no file yet.
@@ -247,6 +249,7 @@ impl App {
             Mode::Insert => self.insert_key(key),
             Mode::Visual | Mode::VisualRow => self.visual_key(key),
             Mode::Command => self.command_key(key),
+            Mode::GoTo => self.go_to_key(key),
             Mode::ConfirmDiscard => self.confirm_discard_key(key),
             Mode::FileDialog => self.file_dialog_key(key),
         }
@@ -806,6 +809,7 @@ impl App {
                 self.save();
             }
             KeyCode::Char('o') if ctrl => self.ask_before_losing_edits(NextStep::OpenFile),
+            KeyCode::Char('g') if ctrl => self.begin_prompt(Mode::GoTo),
             KeyCode::Char('z') if ctrl => self.undo(),
             KeyCode::Char('y') if ctrl => self.redo(),
             KeyCode::Delete | KeyCode::Backspace => {
@@ -1178,6 +1182,65 @@ impl App {
         self.begin_edit(text.chars().collect());
     }
 
+    /// Starts typing into an empty one-line prompt.
+    fn begin_prompt(&mut self, mode: Mode) {
+        self.buffer.clear();
+        self.caret = 0;
+        self.mode = mode;
+    }
+
+    /// The editing keys every one-line prompt shares.
+    fn prompt_text_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Backspace if self.caret > 0 => {
+                self.caret -= 1;
+                self.buffer.remove(self.caret);
+            }
+            KeyCode::Delete if self.caret < self.buffer.len() => {
+                self.buffer.remove(self.caret);
+            }
+            KeyCode::Left => self.caret = self.caret.saturating_sub(1),
+            KeyCode::Right => self.caret = (self.caret + 1).min(self.buffer.len()),
+            KeyCode::Home => self.caret = 0,
+            KeyCode::End => self.caret = self.buffer.len(),
+            KeyCode::Char(c) if is_text_input(key) => {
+                self.buffer.insert(self.caret, c);
+                self.caret += 1;
+            }
+            _ => {}
+        }
+    }
+
+    fn go_to_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.mode = Mode::Normal,
+            KeyCode::Char('c') if is_ctrl(key) => self.mode = Mode::Normal,
+            KeyCode::Enter => {
+                let buffer = self.buffer();
+                let target = buffer.trim();
+                if target.is_empty() || self.go_to(target) {
+                    self.mode = Mode::Normal;
+                } else {
+                    self.report_error(format!("{target} isn't a cell or a row"));
+                }
+            }
+            _ => self.prompt_text_key(key),
+        }
+    }
+
+    /// Moves to a cell such as `C7`, or to a row number in the same column.
+    fn go_to(&mut self, target: &str) -> bool {
+        if let Ok(row) = target.parse::<u32>() {
+            self.cursor.row = row.saturating_sub(1).min(MAX_ROWS - 1);
+            true
+        } else if let Some(at) = CellRef::parse(target) {
+            self.cursor = at;
+            true
+        } else {
+            false
+        }
+    }
+
     fn command_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => self.mode = Mode::Normal,
@@ -1234,11 +1297,7 @@ impl App {
             "wq" => self.save_and_quit(),
             "x" => self.save_if_edited_and_quit(),
             _ => {
-                if let Ok(row) = command.parse::<u32>() {
-                    self.cursor.row = row.saturating_sub(1).min(MAX_ROWS - 1);
-                } else if let Some(at) = CellRef::parse(command) {
-                    self.cursor = at;
-                } else {
+                if !self.go_to(command) {
                     self.status = format!("E492: Not an editor command: {command}");
                 }
             }

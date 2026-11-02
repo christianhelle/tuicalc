@@ -701,6 +701,59 @@ fn the_file_dialog_has_a_yellow_border_and_coloured_key_hints() {
 }
 
 #[test]
+fn go_to_is_a_yellow_dialog_with_the_caret_after_the_text() {
+    use ratatui::style::Color;
+
+    let (_file, mut app) = app_with("");
+    app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL));
+    press(&mut app, KeyCode::Char('C'));
+    press(&mut app, KeyCode::Char('7'));
+
+    let screen = render(&mut app, 80, 14);
+    let top = screen
+        .iter()
+        .position(|line| line.contains(" Go to "))
+        .unwrap();
+    let left = screen[top].chars().position(|c| c == '┌').unwrap() as u16;
+    let label = "Cell or row: C7";
+    let row = top + 1;
+    assert!(screen[row].contains(label), "{}", screen[row]);
+    assert!(screen[top + 2].contains("Enter go"), "{}", screen[top + 2]);
+
+    let mut terminal = terminal_for(&mut app, 80, 14);
+    assert_eq!(
+        terminal.backend().buffer()[(left, top as u16)].fg,
+        Color::Yellow
+    );
+    let caret = terminal.get_cursor_position().unwrap();
+    assert_eq!(
+        (caret.x, caret.y),
+        (left + 1 + label.len() as u16, row as u16)
+    );
+}
+
+#[test]
+fn go_to_shows_its_complaint_in_red_in_the_dialog() {
+    use ratatui::style::Color;
+
+    let (_file, mut app) = app_with("");
+    app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL));
+    press(&mut app, KeyCode::Char('?'));
+    press(&mut app, KeyCode::Enter);
+
+    let screen = render(&mut app, 80, 14);
+    let row = screen
+        .iter()
+        .position(|line| line.contains("isn't a cell"))
+        .unwrap();
+    assert!(!screen[row].contains("Enter go"));
+    assert!(!status_line(&screen).contains("isn't a cell"), "shown once");
+    let x = screen[row].find("?").unwrap() as u16;
+    let terminal = terminal_for(&mut app, 80, 14);
+    assert_eq!(terminal.backend().buffer()[(x, row as u16)].fg, Color::Red);
+}
+
+#[test]
 fn the_save_dialog_marks_the_highlighted_line() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("old.xlsx"), b"x").unwrap();

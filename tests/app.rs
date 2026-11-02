@@ -2086,6 +2086,73 @@ fn f5_starts_at_the_top_if_the_sheet_is_gone() {
 }
 
 #[test]
+fn ctrl_g_goes_to_a_cell_or_a_row() {
+    let (_file, mut app) = app_with("");
+
+    ctrl(&mut app, KeyCode::Char('g'));
+    assert_eq!(app.mode(), Mode::GoTo);
+    type_text(&mut app, "c7");
+    assert_eq!(app.buffer(), "c7");
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(app.cursor(), a1("C7"));
+
+    ctrl(&mut app, KeyCode::Char('g'));
+    type_text(&mut app, "25");
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(app.cursor(), a1("C25"), "the column stays");
+}
+
+#[test]
+fn ctrl_g_starts_with_an_empty_box_after_editing() {
+    let (_file, mut app) = app_with("");
+    enter_value(&mut app, "old");
+
+    ctrl(&mut app, KeyCode::Char('g'));
+
+    assert_eq!(app.buffer(), "");
+    assert_eq!(app.caret(), 0);
+}
+
+#[test]
+fn ctrl_g_stays_open_on_nonsense_and_says_why() {
+    let (_file, mut app) = app_with("");
+
+    ctrl(&mut app, KeyCode::Char('g'));
+    type_text(&mut app, "nope");
+    press(&mut app, KeyCode::Enter);
+
+    assert_eq!(app.mode(), Mode::GoTo);
+    assert_eq!(app.status(), "nope isn't a cell or a row");
+    assert!(app.status_is_error());
+    assert_eq!(app.cursor(), a1("A1"));
+
+    press(&mut app, KeyCode::Backspace);
+    assert_eq!(app.buffer(), "nop");
+    assert_eq!(app.status(), "", "typing clears the complaint");
+}
+
+#[test]
+fn esc_ctrl_c_and_an_empty_enter_leave_go_to_where_you_were() {
+    let (_file, mut app) = app_with("");
+
+    ctrl(&mut app, KeyCode::Char('g'));
+    type_text(&mut app, "C7");
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(app.cursor(), a1("A1"));
+
+    ctrl(&mut app, KeyCode::Char('g'));
+    ctrl(&mut app, KeyCode::Char('c'));
+    assert_eq!(app.mode(), Mode::Normal);
+
+    ctrl(&mut app, KeyCode::Char('g'));
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(app.status(), "");
+}
+
+#[test]
 fn e_refuses_while_there_are_unsaved_edits() {
     let (_file, mut app) = app_with("");
     enter_value(&mut app, "5");

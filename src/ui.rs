@@ -73,6 +73,45 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if app.mode() == Mode::ConfirmDiscard {
         draw_discard_dialog(frame, app);
     }
+    if app.mode() == Mode::GoTo {
+        draw_go_to_dialog(frame, app);
+    }
+}
+
+const GO_TO_DIALOG_WIDTH: u16 = 52;
+const GO_TO_LABEL: &str = "Cell or row: ";
+
+/// Asks where to jump, with the terminal cursor at the caret.
+fn draw_go_to_dialog(frame: &mut Frame, app: &App) {
+    let last_line = if app.status_is_error() {
+        Line::styled(app.status().to_string(), Style::new().fg(Color::Red))
+    } else {
+        Line::from(vec![
+            Span::styled("Enter", Style::new().fg(Color::Yellow)),
+            Span::raw(" go   "),
+            Span::styled("Esc", Style::new().fg(Color::Cyan)),
+            Span::raw(" cancel"),
+        ])
+    };
+    let lines = vec![
+        Line::raw(format!("{GO_TO_LABEL}{}", app.buffer())),
+        last_line,
+    ];
+    let area = frame.area().centered(
+        Constraint::Length(GO_TO_DIALOG_WIDTH),
+        Constraint::Length(lines.len() as u16 + 2),
+    );
+    let block = Block::bordered()
+        .border_style(Style::new().fg(Color::Yellow))
+        .title(" Go to ");
+    let inner = block.inner(area);
+    frame.render_widget(Clear, area);
+    frame.render_widget(Paragraph::new(lines).block(block), area);
+    if inner.width > 0 && inner.height > 0 {
+        let chars: Vec<char> = app.buffer().chars().collect();
+        let x = inner.x + (GO_TO_LABEL.len() + text_width(&chars[..app.caret()])) as u16;
+        frame.set_cursor_position((x.min(inner.right().saturating_sub(1)), inner.y));
+    }
 }
 
 const DISCARD_DIALOG_WIDTH: u16 = 60;
@@ -340,12 +379,14 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         Mode::VisualRow => ("V-LINE", Color::Magenta, VISUAL_HINTS),
         Mode::ConfirmDiscard => ("NORMAL", Color::Blue, ""),
         Mode::Command => ("COMMAND", Color::Blue, ""),
+        Mode::GoTo => ("NORMAL", Color::Blue, ""),
         Mode::FileDialog => match app.file_dialog().map(FileDialog::kind) {
             Some(DialogKind::Open) => ("OPEN", Color::Blue, " Choose a workbook"),
             _ => ("SAVE", Color::Blue, " Choose a folder and a name"),
         },
     };
-    let message = if app.status().is_empty() {
+    // The go-to dialog shows its own complaints.
+    let message = if app.status().is_empty() || app.mode() == Mode::GoTo {
         hint.to_string()
     } else {
         format!(" {}", app.status())
