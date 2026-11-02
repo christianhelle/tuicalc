@@ -305,14 +305,14 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         Mode::Insert => ("INSERT", Color::Green, INSERT_HINTS),
         Mode::Visual => ("VISUAL", Color::Magenta, VISUAL_HINTS),
         Mode::VisualRow => ("V-LINE", Color::Magenta, VISUAL_HINTS),
-        Mode::ConfirmQuit => ("NORMAL", Color::Blue, CONFIRM_QUIT),
+        Mode::ConfirmDiscard => ("NORMAL", Color::Blue, CONFIRM_QUIT),
         Mode::Command => ("COMMAND", Color::Blue, ""),
         Mode::FileDialog => match app.file_dialog().map(FileDialog::kind) {
             Some(DialogKind::Open) => ("OPEN", Color::Blue, " Choose a workbook"),
             _ => ("SAVE", Color::Blue, " Choose a folder and a name"),
         },
     };
-    let message = if app.status().is_empty() || app.mode() == Mode::ConfirmQuit {
+    let message = if app.status().is_empty() || app.mode() == Mode::ConfirmDiscard {
         hint.to_string()
     } else {
         format!(" {}", app.status())

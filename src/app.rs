@@ -23,7 +23,7 @@ pub enum Mode {
     /// Typing a `:` command.
     Command,
     /// Waiting for the user to decide what happens to unsaved edits.
-    ConfirmQuit,
+    ConfirmDiscard,
     /// Choosing where to save a workbook that has no file yet.
     FileDialog,
 }
@@ -38,6 +38,13 @@ pub(crate) fn is_text_input(key: KeyEvent) -> bool {
 /// Ctrl alone, not the Ctrl+Alt that Windows reports for AltGr.
 pub(crate) fn is_ctrl(key: KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT)
+}
+
+/// What to do once unsaved edits have been saved or discarded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NextStep {
+    Quit,
+    OpenFile,
 }
 
 /// One cell's part in a change.
@@ -94,8 +101,8 @@ pub struct App {
     file_dialog: Option<FileDialog>,
     /// Where the file dialog starts.
     dialog_directory: PathBuf,
-    /// Whether to quit once the file dialog has saved.
-    quit_after_save: bool,
+    /// What's waiting on the unsaved edits being saved or discarded.
+    next_step: Option<NextStep>,
 }
 
 impl App {
@@ -111,7 +118,7 @@ impl App {
             operator: None,
             operator_count: None,
             file_dialog: None,
-            quit_after_save: false,
+            next_step: None,
             dialog_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             workbook,
             sheet: 0,
@@ -239,7 +246,7 @@ impl App {
             Mode::Insert => self.insert_key(key),
             Mode::Visual | Mode::VisualRow => self.visual_key(key),
             Mode::Command => self.command_key(key),
-            Mode::ConfirmQuit => self.confirm_quit_key(key),
+            Mode::ConfirmDiscard => self.confirm_discard_key(key),
             Mode::FileDialog => self.file_dialog_key(key),
         }
         self.scroll_to_cursor();
@@ -787,11 +794,7 @@ impl App {
             KeyCode::F(6) if shift => self.switch_sheet(-1),
             KeyCode::F(6) => self.switch_sheet(1),
             KeyCode::Char('q' | 'c') if ctrl => {
-                if self.workbook.is_dirty() {
-                    self.mode = Mode::ConfirmQuit;
-                } else {
-                    self.should_quit = true;
-                }
+                self.ask_before_losing_edits(NextStep::Quit);
             }
             KeyCode::Char('s') if ctrl => {
                 self.save();
@@ -890,7 +893,7 @@ impl App {
 
     /// Saves and quits, leaving the quit to the file dialog if the file needs a name.
     fn save_and_quit(&mut self) {
-        self.quit_after_save = self.workbook.path().is_none();
+        self.next_step = self.workbook.path().is_none().then_some(NextStep::Quit);
         self.should_quit = self.save();
     }
 
@@ -924,7 +927,7 @@ impl App {
         match dialog.handle_key(key) {
             DialogAction::Stay => {}
             DialogAction::Cancel => {
-                self.quit_after_save = false;
+                self.next_step = None;
                 self.close_file_dialog();
             }
             DialogAction::Save(path) => {
@@ -955,7 +958,9 @@ impl App {
             Ok(()) => {
                 self.close_file_dialog();
                 self.status = format!("Saved {}", self.file_name());
-                self.should_quit = self.quit_after_save;
+                if let Some(step) = self.next_step.take() {
+                    self.take_step(step);
+                }
             }
             Err(error) => {
                 if let Some(dialog) = &mut self.file_dialog {
@@ -1035,14 +1040,46 @@ impl App {
             .into_owned()
     }
 
-    fn confirm_quit_key(&mut self, key: KeyEvent) {
+    /// Takes the step now, or asks first if it would lose unsaved edits.
+    fn ask_before_losing_edits(&mut self, step: NextStep) {
+        if self.workbook.is_dirty() {
+            self.next_step = Some(step);
+            self.mode = Mode::ConfirmDiscard;
+        } else {
+            self.take_step(step);
+        }
+    }
+
+    fn take_step(&mut self, step: NextStep) {
+        match step {
+            NextStep::Quit => self.should_quit = true,
+            NextStep::OpenFile => self.open_file_dialog(DialogKind::Open),
+        }
+    }
+
+    fn confirm_discard_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('s' | 'S') => {
                 self.mode = Mode::Normal;
-                self.save_and_quit();
+                // Without a file name the save dialog takes over, and takes the step afterwards.
+                if self.save() {
+                    if let Some(step) = self.next_step.take() {
+                        self.take_step(step);
+                    }
+                } else if self.file_dialog.is_none() {
+                    self.next_step = None;
+                }
             }
-            KeyCode::Char('d' | 'D') => self.should_quit = true,
-            KeyCode::Esc => self.mode = Mode::Normal,
+            KeyCode::Char('d' | 'D') => {
+                self.mode = Mode::Normal;
+                if let Some(step) = self.next_step.take() {
+                    self.take_step(step);
+                }
+            }
+            KeyCode::Esc => {
+                self.mode = Mode::Normal;
+                self.next_step = None;
+            }
             _ => {}
         }
     }

@@ -400,10 +400,10 @@ fn quitting_with_unsaved_edits_asks_first() {
 
     ctrl(&mut app, KeyCode::Char('q'));
     assert!(!app.should_quit());
-    assert_eq!(app.mode(), Mode::ConfirmQuit);
+    assert_eq!(app.mode(), Mode::ConfirmDiscard);
 
     press(&mut app, KeyCode::Char('x'));
-    assert_eq!(app.mode(), Mode::ConfirmQuit, "other keys keep asking");
+    assert_eq!(app.mode(), Mode::ConfirmDiscard, "other keys keep asking");
     assert_eq!(app.current_sheet().cell(a1("A2")), Cell::default());
 
     press(&mut app, KeyCode::Esc);
