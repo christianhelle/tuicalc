@@ -60,6 +60,14 @@ fn grid_line(screen: &[String], row: usize) -> &str {
     &screen[row + 1]
 }
 
+fn header_y() -> u16 {
+    cell_position(0, 0).1 - 1
+}
+
+fn row_number_x() -> u16 {
+    0
+}
+
 fn formula_line(screen: &[String]) -> &str {
     &screen[0]
 }
@@ -461,33 +469,25 @@ fn unfinished_commands_show_at_the_right_of_the_status_line() {
 }
 
 #[test]
-fn column_and_row_headers_are_cyan_bars_in_homage_to_lotus_1_2_3() {
+fn column_and_row_headers_are_bold_cyan_on_the_terminal_background() {
     use ratatui::style::Color;
 
     let (_file, mut app) = app_with(r#"<row r="1"><c r="B1"><v>1</v></c></row>"#);
+    press(&mut app, KeyCode::Char('j'));
+    press(&mut app, KeyCode::Char('l'));
+    press(&mut app, KeyCode::Char('l'));
 
-    let terminal = terminal_for(&mut app, 50, 10);
+    let terminal = terminal_for(&mut app, 50, 16);
     let buffer = terminal.backend().buffer();
-    let is_bar = |x: u16, y: u16| buffer[(x, y)].bg == Color::Rgb(0x00, 0xA8, 0xA8);
+    let column_letter = &buffer[(cell_position(0, 0).0 + 5, header_y())];
+    let row_number = &buffer[(row_number_x(), cell_position(0, 0).1)];
 
-    assert_eq!(buffer[(13, 1)].symbol(), "A");
-    assert!(is_bar(13, 1), "behind a column letter");
-    assert_eq!(buffer[(13, 1)].fg, Color::Rgb(0x00, 0x00, 0x00));
-    assert_eq!(buffer[(0, 2)].symbol(), "1");
-    assert!(is_bar(0, 2), "behind a row number");
-    assert_eq!(buffer[(0, 2)].fg, Color::Rgb(0x00, 0x00, 0x00));
-
-    assert!(is_bar(0, 1), "the corner");
-    assert!(is_bar(19, 1), "between column letters");
-    assert!(is_bar(49, 1), "out to the right edge");
-    assert!(is_bar(7, 2), "across the row header's width");
-    assert!(is_bar(0, 7), "down to the last row");
-
-    assert!(!is_bar(30, 2), "cell contents");
-    assert!(!is_bar(8, 3), "empty cells");
-    assert!(!is_bar(0, 0), "the formula bar");
-    assert!(!is_bar(0, 8), "the sheet tabs");
-    assert!(!is_bar(0, 9), "the status line");
+    assert_eq!(column_letter.symbol(), "A");
+    assert_eq!(column_letter.fg, Color::Cyan);
+    assert_eq!(column_letter.bg, Color::Reset);
+    assert_eq!(row_number.symbol(), "1");
+    assert_eq!(row_number.fg, Color::Cyan);
+    assert_eq!(row_number.bg, Color::Reset);
 }
 
 #[test]
@@ -621,13 +621,17 @@ fn column_and_row_headers_are_bold_but_the_cursor_is_not() {
     let buffer = terminal.backend().buffer();
     let is_bold = |x: u16, y: u16| buffer[(x, y)].modifier.contains(Modifier::BOLD);
 
-    assert_eq!(buffer[(13, 1)].symbol(), "A");
-    assert!(is_bold(13, 1), "a column letter");
-    assert_eq!(buffer[(0, 2)].symbol(), "1");
-    assert!(is_bold(0, 2), "a row number");
+    let letter_x = cell_position(0, 0).0 + 5;
+    let number_y = cell_position(0, 0).1;
+    assert_eq!(buffer[(letter_x, header_y())].symbol(), "A");
+    assert!(is_bold(letter_x, header_y()), "a column letter");
+    assert_eq!(buffer[(row_number_x(), number_y)].symbol(), "1");
+    assert!(is_bold(row_number_x(), number_y), "a row number");
     assert!(is_selector(&buffer[cell_position(0, 0)]));
-    assert!(!is_bold(8, 2), "the cursor");
-    assert!(!is_bold(30, 2), "cell contents");
+    let (x, y) = cell_position(0, 0);
+    assert!(!is_bold(x, y), "the cursor");
+    let (x, y) = cell_position(1, 0);
+    assert!(!is_bold(x + 10, y), "cell contents");
 }
 
 /// A blank workbook with the open dialog on `dir`.

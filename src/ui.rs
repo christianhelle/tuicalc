@@ -17,8 +17,7 @@ use crate::text::{display_text, edit_text, is_right_aligned};
 const FRAME_STYLE: Style = Style::new()
     .fg(Color::Rgb(0x00, 0x00, 0x00))
     .bg(Color::Rgb(0x00, 0xA8, 0xA8));
-/// Bold keeps the column letters and row numbers readable.
-const HEADER_STYLE: Style = FRAME_STYLE.add_modifier(Modifier::BOLD);
+const HEADER_STYLE: Style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
 const ROW_HEADER_WIDTH: u16 = 8;
 const COLUMN_WIDTH: u16 = 12;
 /// Column width less the gap separating neighbouring cells.
@@ -321,16 +320,6 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
     }
     let scroll = app.scroll();
     let header_style = HEADER_STYLE;
-    buffer.set_style(Rect { height: 1, ..area }, header_style);
-    buffer.set_style(
-        Rect {
-            y: area.y + 1,
-            width: ROW_HEADER_WIDTH.min(area.width),
-            height: area.height - 1,
-            ..area
-        },
-        header_style,
-    );
     for offset in 0..cols {
         let x = area.x + ROW_HEADER_WIDTH + offset as u16 * COLUMN_WIDTH;
         let name = column_name(scroll.col + offset);
