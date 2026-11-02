@@ -451,3 +451,15 @@ fn save_as_keeps_numbers_text_and_formulas() {
     assert_eq!(reopened.sheets[0].cell(a1("B2")), text);
     assert_eq!(reopened.sheets[0].cell(a1("C3")).formula, formula.formula);
 }
+
+#[test]
+fn save_as_refuses_an_existing_file_and_leaves_it_alone() {
+    let file = write_temp(b"precious");
+    let mut book = Workbook::blank().unwrap();
+    book.sheets[0].set_cell(a1("A1"), number(1.0));
+
+    assert!(book.save_as(&file.path).is_err());
+    assert_eq!(std::fs::read(&file.path).unwrap(), b"precious");
+    assert_eq!(book.path(), None);
+    assert!(book.is_dirty());
+}

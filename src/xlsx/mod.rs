@@ -114,7 +114,7 @@ impl Workbook {
     /// Writes the workbook to a new file, which it then belongs to.
     pub fn save_as(&mut self, path: impl AsRef<Path>) -> Result<(), XlsxError> {
         let bytes = self.current_package()?;
-        std::fs::write(&path, &bytes)?;
+        create_file(path.as_ref(), &bytes)?;
         self.adopt(path.as_ref(), bytes);
         Ok(())
     }
@@ -138,6 +138,20 @@ impl Workbook {
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
     }
+}
+
+/// Creates `path`, refusing a file that already exists, and removes it if the write fails.
+fn create_file(path: &Path, bytes: &[u8]) -> Result<(), XlsxError> {
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+        drop(file);
+        let _ = std::fs::remove_file(path);
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 /// Replaces `path` atomically, so a failed save cannot leave a truncated workbook behind.
