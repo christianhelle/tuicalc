@@ -1,4 +1,4 @@
-# tuicalc
+# TUICalc
 
 View and edit Excel `.xlsx` workbooks from the terminal.
 
