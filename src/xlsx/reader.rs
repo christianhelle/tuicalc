@@ -8,7 +8,7 @@ use quick_xml::events::{BytesStart, Event};
 use zip::ZipArchive;
 
 use super::XlsxError;
-use super::xml::{attr, decode_excel_escapes, local_name, push_text, xml_error};
+use super::xml::{attr, decode_excel_escapes, local_name, plain_attr, push_text, xml_error};
 use crate::address::CellRef;
 use crate::formula::translate;
 use crate::model::{Cell, CellValue, Sheet};
@@ -305,11 +305,36 @@ enum Capture {
     Inline,
 }
 
-/// The `<c>` element being read.
+/// What a `<c>` element's `t` attribute says its value is.
+#[derive(Default, Clone, Copy)]
+enum CellKind {
+    #[default]
+    Number,
+    SharedString,
+    Bool,
+    Error,
+    Inline,
+    Text,
+}
+
+impl CellKind {
+    fn from_attribute(text: &str) -> Self {
+        match text {
+            "s" => Self::SharedString,
+            "b" => Self::Bool,
+            "e" => Self::Error,
+            "inlineStr" => Self::Inline,
+            "str" | "d" => Self::Text,
+            _ => Self::Number,
+        }
+    }
+}
+
+/// The `<c>` element being read, whose text buffers are reused from cell to cell.
 #[derive(Default)]
 struct Draft {
     at: Option<CellRef>,
-    kind: String,
+    kind: CellKind,
     formula: Option<String>,
     value: String,
     inline: String,
@@ -340,41 +365,47 @@ impl Draft {
         };
     }
 
-    fn start(element: &BytesStart<'_>, fallback: CellRef) -> Self {
-        let at = attr(element, "r")
-            .and_then(|r| CellRef::parse(&r))
-            .unwrap_or(fallback);
-        Self {
-            at: Some(at),
-            kind: attr(element, "t").unwrap_or_default(),
-            style: attr(element, "s").and_then(|s| s.parse().ok()).unwrap_or(0),
-            ..Self::default()
-        }
+    fn start(&mut self, element: &BytesStart<'_>, fallback: CellRef) {
+        self.at = Some(
+            plain_attr(element, "r")
+                .and_then(|r| CellRef::parse(&r))
+                .unwrap_or(fallback),
+        );
+        self.kind =
+            plain_attr(element, "t").map_or(CellKind::Number, |t| CellKind::from_attribute(&t));
+        self.style = plain_attr(element, "s")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        self.formula = None;
+        self.shared_index = None;
+        self.value.clear();
+        self.inline.clear();
     }
 
-    fn into_cell(self, shared_strings: &[String], date_styles: &[bool]) -> Cell {
+    /// The finished cell, leaving the text buffers to be used again.
+    fn take_cell(&mut self, shared_strings: &[String], date_styles: &[bool]) -> Cell {
         let is_date = date_styles.get(self.style).copied().unwrap_or(false);
-        let value = match self.kind.as_str() {
-            "s" => self
+        let value = match self.kind {
+            CellKind::SharedString => self
                 .value
                 .parse::<usize>()
                 .ok()
                 .and_then(|index| shared_strings.get(index).cloned())
                 .map_or(CellValue::Empty, CellValue::Text),
-            "b" => CellValue::Bool(self.value == "1"),
-            "e" => CellValue::Error(self.value),
-            "inlineStr" => CellValue::Text(decode_excel_escapes(&self.inline)),
-            "str" | "d" => CellValue::Text(decode_excel_escapes(&self.value)),
-            _ if self.value.is_empty() => CellValue::Empty,
-            _ => self
+            CellKind::Bool => CellValue::Bool(self.value == "1"),
+            CellKind::Error => CellValue::Error(self.value.clone()),
+            CellKind::Inline => CellValue::Text(decode_excel_escapes(&self.inline)),
+            CellKind::Text => CellValue::Text(decode_excel_escapes(&self.value)),
+            CellKind::Number if self.value.is_empty() => CellValue::Empty,
+            CellKind::Number => self
                 .value
                 .parse()
-                .map_or_else(|_| CellValue::Text(self.value), CellValue::Number),
+                .map_or_else(|_| CellValue::Text(self.value.clone()), CellValue::Number),
         };
         Cell {
             is_date: is_date && matches!(value, CellValue::Number(_)),
             value,
-            formula: self.formula,
+            formula: self.formula.take(),
         }
     }
 }
@@ -402,7 +433,7 @@ fn read_sheet(
                 let name = element.local_name();
                 match AsRef::<str>::as_ref(&name) {
                     "row" => {
-                        next.row = attr(element, "r")
+                        next.row = plain_attr(element, "r")
                             .and_then(|r| r.parse::<u32>().ok())
                             .and_then(|r| r.checked_sub(1))
                             .unwrap_or(if row_seen { next.row + 1 } else { 0 });
@@ -410,10 +441,10 @@ fn read_sheet(
                         row_seen = true;
                     }
                     "c" => {
-                        draft = Draft::start(element, next);
+                        draft.start(element, next);
                         next.col = draft.at.map_or(next.col, |at| at.col) + 1;
                         if empty {
-                            draft = Draft::default();
+                            draft.at = None;
                         }
                     }
                     "v" if !empty => capture = Capture::Value,
@@ -440,10 +471,9 @@ fn read_sheet(
                 "v" | "f" | "t" => capture = Capture::Nothing,
                 "rPh" => in_phonetic = false,
                 "c" => {
-                    let mut finished = std::mem::take(&mut draft);
-                    if let Some(at) = finished.at {
-                        finished.resolve_formula(at, &mut shared_formulas);
-                        sheet.load_cell(at, finished.into_cell(shared_strings, date_styles));
+                    if let Some(at) = draft.at.take() {
+                        draft.resolve_formula(at, &mut shared_formulas);
+                        sheet.load_cell(at, draft.take_cell(shared_strings, date_styles));
                     }
                 }
                 _ => {}

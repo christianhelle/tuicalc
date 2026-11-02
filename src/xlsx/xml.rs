@@ -1,5 +1,7 @@
 //! Small helpers over quick-xml.
 
+use std::borrow::Cow;
+
 use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
 
@@ -19,6 +21,19 @@ pub fn attr(element: &BytesStart<'_>, local: &str) -> Option<String> {
             .flatten()
             .map(|value| value.into_owned())
     })
+}
+
+/// As `attr`, for values with no entities in them such as references and style numbers, which it
+/// doesn't decode or copy. Reading these is the hottest path there is when opening a large sheet.
+pub fn plain_attr<'a>(element: &'a BytesStart<'_>, local: &str) -> Option<Cow<'a, str>> {
+    element
+        .attributes()
+        .with_checks(false)
+        .flatten()
+        .find_map(|attribute| {
+            let key = attribute.key.local_name();
+            (AsRef::<str>::as_ref(&key) == local).then_some(attribute.value)
+        })
 }
 
 pub fn local_name(element: &BytesStart<'_>) -> String {
