@@ -19,6 +19,7 @@ const SELECTED_CURSOR_STYLE: Style = SELECTED_STYLE
     .fg(Color::Yellow)
     .add_modifier(Modifier::BOLD);
 const HEADER_STYLE: Style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+const CURSOR_HEADER_STYLE: Style = Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD);
 const ROW_HEADER_WIDTH: u16 = 8;
 const COLUMN_WIDTH: u16 = 12;
 /// Column width less the gap separating neighbouring cells.
@@ -320,11 +321,18 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
         return;
     }
     let scroll = app.scroll();
-    let header_style = HEADER_STYLE;
+    let header_style = |current: bool| {
+        if current {
+            CURSOR_HEADER_STYLE
+        } else {
+            HEADER_STYLE
+        }
+    };
     for offset in 0..cols {
         let x = area.x + ROW_HEADER_WIDTH + offset as u16 * COLUMN_WIDTH;
         let name = column_name(scroll.col + offset);
-        buffer.set_stringn(x, area.y, center(&name), CONTENT_WIDTH, header_style);
+        let style = header_style(scroll.col + offset == app.cursor().col);
+        buffer.set_stringn(x, area.y, center(&name), CONTENT_WIDTH, style);
     }
     let sheet = app.current_sheet();
     let date1904 = app.workbook.date1904;
@@ -337,7 +345,7 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
             y,
             (row + 1).to_string(),
             usize::from(ROW_HEADER_WIDTH) - 1,
-            header_style,
+            header_style(row == app.cursor().row),
         );
         for col_offset in 0..cols {
             let x = area.x + ROW_HEADER_WIDTH + col_offset as u16 * COLUMN_WIDTH;

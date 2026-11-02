@@ -492,6 +492,25 @@ fn column_and_row_headers_are_bold_cyan_on_the_terminal_background() {
 }
 
 #[test]
+fn the_cursors_column_and_row_headers_stand_out_in_yellow() {
+    use ratatui::style::Color;
+
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('l'));
+    press(&mut app, KeyCode::Char('j'));
+
+    let terminal = terminal_for(&mut app, 50, 16);
+    let buffer = terminal.backend().buffer();
+    let letter_x = |col: u16| cell_position(col, 0).0 + 5;
+    let number_y = |row: u16| cell_position(0, row).1;
+
+    assert_eq!(buffer[(letter_x(1), header_y())].fg, Color::Yellow);
+    assert_eq!(buffer[(letter_x(0), header_y())].fg, Color::Cyan);
+    assert_eq!(buffer[(row_number_x(), number_y(1))].fg, Color::Yellow);
+    assert_eq!(buffer[(row_number_x(), number_y(0))].fg, Color::Cyan);
+}
+
+#[test]
 fn a_blank_workbook_shows_no_name_on_the_status_line() {
     let mut app = App::new(Workbook::blank().unwrap());
     let screen = render(&mut app, 60, 10);
