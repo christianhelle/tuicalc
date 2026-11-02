@@ -62,7 +62,28 @@ impl SaveDialog {
         match key.code {
             KeyCode::Down => self.move_highlight(1),
             KeyCode::Up => self.move_highlight(-1),
+            KeyCode::Enter => self.confirm(),
             _ => {}
+        }
+    }
+
+    fn confirm(&mut self) {
+        match self.highlight.map(|index| self.entries[index].clone()) {
+            Some(Entry::Parent) => {
+                if let Some(parent) = self.directory.parent().map(Path::to_path_buf) {
+                    self.enter_folder(parent);
+                }
+            }
+            Some(Entry::Folder(name)) => self.enter_folder(self.directory.join(name)),
+            _ => {}
+        }
+    }
+
+    fn enter_folder(&mut self, directory: PathBuf) {
+        if let Ok(entries) = list_entries(&directory) {
+            self.directory = directory;
+            self.entries = entries;
+            self.highlight = None;
         }
     }
 

@@ -1496,3 +1496,24 @@ fn up_and_down_move_the_highlight_and_a_file_fills_in_the_name() {
         "folders leave the name alone"
     );
 }
+
+#[test]
+fn enter_opens_a_highlighted_folder_or_the_parent() {
+    let dir = save_folder();
+    let mut app = app_in_save_dialog(dir.path());
+
+    press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.save_dialog().unwrap().directory(),
+        dir.path().join("A-folder")
+    );
+    assert_eq!(listed(&app), [".."]);
+    assert_eq!(highlighted(&app), None);
+
+    press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(app.save_dialog().unwrap().directory(), dir.path());
+    assert_eq!(listed(&app).len(), 5);
+}
