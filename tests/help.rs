@@ -50,8 +50,8 @@ fn every_letter_and_symbol_that_does_something_is_in_the_help() {
     let named: String = NORMAL_HELP.iter().map(|(keys, _)| *keys).collect();
     for byte in b'!'..=b'~' {
         let c = byte as char;
-        // Digits are counts, and `:` isn't advertised any more.
-        if !reaction(KeyCode::Char(c), KeyModifiers::NONE) || c.is_ascii_digit() || c == ':' {
+        // Digits are counts.
+        if !reaction(KeyCode::Char(c), KeyModifiers::NONE) || c.is_ascii_digit() {
             continue;
         }
         assert!(named.contains(c), "{c} works but isn't in the help");

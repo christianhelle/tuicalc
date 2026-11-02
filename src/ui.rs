@@ -116,11 +116,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     draw_formula_bar(frame, formula_inner, app);
     draw_tabs(frame.buffer_mut(), tabs, app);
     draw_status(frame.buffer_mut(), status, app);
-    if app.mode() == Mode::Command && status.width > 0 && status.height > 0 {
-        let chars: Vec<char> = app.buffer().chars().collect();
-        let x = status.x + 1 + text_width(&chars[..app.caret()]) as u16;
-        frame.set_cursor_position((x.min(status.right().saturating_sub(1)), status.y));
-    }
     if let Some(dialog) = app.file_dialog() {
         draw_file_dialog(frame, dialog);
     }
@@ -473,24 +468,12 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    if app.mode() == Mode::Command {
-        let line = format!(":{}", app.buffer());
-        buffer.set_stringn(
-            area.x,
-            area.y,
-            line,
-            usize::from(area.width),
-            Style::default(),
-        );
-        return;
-    }
     let (name, color, hint) = match app.mode() {
         Mode::Normal => ("NORMAL", Color::Blue, NORMAL_HINTS),
         Mode::Insert => ("INSERT", Color::Green, INSERT_HINTS),
         Mode::Visual => ("VISUAL", Color::Magenta, VISUAL_HINTS),
         Mode::VisualRow => ("V-LINE", Color::Magenta, VISUAL_HINTS),
         Mode::ConfirmDiscard => ("NORMAL", Color::Blue, ""),
-        Mode::Command => ("COMMAND", Color::Blue, ""),
         Mode::GoTo | Mode::Search | Mode::Help => ("NORMAL", Color::Blue, ""),
         Mode::FileDialog => match app.file_dialog().map(FileDialog::kind) {
             Some(DialogKind::Open) => ("OPEN", Color::Blue, " Choose a workbook"),

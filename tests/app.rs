@@ -1201,12 +1201,6 @@ fn o_and_capital_o_edit_the_cells_below_and_above() {
     assert_eq!(app.buffer(), "1");
 }
 
-fn run(app: &mut App, command: &str) {
-    keys(app, ":");
-    keys(app, command);
-    press(app, KeyCode::Enter);
-}
-
 #[test]
 fn ctrl_s_saves_and_then_q_quits_without_asking() {
     let (file, mut app) = app_with("");

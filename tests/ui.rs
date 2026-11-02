@@ -446,24 +446,6 @@ fn the_status_line_names_the_mode() {
 }
 
 #[test]
-fn the_command_line_takes_over_the_status_line() {
-    let (_file, mut app) = app_with("");
-    press(&mut app, KeyCode::Char(':'));
-    press(&mut app, KeyCode::Char('w'));
-    press(&mut app, KeyCode::Char('q'));
-
-    let mut terminal = terminal_for(&mut app, 40, 10);
-
-    let buffer = terminal.backend().buffer();
-    let line: String = (0..40)
-        .map(|x| buffer[(x, 9)].symbol().to_string())
-        .collect();
-    assert_eq!(line.trim_end(), ":wq");
-    let position = terminal.get_cursor_position().unwrap();
-    assert_eq!((position.x, position.y), (3, 9));
-}
-
-#[test]
 fn the_selection_is_highlighted_with_the_cursor_marked_inside_it() {
     let (_file, mut app) = app_with("");
     press(&mut app, KeyCode::Char('v'));

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
-use crate::file_dialog::{DialogAction, DialogKind, FileDialog, with_default_extension};
+use crate::file_dialog::{DialogAction, DialogKind, FileDialog};
 use crate::formula::translate;
 use crate::help::{self, HelpTable};
 use crate::model::{Cell, CellValue, Sheet};
@@ -21,8 +21,6 @@ pub enum Mode {
     Visual,
     /// Selecting whole rows.
     VisualRow,
-    /// Typing a `:` command.
-    Command,
     /// Typing the cell or row to jump to.
     GoTo,
     /// Typing the text to look for.
@@ -262,7 +260,6 @@ impl App {
             Mode::Normal => self.normal_key(key),
             Mode::Insert => self.insert_key(key),
             Mode::Visual | Mode::VisualRow => self.visual_key(key),
-            Mode::Command => self.command_key(key),
             Mode::GoTo => self.go_to_key(key),
             Mode::Search => self.search_key(key),
             Mode::Help => self.mode = self.help_from,
@@ -876,11 +873,6 @@ impl App {
             KeyCode::Char('v') if is_ctrl(key) => self.begin_visual(Mode::Visual),
             KeyCode::Char('v') if !ctrl => self.begin_visual(Mode::Visual),
             KeyCode::Char('V') if !ctrl => self.begin_visual(Mode::VisualRow),
-            KeyCode::Char(':') if !ctrl => {
-                self.buffer.clear();
-                self.caret = 0;
-                self.mode = Mode::Command;
-            }
             KeyCode::F(2) => self.edit_existing(),
             KeyCode::Char('a' | 'A') if !ctrl => self.edit_existing(),
             KeyCode::Char('i' | 'I') if !ctrl => {
@@ -914,7 +906,7 @@ impl App {
         }
     }
 
-    /// `ZZ` and `:x`: as `:wq`, except that a blank workbook with no edits has nothing to save.
+    /// `ZZ`: saves and quits, except that a blank workbook with no edits has nothing to save.
     fn save_if_edited_and_quit(&mut self) {
         if self.workbook.path().is_none() && !self.workbook.is_dirty() {
             self.should_quit = true;
@@ -1007,29 +999,6 @@ impl App {
         self.mode = Mode::Normal;
     }
 
-    /// Says why a command that would lose unsaved edits isn't running; returns whether it isn't.
-    fn refuse_if_dirty(&mut self) -> bool {
-        let dirty = self.workbook.is_dirty();
-        if dirty {
-            self.status = "E37: No write since last change (add ! to override)".into();
-        }
-        dirty
-    }
-
-    /// `:e` and `Ctrl+O`.
-    fn choose_file_to_open(&mut self) {
-        if !self.refuse_if_dirty() {
-            self.open_file_dialog(DialogKind::Open);
-        }
-    }
-
-    fn open_named(&mut self, name: &str) {
-        match Workbook::open(with_default_extension(name)) {
-            Ok(workbook) => self.load_workbook(workbook),
-            Err(error) => self.report_error(format!("Open failed: {error}")),
-        }
-    }
-
     /// Reads the file again, staying on the same sheet and cell if they still exist.
     fn reload(&mut self) {
         let Some(path) = self.workbook.path().map(Path::to_path_buf) else {
@@ -1061,24 +1030,6 @@ impl App {
         self.undo.clear();
         self.redo.clear();
         self.status = format!("Opened {}", self.file_name());
-    }
-
-    /// Saves to a new file and reports the outcome; returns whether it worked.
-    fn save_named(&mut self, name: &str) -> bool {
-        if self.workbook.path().is_some() {
-            self.status = "Save As isn't supported yet".into();
-            return false;
-        }
-        match self.workbook.save_as(with_default_extension(name)) {
-            Ok(()) => {
-                self.status = format!("Saved {}", self.file_name());
-                true
-            }
-            Err(error) => {
-                self.report_error(format!("Save failed: {error}"));
-                false
-            }
-        }
     }
 
     pub fn file_name(&self) -> String {
@@ -1372,69 +1323,6 @@ impl App {
             true
         } else {
             false
-        }
-    }
-
-    fn command_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => self.mode = Mode::Normal,
-            KeyCode::Char('c') if is_ctrl(key) => self.mode = Mode::Normal,
-            KeyCode::Enter => {
-                self.mode = Mode::Normal;
-                let command = self.buffer();
-                self.run_command(command.trim());
-            }
-            KeyCode::Backspace if self.caret == 0 => self.mode = Mode::Normal,
-            KeyCode::Backspace => {
-                self.caret -= 1;
-                self.buffer.remove(self.caret);
-            }
-            KeyCode::Char(c) if is_text_input(key) => {
-                self.buffer.insert(self.caret, c);
-                self.caret += 1;
-            }
-            _ => {}
-        }
-    }
-
-    fn run_command(&mut self, command: &str) {
-        match command.split_once(' ') {
-            Some(("w", name)) => {
-                self.save_named(name.trim());
-                return;
-            }
-            Some(("wq" | "x", name)) => {
-                self.should_quit = self.save_named(name.trim());
-                return;
-            }
-            Some(("e", name)) => {
-                if !self.refuse_if_dirty() {
-                    self.open_named(name.trim());
-                }
-                return;
-            }
-            Some(("e!", name)) => {
-                self.open_named(name.trim());
-                return;
-            }
-            _ => {}
-        }
-        match command {
-            "" => {}
-            "w" => {
-                self.save();
-            }
-            "q" if self.refuse_if_dirty() => {}
-            "e" => self.choose_file_to_open(),
-            "e!" => self.open_file_dialog(DialogKind::Open),
-            "q" | "q!" => self.should_quit = true,
-            "wq" => self.save_and_quit(),
-            "x" => self.save_if_edited_and_quit(),
-            _ => {
-                if !self.go_to(command) {
-                    self.status = format!("E492: Not an editor command: {command}");
-                }
-            }
         }
     }
 
