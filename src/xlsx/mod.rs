@@ -2,11 +2,11 @@
 
 mod loading;
 mod reader;
+mod saving;
 mod writer;
 mod xml;
 
 use std::fmt;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -14,6 +14,8 @@ use crate::model::Sheet;
 
 pub use loading::{LoadEvent, SheetQueue, Waited, WorkbookLoad};
 pub use reader::SheetChunk;
+use saving::{SaveJob, Target};
+pub use saving::{SavedPackage, WorkbookSave};
 
 #[derive(Debug)]
 pub enum XlsxError {
@@ -119,89 +121,62 @@ impl Workbook {
         self.sheets.iter().any(Sheet::is_dirty)
     }
 
-    /// Writes edits back to the file this workbook was opened from.
+    /// Starts writing edits back to the file this workbook was opened from. The workbook mustn't
+    /// change until the save has ended, and counts as unsaved until `finish_save` takes it in.
+    pub fn begin_save(&self) -> Result<WorkbookSave, XlsxError> {
+        let path = self.path.clone().ok_or(XlsxError::NoFileName)?;
+        Ok(self.begin_writing(path, Target::Own))
+    }
+
+    /// Starts writing the workbook to a new file, as `begin_save` does.
+    pub fn begin_save_as(&self, path: impl AsRef<Path>) -> WorkbookSave {
+        self.begin_writing(path.as_ref().to_path_buf(), Target::New)
+    }
+
+    /// Starts writing the workbook over an existing file, as `begin_save` does.
+    pub fn begin_save_over(&self, path: impl AsRef<Path>) -> WorkbookSave {
+        self.begin_writing(path.as_ref().to_path_buf(), Target::Over)
+    }
+
+    fn begin_writing(&self, path: PathBuf, target: Target) -> WorkbookSave {
+        WorkbookSave::start(SaveJob {
+            source: Arc::clone(&self.source),
+            layout: self.layout.clone(),
+            sheets: self.sheets.clone(),
+            path,
+            target,
+        })
+    }
+
+    /// Records that the workbook now lives where it was saved, holding what was written there.
+    pub fn finish_save(&mut self, saved: SavedPackage) {
+        self.path = Some(saved.path);
+        self.source = saved.bytes;
+        self.sheets.iter_mut().for_each(Sheet::mark_saved);
+    }
+
+    /// Writes edits back to the file this workbook was opened from, and waits.
     pub fn save(&mut self) -> Result<(), XlsxError> {
-        let Some(path) = &self.path else {
-            return Err(XlsxError::NoFileName);
-        };
-        if !self.is_dirty() {
-            return Ok(());
-        }
-        if std::fs::read(path)? != *self.source {
-            return Err(XlsxError::ChangedOnDisk);
-        }
-        let patched = writer::patch(&self.source, &self.layout, &self.sheets)?;
-        replace_file(path, &patched)?;
-        self.source = Arc::new(patched);
-        self.sheets.iter_mut().for_each(Sheet::mark_saved);
+        let saved = self.begin_save()?.wait()?;
+        self.finish_save(saved);
         Ok(())
     }
 
-    /// Writes the workbook to a new file, which it then belongs to.
+    /// Writes the workbook to a new file, which it then belongs to, and waits.
     pub fn save_as(&mut self, path: impl AsRef<Path>) -> Result<(), XlsxError> {
-        let bytes = self.current_package()?;
-        create_file(path.as_ref(), &bytes)?;
-        self.adopt(path.as_ref(), bytes);
+        let saved = self.begin_save_as(path).wait()?;
+        self.finish_save(saved);
         Ok(())
     }
 
-    /// Writes the workbook over an existing file, which it then belongs to.
+    /// Writes the workbook over an existing file, which it then belongs to, and waits.
     pub fn save_over(&mut self, path: impl AsRef<Path>) -> Result<(), XlsxError> {
-        let bytes = self.current_package()?;
-        replace_file(path.as_ref(), &bytes)?;
-        self.adopt(path.as_ref(), bytes);
+        let saved = self.begin_save_over(path).wait()?;
+        self.finish_save(saved);
         Ok(())
-    }
-
-    /// The package as it would be saved now.
-    fn current_package(&self) -> Result<Vec<u8>, XlsxError> {
-        if self.is_dirty() {
-            writer::patch(&self.source, &self.layout, &self.sheets)
-        } else {
-            Ok((*self.source).clone())
-        }
-    }
-
-    /// Records that the workbook now lives in `path`, holding `bytes`.
-    fn adopt(&mut self, path: &Path, bytes: Vec<u8>) {
-        self.path = Some(path.to_path_buf());
-        self.source = Arc::new(bytes);
-        self.sheets.iter_mut().for_each(Sheet::mark_saved);
     }
 
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
     }
-}
-
-/// Creates `path`, refusing a file that already exists, and removes it if the write fails.
-fn create_file(path: &Path, bytes: &[u8]) -> Result<(), XlsxError> {
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)?;
-    if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
-        drop(file);
-        let _ = std::fs::remove_file(path);
-        return Err(error.into());
-    }
-    Ok(())
-}
-
-/// Replaces `path` atomically, so a failed save cannot leave a truncated workbook behind.
-fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), XlsxError> {
-    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let directory = target
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty());
-    let mut temporary = tempfile::NamedTempFile::new_in(directory.unwrap_or(Path::new(".")))?;
-    temporary.write_all(bytes)?;
-    temporary.as_file().sync_all()?;
-    if let Ok(metadata) = std::fs::metadata(&target) {
-        std::fs::set_permissions(temporary.path(), metadata.permissions())?;
-    }
-    temporary
-        .persist(&target)
-        .map_err(|error| XlsxError::Io(error.error))?;
-    Ok(())
 }
