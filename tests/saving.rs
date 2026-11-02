@@ -369,3 +369,96 @@ fn quitting_during_a_save_that_fails_stays_open_to_say_why() {
         assert!(app.workbook.is_dirty(), "{index}");
     }
 }
+
+/// A blank app with `5` in A1, naming a new file in the save dialog.
+fn app_naming_a_file(dir: &std::path::Path, name: &str) -> App {
+    let mut app = App::new(Workbook::blank().unwrap());
+    app.set_dialog_directory(dir);
+    type_keys(&mut app, "s5");
+    key(&mut app, KeyCode::Enter);
+    ctrl(&mut app, 's');
+    type_keys(&mut app, name);
+    app
+}
+
+#[test]
+fn the_save_dialog_stays_up_saying_so_until_the_save_has_finished() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app_naming_a_file(dir.path(), "budget");
+
+    key(&mut app, KeyCode::Enter);
+    assert!(app.is_saving());
+    assert_eq!(app.mode(), Mode::FileDialog);
+    assert_eq!(app.file_dialog().unwrap().message(), "Saving…");
+
+    key(&mut app, KeyCode::Esc);
+    type_keys(&mut app, "more");
+    assert_eq!(app.mode(), Mode::FileDialog, "it can't be cancelled now");
+    assert_eq!(app.file_dialog().unwrap().name(), "budget");
+    assert_eq!(app.file_dialog().unwrap().message(), "Saving…");
+
+    app.finish_saving();
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(app.file_dialog().is_none());
+    assert_eq!(app.status(), "Saved budget.xlsx");
+    assert!(!app.workbook.is_dirty());
+    assert_eq!(
+        number_on_disk(&dir.path().join("budget.xlsx"), "A1"),
+        CellValue::Number(5.0)
+    );
+}
+
+#[test]
+fn a_failed_save_from_the_dialog_can_be_tried_again_under_another_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app_naming_a_file(dir.path(), "no-such-folder/budget");
+
+    key(&mut app, KeyCode::Enter);
+    app.finish_saving();
+    assert_eq!(app.mode(), Mode::FileDialog);
+    let message = app.file_dialog().unwrap().message();
+    assert!(message.starts_with("Save failed"), "{message}");
+    assert_eq!(app.file_name(), "[No Name]");
+
+    for _ in 0.."no-such-folder/budget".len() {
+        key(&mut app, KeyCode::Backspace);
+    }
+    type_keys(&mut app, "budget");
+    key(&mut app, KeyCode::Enter);
+    app.finish_saving();
+    assert_eq!(app.status(), "Saved budget.xlsx");
+}
+
+#[test]
+fn overwriting_from_the_dialog_also_happens_in_the_background() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("taken.xlsx");
+    std::fs::write(&path, b"old").unwrap();
+    let mut app = app_naming_a_file(dir.path(), "taken");
+
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Char('y'));
+    assert!(app.is_saving());
+    assert_eq!(app.mode(), Mode::FileDialog);
+
+    app.finish_saving();
+    assert_eq!(app.status(), "Saved taken.xlsx");
+    assert_eq!(number_on_disk(&path, "A1"), CellValue::Number(5.0));
+}
+
+#[test]
+fn zz_through_the_dialog_quits_once_the_save_has_finished() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = App::new(Workbook::blank().unwrap());
+    app.set_dialog_directory(dir.path());
+    type_keys(&mut app, "s5");
+    key(&mut app, KeyCode::Enter);
+
+    type_keys(&mut app, "ZZ");
+    type_keys(&mut app, "budget");
+    key(&mut app, KeyCode::Enter);
+    assert!(!app.should_quit());
+
+    app.finish_saving();
+    assert!(app.should_quit());
+}

@@ -245,16 +245,23 @@ impl App {
         match result {
             Ok(saved) => {
                 self.workbook.finish_save(saved);
+                if self.file_dialog.is_some() {
+                    self.close_file_dialog();
+                }
                 self.status = format!("Saved {}", self.file_name());
                 self.status_is_error = false;
                 if let Some(step) = self.next_step.take() {
                     self.take_step(step);
                 }
             }
-            Err(error) => {
-                self.next_step = None;
-                self.report_error(format!("Save failed: {error}"));
-            }
+            // The dialog stays up to try another name, with the step still waiting.
+            Err(error) => match &mut self.file_dialog {
+                Some(dialog) => dialog.set_message(format!("Save failed: {error}")),
+                None => {
+                    self.next_step = None;
+                    self.report_error(format!("Save failed: {error}"));
+                }
+            },
         }
     }
 
@@ -1217,6 +1224,9 @@ impl App {
     }
 
     fn file_dialog_key(&mut self, key: KeyEvent) {
+        if self.is_saving() {
+            return;
+        }
         let Some(dialog) = &mut self.file_dialog else {
             return;
         };
@@ -1227,12 +1237,12 @@ impl App {
                 self.close_file_dialog();
             }
             DialogAction::Save(path) => {
-                let result = self.workbook.save_as(path);
-                self.finish_dialog_save(result);
+                dialog.set_message("Saving…".into());
+                self.saving = Some(self.workbook.begin_save_as(path));
             }
             DialogAction::Overwrite(path) => {
-                let result = self.workbook.save_over(path);
-                self.finish_dialog_save(result);
+                dialog.set_message("Saving…".into());
+                self.saving = Some(self.workbook.begin_save_over(path));
             }
             DialogAction::Open(path) => match Workbook::open_loading(path, 0) {
                 Ok((workbook, load)) => {
@@ -1245,24 +1255,6 @@ impl App {
                     }
                 }
             },
-        }
-    }
-
-    /// Closes the dialog after a save, or reports why it failed and leaves the dialog open.
-    fn finish_dialog_save(&mut self, result: Result<(), XlsxError>) {
-        match result {
-            Ok(()) => {
-                self.close_file_dialog();
-                self.status = format!("Saved {}", self.file_name());
-                if let Some(step) = self.next_step.take() {
-                    self.take_step(step);
-                }
-            }
-            Err(error) => {
-                if let Some(dialog) = &mut self.file_dialog {
-                    dialog.set_message(format!("Save failed: {error}"));
-                }
-            }
         }
     }
 

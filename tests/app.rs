@@ -1299,6 +1299,7 @@ fn saving_adds_the_xlsx_extension_to_a_name_without_one() {
 
     type_text(&mut app, "my book");
     press(&mut app, KeyCode::Enter);
+    app.finish_saving();
 
     assert_eq!(app.file_name(), "my book.xlsx");
     assert!(dir.path().join("my book.xlsx").exists());
@@ -1331,6 +1332,7 @@ fn saving_an_opened_workbook_never_opens_the_save_dialog() {
     let (_file, mut app) = app_with("");
     enter_value(&mut app, "5");
     ctrl(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
     assert_eq!(app.mode(), Mode::Normal);
     assert!(app.file_dialog().is_none());
 }
@@ -1462,6 +1464,7 @@ fn enter_saves_the_name_in_the_current_folder_and_closes_the_dialog() {
 
     type_text(&mut app, "budget");
     press(&mut app, KeyCode::Enter);
+    app.finish_saving();
 
     assert_eq!(app.mode(), Mode::Normal);
     assert!(app.file_dialog().is_none());
@@ -1485,6 +1488,7 @@ fn a_typed_path_is_relative_to_the_current_folder() {
 
     type_text(&mut app, "A-folder/inner.xlsx");
     press(&mut app, KeyCode::Enter);
+    app.finish_saving();
 
     assert_eq!(app.mode(), Mode::Normal);
     assert!(dir.path().join("A-folder").join("inner.xlsx").exists());
@@ -1540,6 +1544,7 @@ fn an_existing_file_asks_before_it_is_overwritten() {
 
     press(&mut app, KeyCode::Enter);
     press(&mut app, KeyCode::Char('y'));
+    app.finish_saving();
     assert_eq!(app.mode(), Mode::Normal);
     assert_eq!(app.status(), "Saved z.xlsx");
     assert!(Workbook::open(&target).is_ok(), "now a real workbook");
@@ -1602,6 +1607,7 @@ fn a_failed_save_shows_the_error_and_leaves_the_dialog_open() {
 
     type_text(&mut app, "no-such-folder/book.xlsx");
     press(&mut app, KeyCode::Enter);
+    app.finish_saving();
 
     assert_eq!(app.mode(), Mode::FileDialog);
     let message = app.file_dialog().unwrap().message();
@@ -1629,6 +1635,7 @@ fn zz_and_the_quit_prompt_quit_once_the_dialog_has_saved() {
 
         type_text(&mut app, &format!("quit{index}"));
         press(&mut app, KeyCode::Enter);
+        app.finish_saving();
         assert!(app.should_quit());
     }
 }
@@ -1647,6 +1654,7 @@ fn cancelling_the_dialog_cancels_the_quit_too() {
     ctrl(&mut app, KeyCode::Char('s'));
     type_text(&mut app, "later");
     press(&mut app, KeyCode::Enter);
+    app.finish_saving();
     assert!(app.file_dialog().is_none());
     assert!(!app.should_quit(), "a plain save afterwards doesn't quit");
 }
@@ -1661,6 +1669,7 @@ fn a_failed_save_in_the_dialog_does_not_quit() {
 
     type_text(&mut app, "no-such-folder/book.xlsx");
     press(&mut app, KeyCode::Enter);
+    app.finish_saving();
 
     assert!(!app.should_quit());
     assert_eq!(app.mode(), Mode::FileDialog);
@@ -1690,6 +1699,7 @@ fn zz_opens_the_dialog_for_a_blank_workbook_with_edits() {
     assert_eq!(app.mode(), Mode::FileDialog);
     type_text(&mut app, "kept");
     press(&mut app, KeyCode::Enter);
+    app.finish_saving();
     assert!(app.should_quit());
 }
 
@@ -2280,6 +2290,7 @@ fn saving_an_unnamed_workbook_at_ctrl_o_names_it_and_then_opens_the_dialog() {
         press(&mut app, KeyCode::Char(c));
     }
     press(&mut app, KeyCode::Enter);
+    app.finish_saving();
 
     assert!(dir.path().join("named.xlsx").exists());
     assert_eq!(app.file_dialog().unwrap().kind(), DialogKind::Open);
