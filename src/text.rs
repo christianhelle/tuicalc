@@ -81,6 +81,48 @@ pub fn display_text(cell: &Cell, date1904: bool, width: usize) -> String {
     }
 }
 
+/// Room for a cell's whole text when searching, unlike the narrow columns on screen.
+const SEARCH_WIDTH: usize = 64;
+
+/// Whether a cell shows, or its formula holds, text already in lower case. A large sheet has millions
+/// of cells to try, so text is compared where it lies and other values are only formatted if needed.
+pub fn cell_contains(cell: &Cell, lowercase_needle: &str, date1904: bool) -> bool {
+    let in_formula = cell
+        .formula
+        .as_ref()
+        .is_some_and(|formula| contains_ignoring_case(&format!("={formula}"), lowercase_needle));
+    in_formula
+        || match &cell.value {
+            CellValue::Empty => false,
+            CellValue::Text(text) | CellValue::Error(text) => {
+                contains_ignoring_case(text, lowercase_needle)
+            }
+            CellValue::Number(_) => {
+                contains_ignoring_case(
+                    &display_text(cell, date1904, SEARCH_WIDTH),
+                    lowercase_needle,
+                ) || contains_ignoring_case(&edit_text(cell, date1904), lowercase_needle)
+            }
+            CellValue::Bool(_) => contains_ignoring_case(
+                &display_text(cell, date1904, SEARCH_WIDTH),
+                lowercase_needle,
+            ),
+        }
+}
+
+fn contains_ignoring_case(text: &str, lowercase_needle: &str) -> bool {
+    if text.is_ascii() && lowercase_needle.is_ascii() {
+        let needle = lowercase_needle.as_bytes();
+        needle.is_empty()
+            || text
+                .as_bytes()
+                .windows(needle.len())
+                .any(|window| window.eq_ignore_ascii_case(needle))
+    } else {
+        text.to_lowercase().contains(lowercase_needle)
+    }
+}
+
 /// Numbers sit against the right edge of their column, as in Excel.
 pub fn is_right_aligned(cell: &Cell) -> bool {
     matches!(cell.value, CellValue::Number(_))

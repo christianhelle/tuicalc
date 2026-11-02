@@ -10,7 +10,7 @@ use crate::file_dialog::{DialogAction, DialogKind, FileDialog};
 use crate::formula::translate;
 use crate::help::{self, HelpTable};
 use crate::model::{Cell, CellValue, Sheet};
-use crate::text::{display_text, edit_text, parse_input};
+use crate::text::{cell_contains, edit_text, parse_input};
 use crate::xlsx::{Workbook, XlsxError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,9 +44,6 @@ pub(crate) fn is_text_input(key: KeyEvent) -> bool {
 pub(crate) fn is_ctrl(key: KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT)
 }
-
-/// Room for a cell's whole text when searching, unlike the narrow columns on screen.
-const SEARCH_WIDTH: usize = 64;
 
 /// What to do once unsaved edits have been saved or discarded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1284,31 +1281,13 @@ impl App {
         };
         let needle = query.to_lowercase();
         let date1904 = self.workbook.date1904;
-        // Cells come in reading order, so the first one past the cursor is the next match.
-        let matches: Vec<CellRef> = self
+        let next = self
             .current_sheet()
-            .cells()
-            .filter(|(_, cell)| {
-                let shown = display_text(cell, date1904, SEARCH_WIDTH);
-                let edited = edit_text(cell, date1904);
-                shown.to_lowercase().contains(&needle) || edited.to_lowercase().contains(&needle)
-            })
-            .map(|(at, _)| *at)
-            .collect();
-        let next = if forward {
-            matches
-                .iter()
-                .find(|at| **at > self.cursor)
-                .or(matches.first())
-        } else {
-            matches
-                .iter()
-                .rev()
-                .find(|at| **at < self.cursor)
-                .or(matches.last())
-        };
+            .cells_around(self.cursor, forward)
+            .find(|(_, cell)| cell_contains(cell, &needle, date1904))
+            .map(|(at, _)| *at);
         match next {
-            Some(at) => self.cursor = *at,
+            Some(at) => self.cursor = at,
             None => self.report_error(format!("No match for {query}")),
         }
     }

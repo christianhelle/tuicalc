@@ -2035,6 +2035,48 @@ fn search_looks_at_numbers_and_formula_text() {
 }
 
 #[test]
+fn search_finds_every_kind_of_value_ignoring_case() {
+    let (_file, mut app) = app_with(
+        r##"<row r="1"><c r="A1" t="b"><v>1</v></c><c r="B1" t="e"><v>#REF!</v></c><c r="C1" t="inlineStr"><is><t>ÅNGSTRÖM</t></is></c><c r="D1"><v>1E+20</v></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>007</t></is></c></row>"##,
+    );
+
+    search(&mut app, "ref!");
+    assert_eq!(app.cursor(), a1("B1"), "an error");
+    search(&mut app, "ångström");
+    assert_eq!(app.cursor(), a1("C1"), "text outside ASCII");
+    search(&mut app, "1e20");
+    assert_eq!(app.cursor(), a1("D1"), "a number as shown");
+    search(&mut app, "100000000000");
+    assert_eq!(app.cursor(), a1("D1"), "a number as edited");
+    search(&mut app, "tru");
+    assert_eq!(app.cursor(), a1("A1"), "a boolean");
+    search(&mut app, "=sum");
+    assert_eq!(app.status(), "No match for =sum");
+}
+
+#[test]
+fn search_does_not_see_the_quote_that_editing_adds_to_text() {
+    let (_file, mut app) =
+        app_with(r#"<row r="1"><c r="A1" t="inlineStr"><is><t>007</t></is></c></row>"#);
+
+    search(&mut app, "'");
+
+    assert_eq!(app.status(), "No match for '");
+}
+
+#[test]
+fn search_on_a_lone_match_stays_on_it() {
+    let (_file, mut app) = searchable();
+
+    search(&mut app, "sum(");
+    assert_eq!(app.cursor(), a1("A3"));
+    press(&mut app, KeyCode::Char('n'));
+    assert_eq!(app.cursor(), a1("A3"));
+    press(&mut app, KeyCode::Char('N'));
+    assert_eq!(app.cursor(), a1("A3"));
+}
+
+#[test]
 fn search_stays_on_the_current_sheet() {
     let (_file, mut app) = app_from(&two_sheets());
     let name = app.current_sheet().name.clone();
