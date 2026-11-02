@@ -129,7 +129,7 @@ pivot tables and macros survive. On a sheet with edits, shared formulas are expa
 formulas. The save replaces the file atomically, and is refused if another program changed the
 file after it was opened.
 
-A save runs in the background, with progress noted on the status line. You can move around, search,
+A save runs in the background, and the status line says so. You can move around, search,
 copy and switch sheets meanwhile, while editing waits until it finishes. The workbook counts as
 unsaved until the save has worked. Quitting during a save waits for it, and stays open to tell you
 if it fails.
