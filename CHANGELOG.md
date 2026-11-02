@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   many digits as fit, as in Excel's General format, and dates show as
   `YYYY-MM-DD`, in workbooks of either date system. Text is cut to the terminal
   width of its column, wide characters included. The column and row headers and
-  the cursor are black on cyan, in homage to Lotus 1-2-3.
+  the cursor are black on cyan, in homage to Lotus 1-2-3, with the headers in
+  bold.
 - New workbooks: `tcalc` with no arguments opens a blank workbook. Saving it
   opens a dialog for browsing folders and naming the file, which asks before
   overwriting one, and `:w book.xlsx` saves straight to a new file.
