@@ -156,6 +156,7 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         Mode::VisualRow => ("V-LINE", VISUAL_HELP),
         Mode::ConfirmQuit => ("NORMAL", CONFIRM_QUIT),
         Mode::Command => ("COMMAND", ""),
+        Mode::SaveDialog => ("SAVE", ""),
     };
     let message = if app.status().is_empty() || app.mode() == Mode::ConfirmQuit {
         hint

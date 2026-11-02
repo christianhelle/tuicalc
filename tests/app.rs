@@ -1,5 +1,7 @@
 mod common;
 
+use std::path::Path;
+
 use common::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use tuicalc::address::CellRef;
@@ -1386,4 +1388,35 @@ fn w_with_a_name_is_refused_on_an_opened_workbook() {
     assert!(!other.exists());
     assert_eq!(app.file_name(), "book.xlsx");
     assert!(app.workbook.is_dirty());
+}
+
+/// A blank workbook whose save dialog starts in `dir`, with the dialog open.
+fn app_in_save_dialog(dir: &Path) -> App {
+    let mut app = blank_app();
+    app.set_save_directory(dir);
+    ctrl(&mut app, KeyCode::Char('s'));
+    app
+}
+
+#[test]
+fn saving_a_blank_workbook_without_a_name_opens_the_save_dialog() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let app = app_in_save_dialog(dir.path());
+    assert_eq!(app.mode(), Mode::SaveDialog);
+    assert_eq!(app.save_dialog().unwrap().directory(), dir.path());
+
+    let mut app = blank_app();
+    app.set_save_directory(dir.path());
+    run(&mut app, "w");
+    assert_eq!(app.mode(), Mode::SaveDialog);
+}
+
+#[test]
+fn saving_an_opened_workbook_never_opens_the_save_dialog() {
+    let (_file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+    ctrl(&mut app, KeyCode::Char('s'));
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(app.save_dialog().is_none());
 }

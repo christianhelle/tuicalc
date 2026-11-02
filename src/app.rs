@@ -8,6 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
 use crate::formula::translate;
 use crate::model::{Cell, CellValue, Sheet};
+use crate::save_dialog::SaveDialog;
 use crate::text::{edit_text, parse_input};
 use crate::xlsx::Workbook;
 
@@ -23,6 +24,8 @@ pub enum Mode {
     Command,
     /// Waiting for the user to decide what happens to unsaved edits.
     ConfirmQuit,
+    /// Choosing where to save a workbook that has no file yet.
+    SaveDialog,
 }
 
 /// Plain characters, plus AltGr combinations, which Windows reports as Ctrl+Alt.
@@ -97,6 +100,9 @@ pub struct App {
     /// The operator waiting for its motion, and where it started.
     operator: Option<(char, CellRef)>,
     operator_count: Option<u32>,
+    save_dialog: Option<SaveDialog>,
+    /// Where the save dialog starts.
+    save_directory: PathBuf,
 }
 
 impl App {
@@ -111,6 +117,8 @@ impl App {
             register: None,
             operator: None,
             operator_count: None,
+            save_dialog: None,
+            save_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             workbook,
             sheet: 0,
             cursor: CellRef { col: 0, row: 0 },
@@ -124,6 +132,15 @@ impl App {
             redo: Vec::new(),
             should_quit: false,
         }
+    }
+
+    pub fn set_save_directory(&mut self, directory: &Path) {
+        self.save_directory = directory.to_path_buf();
+    }
+
+    /// The save dialog, while it's open.
+    pub fn save_dialog(&self) -> Option<&SaveDialog> {
+        self.save_dialog.as_ref()
     }
 
     pub fn cursor(&self) -> CellRef {
@@ -217,6 +234,7 @@ impl App {
             Mode::Visual | Mode::VisualRow => self.visual_key(key),
             Mode::Command => self.command_key(key),
             Mode::ConfirmQuit => self.confirm_quit_key(key),
+            Mode::SaveDialog => {}
         }
         self.scroll_to_cursor();
     }
@@ -856,6 +874,11 @@ impl App {
 
     /// Saves and reports the outcome; returns whether the file is now up to date.
     fn save(&mut self) -> bool {
+        if self.workbook.path().is_none() {
+            self.save_dialog = Some(SaveDialog::open(&self.save_directory));
+            self.mode = Mode::SaveDialog;
+            return false;
+        }
         match self.workbook.save() {
             Ok(()) => {
                 self.status = format!("Saved {}", self.file_name());
