@@ -1,12 +1,14 @@
 mod common;
 
 use common::*;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::layout::Rect;
 use ratatui::style::Modifier;
-use tuicalc::app::App;
-use tuicalc::ui::draw;
+use tuicalc::address::CellRef;
+use tuicalc::app::{App, Mode};
+use tuicalc::ui::{draw, handle_mouse};
 use tuicalc::xlsx::Workbook;
 use unicode_width::UnicodeWidthStr;
 
@@ -821,6 +823,172 @@ fn the_status_line_offers_help_in_every_mode() {
     press(&mut app, KeyCode::Esc);
     press(&mut app, KeyCode::Char('s'));
     assert!(status_line(&render(&mut app, 100, 14)).contains("F1 help"));
+}
+
+const MOUSE_SCREEN: (u16, u16) = (46, 16);
+
+fn mouse(app: &mut App, kind: MouseEventKind, (column, row): (u16, u16)) {
+    let (width, height) = MOUSE_SCREEN;
+    let event = MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    handle_mouse(app, Rect::new(0, 0, width, height), event);
+}
+
+fn click(app: &mut App, at: (u16, u16)) {
+    mouse(app, MouseEventKind::Down(MouseButton::Left), at);
+}
+
+fn a_cell(col: u32, row: u32) -> CellRef {
+    CellRef { col, row }
+}
+
+/// Lets the app learn the grid's size, as the first frame does.
+fn draw_once(app: &mut App) {
+    render(app, MOUSE_SCREEN.0, MOUSE_SCREEN.1);
+}
+
+#[test]
+fn clicking_a_cell_moves_the_cursor_there() {
+    let (_file, mut app) = app_with("");
+    draw_once(&mut app);
+
+    click(&mut app, cell_position(1, 2));
+
+    assert_eq!(app.cursor(), a_cell(1, 2));
+}
+
+#[test]
+fn clicking_counts_from_the_scrolled_position() {
+    let (_file, mut app) = app_with("");
+    draw_once(&mut app);
+    for _ in 0..30 {
+        press(&mut app, KeyCode::Down);
+    }
+    draw_once(&mut app);
+    let top = app.scroll().row;
+    assert!(top > 0);
+
+    click(&mut app, cell_position(0, 1));
+
+    assert_eq!(app.cursor(), a_cell(0, top + 1));
+}
+
+#[test]
+fn clicking_outside_the_cells_does_nothing() {
+    let (_file, mut app) = app_with("");
+    draw_once(&mut app);
+    let (x, y) = cell_position(0, 0);
+
+    for at in [
+        (0, y),
+        (row_number_x(), y),
+        (x, header_y()),
+        (x, 1),
+        (45, y),
+    ] {
+        click(&mut app, at);
+        assert_eq!(app.cursor(), a_cell(0, 0), "at {at:?}");
+    }
+}
+
+#[test]
+fn clicking_a_tab_switches_sheet_even_when_the_tabs_have_scrolled() {
+    let (_file, mut app) = app_from(&many_sheets(10));
+    let tabs_y = MOUSE_SCREEN.1 - 2;
+    draw_once(&mut app);
+
+    click(&mut app, (10, tabs_y));
+    assert_eq!(app.sheet_index(), 1, "the second tab");
+
+    for _ in 0..8 {
+        press(&mut app, KeyCode::F(6));
+    }
+    let screen = render(&mut app, MOUSE_SCREEN.0, MOUSE_SCREEN.1);
+    let line = tabs_line(&screen);
+    let x = line.find(" Sheet8 ").unwrap() as u16;
+    click(&mut app, (x + 1, tabs_y));
+    assert_eq!(app.sheet_index(), 8);
+}
+
+#[test]
+fn clicks_do_nothing_while_editing_or_selecting() {
+    let (_file, mut app) = app_with("");
+    draw_once(&mut app);
+
+    press(&mut app, KeyCode::Char('s'));
+    click(&mut app, cell_position(1, 1));
+    assert_eq!(app.mode(), Mode::Insert);
+    assert_eq!(app.cursor(), a_cell(0, 0));
+    press(&mut app, KeyCode::Esc);
+
+    press(&mut app, KeyCode::Char('v'));
+    click(&mut app, cell_position(1, 1));
+    assert_eq!(app.mode(), Mode::Visual);
+    assert_eq!(app.cursor(), a_cell(0, 0));
+}
+
+#[test]
+fn a_click_forgets_a_half_typed_command() {
+    let (_file, mut app) = app_with("");
+    draw_once(&mut app);
+    press(&mut app, KeyCode::Char('2'));
+    press(&mut app, KeyCode::Char('d'));
+
+    click(&mut app, cell_position(1, 1));
+
+    assert_eq!(app.pending_keys(), "");
+    press(&mut app, KeyCode::Char('j'));
+    assert_eq!(app.cursor(), a_cell(1, 2), "a plain move, not a delete");
+    assert!(!app.workbook.is_dirty());
+}
+
+#[test]
+fn a_click_closes_the_help_without_moving_the_cursor() {
+    let (_file, mut app) = app_with("");
+    draw_once(&mut app);
+    press(&mut app, KeyCode::Char('?'));
+
+    click(&mut app, cell_position(1, 1));
+
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(app.cursor(), a_cell(0, 0));
+}
+
+#[test]
+fn the_wheel_moves_the_cursor_three_rows_and_stops_at_the_top() {
+    let (_file, mut app) = app_with("");
+    draw_once(&mut app);
+
+    mouse(&mut app, MouseEventKind::ScrollDown, (0, 0));
+    assert_eq!(app.cursor(), a_cell(0, 3));
+    mouse(&mut app, MouseEventKind::ScrollUp, (0, 0));
+    mouse(&mut app, MouseEventKind::ScrollUp, (0, 0));
+    assert_eq!(app.cursor(), a_cell(0, 0));
+}
+
+#[test]
+fn the_wheel_extends_a_selection_but_leaves_edits_and_help_alone() {
+    let (_file, mut app) = app_with("");
+    draw_once(&mut app);
+
+    press(&mut app, KeyCode::Char('v'));
+    mouse(&mut app, MouseEventKind::ScrollDown, (0, 0));
+    assert_eq!(app.selection(), Some((a_cell(0, 0), a_cell(0, 3))));
+    press(&mut app, KeyCode::Esc);
+
+    press(&mut app, KeyCode::Char('s'));
+    mouse(&mut app, MouseEventKind::ScrollDown, (0, 0));
+    assert_eq!(app.cursor(), a_cell(0, 3));
+    press(&mut app, KeyCode::Esc);
+
+    press(&mut app, KeyCode::Char('?'));
+    mouse(&mut app, MouseEventKind::ScrollDown, (0, 0));
+    assert_eq!(app.mode(), Mode::Help);
+    assert_eq!(app.cursor(), a_cell(0, 3));
 }
 
 #[test]

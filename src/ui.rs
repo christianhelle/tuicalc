@@ -1,5 +1,6 @@
 //! Draws the application state.
 
+use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -39,6 +40,59 @@ fn layout(area: Rect) -> [Rect; 4] {
     .areas(area)
 }
 
+/// How many rows one notch of the mouse wheel moves.
+const WHEEL_STEP: i32 = 3;
+
+/// Acts on a mouse event, for a screen of the given size.
+pub fn handle_mouse(app: &mut App, screen: Rect, event: MouseEvent) {
+    match event.kind {
+        MouseEventKind::Down(MouseButton::Left) if app.mode() == Mode::Help => app.close_help(),
+        MouseEventKind::Down(MouseButton::Left) => {
+            let [_, grid, tabs, _] = layout(screen);
+            if let Some(at) = cell_at(grid, app, event.column, event.row) {
+                app.click_cell(at);
+            } else if let Some(index) = tab_at(tabs, app, event.column, event.row) {
+                app.click_sheet(index);
+            }
+        }
+        MouseEventKind::ScrollDown => app.wheel(WHEEL_STEP),
+        MouseEventKind::ScrollUp => app.wheel(-WHEEL_STEP),
+        _ => {}
+    }
+}
+
+/// The grid's room for cells, in columns and rows, inside its box.
+fn grid_size(inner: Rect) -> (u32, u32) {
+    (
+        u32::from(inner.width.saturating_sub(ROW_HEADER_WIDTH) / COLUMN_WIDTH),
+        u32::from(inner.height.saturating_sub(2)),
+    )
+}
+
+/// The cell drawn at a screen position, if any. A column's line on its right counts as part of it.
+fn cell_at(grid: Rect, app: &App, x: u16, y: u16) -> Option<CellRef> {
+    let inner = Block::bordered().inner(grid);
+    let (cols, rows) = grid_size(inner);
+    let col = u32::from(x.checked_sub(inner.x + ROW_HEADER_WIDTH)? / COLUMN_WIDTH);
+    let row = u32::from(y.checked_sub(inner.y + 2)?);
+    let scroll = app.scroll();
+    (col < cols && row < rows).then_some(CellRef {
+        col: scroll.col + col,
+        row: scroll.row + row,
+    })
+}
+
+/// The sheet whose tab is drawn at a screen position, if any.
+fn tab_at(tabs: Rect, app: &App, x: u16, y: u16) -> Option<usize> {
+    if y != tabs.y {
+        return None;
+    }
+    visible_tabs(tabs, app)
+        .into_iter()
+        .find(|tab| (tab.x..tab.x.saturating_add(tab.width)).contains(&x))
+        .map(|tab| tab.index)
+}
+
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let [formula_bar, grid, tabs, status] = layout(frame.area());
     let editing = app.mode() == Mode::Insert;
@@ -47,8 +101,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let grid_block = section_block(!editing, &title);
     let grid_inner = grid_block.inner(grid);
     frame.render_widget(grid_block, grid);
-    let visible_cols = u32::from(grid_inner.width.saturating_sub(ROW_HEADER_WIDTH) / COLUMN_WIDTH);
-    let visible_rows = u32::from(grid_inner.height.saturating_sub(2));
+    let (visible_cols, visible_rows) = grid_size(grid_inner);
     app.set_viewport(visible_cols, visible_rows);
     draw_grid(
         frame.buffer_mut(),
@@ -353,11 +406,16 @@ fn text_width(chars: &[char]) -> usize {
     chars.iter().map(|c| c.width().unwrap_or(0)).sum()
 }
 
-/// Shows the sheet names, starting late enough to keep the current one on screen.
-fn draw_tabs(buffer: &mut Buffer, area: Rect, app: &App) {
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
+/// A sheet's tab and where it's drawn.
+struct Tab {
+    index: usize,
+    x: u16,
+    width: u16,
+    name: String,
+}
+
+/// The tabs that fit, starting late enough to keep the current sheet on screen.
+fn visible_tabs(area: Rect, app: &App) -> Vec<Tab> {
     let names: Vec<String> = app
         .workbook
         .sheets
@@ -373,18 +431,36 @@ fn draw_tabs(buffer: &mut Buffer, area: Rect, app: &App) {
         first += 1;
     }
     let mut x = area.x;
-    for (index, name) in names.iter().enumerate().skip(first) {
+    let mut tabs = Vec::new();
+    for (index, name) in names.into_iter().enumerate().skip(first) {
         if x >= area.right() {
             break;
         }
-        let style = if index == current {
+        let width = width_of(&name) as u16;
+        tabs.push(Tab {
+            index,
+            x,
+            width,
+            name,
+        });
+        x = x.saturating_add(width);
+    }
+    tabs
+}
+
+/// Shows the sheet names, marking the current one.
+fn draw_tabs(buffer: &mut Buffer, area: Rect, app: &App) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    for tab in visible_tabs(area, app) {
+        let style = if tab.index == app.sheet_index() {
             Style::default().add_modifier(Modifier::REVERSED)
         } else {
             Style::default()
         };
-        let room = usize::from(area.right() - x);
-        buffer.set_stringn(x, area.y, name, room, style);
-        x = x.saturating_add(width_of(name) as u16);
+        let room = usize::from(area.right() - tab.x);
+        buffer.set_stringn(tab.x, area.y, &tab.name, room, style);
     }
 }
 

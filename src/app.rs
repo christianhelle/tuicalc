@@ -1204,6 +1204,54 @@ impl App {
         self.begin_edit(text.chars().collect());
     }
 
+    /// A left click on a cell in normal mode, dropping any half-typed command.
+    pub fn click_cell(&mut self, at: CellRef) {
+        if self.mode == Mode::Normal {
+            self.forget_pending_keys();
+            self.status.clear();
+            self.cursor = at;
+            self.scroll_to_cursor();
+        }
+    }
+
+    /// A left click on a sheet's tab in normal mode.
+    pub fn click_sheet(&mut self, index: usize) {
+        if self.mode == Mode::Normal {
+            self.forget_pending_keys();
+            self.status.clear();
+            self.switch_sheet(index as isize - self.sheet as isize);
+            self.scroll_to_cursor();
+        }
+    }
+
+    /// Moves the cursor with the mouse wheel: scrolling alone would snap back to it.
+    pub fn wheel(&mut self, rows: i32) {
+        if matches!(self.mode, Mode::Normal | Mode::Visual | Mode::VisualRow) {
+            self.forget_pending_keys();
+            self.status.clear();
+            self.cursor.row = self
+                .cursor
+                .row
+                .saturating_add_signed(rows)
+                .min(MAX_ROWS - 1);
+            self.scroll_to_cursor();
+        }
+    }
+
+    /// A left click while the help is showing closes it.
+    pub fn close_help(&mut self) {
+        if self.mode == Mode::Help {
+            self.mode = self.help_from;
+        }
+    }
+
+    fn forget_pending_keys(&mut self) {
+        self.count = None;
+        self.pending = None;
+        self.operator = None;
+        self.operator_count = None;
+    }
+
     fn open_help(&mut self) {
         self.help_from = self.mode;
         self.mode = Mode::Help;
