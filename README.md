@@ -8,14 +8,14 @@ tcalc path/to/book.xlsx
 tcalc
 ```
 
-With no file, `tcalc` opens a blank workbook. `Ctrl+O` or `:e` opens another one from inside the
-app.
+With no file, `tcalc` opens a blank workbook. `Ctrl-O` opens another one from inside the app.
 
 The project is tuicalc, and the command is `tcalc`, which is quicker to type.
 
 ## Keys
 
-tuicalc starts in normal mode and works like vim, on a grid of cells. The status line names the
+tuicalc starts in normal mode and works like vim, on a grid of cells. Press `?` for the keys of the
+current mode, or `F1` while editing a cell, and any key to close the list. The status line names the
 current mode, and shows a command you haven't finished at its right edge.
 
 ### Normal mode
@@ -25,16 +25,16 @@ a "paragraph" is a run of filled cells in the column.
 
 | Key | Action |
 | --- | --- |
-| `h` `j` `k` `l`, arrows, `Tab`, `Shift+Tab`, `Enter` | Move |
+| `h` `j` `k` `l`, arrows, `Tab`, `Shift-Tab`, `Enter` | Move |
 | `w` `b` `e` | Next run, start of this or the previous run, end of this or the next run |
 | `}` `{` | Next or previous gap in the column |
 | `0` `^` `$` `{n}\|` | First column, first filled cell, last filled cell, column n |
 | `gg` `G` `{n}G` | First row, last used row, row n |
 | `H` `M` `L` | Top, middle or bottom of the screen |
-| `Ctrl+D` `Ctrl+U` `Ctrl+F` `Ctrl+B` | Scroll half a page or a page, down or up |
+| `Ctrl-D` `Ctrl-U` `Ctrl-F` `Ctrl-B` | Scroll half a page or a page, down or up |
 | `zt` `zz` `zb` | Put the cursor's row at the top, middle or bottom of the screen |
-| `gt` `gT` `{n}gt`, `F6`, `Shift+F6`, `Ctrl+PgDn`, `Ctrl+PgUp` | Next, previous or nth sheet |
-| `PgUp` `PgDn` `Home` `End`, `Ctrl+Home` `Ctrl+End` | Move by page, to the row's edge, to A1 or the last used cell |
+| `gt` `gT` `{n}gt`, `F6`, `Shift-F6`, `Ctrl-PgDn`, `Ctrl-PgUp` | Next, previous or nth sheet |
+| `PgUp` `PgDn` `Home` `End`, `Ctrl-Home` `Ctrl-End` | Move by page, to the row's edge, to A1 or the last used cell |
 | `i` `a` `F2` | Edit the cell with the caret at the start or the end |
 | `s` `=` | Replace the cell, or start a formula |
 | `o` `O` | Edit the cell below or above |
@@ -42,21 +42,27 @@ a "paragraph" is a run of filled cells in the column.
 | `d` `y` `c` + motion | Delete, yank or change the cells the motion covers, as in `d$`, `y3j` or `cw` |
 | `dd` `yy` `cc` `S` `C` | The same for whole rows, and `C` to the row's end |
 | `p` `P` | Paste, adjusting relative references in formulas |
-| `u` `Ctrl+R`, `Ctrl+Z` `Ctrl+Y` | Undo, redo |
-| `v` `Ctrl+V` `V` | Select cells or whole rows |
-| `:` | Start a command |
-| `Ctrl+O` | Choose a workbook to open, refusing if there are unsaved edits |
-| `ZZ` `ZQ`, `Ctrl+S`, `Ctrl+Q` `Ctrl+C` | Save and quit, quit without saving, save, quit |
+| `u` `Ctrl-R`, `Ctrl-Z` `Ctrl-Y` | Undo, redo |
+| `v` `Ctrl-V` `V` | Select cells or whole rows |
+| `/` `n` `N` | Find text in this sheet, then the next or previous match, ignoring case |
+| `Ctrl-G` | Go to a cell such as `C7`, or a row such as `25` |
+| `Ctrl-S` | Save |
+| `Ctrl-O` | Choose a workbook to open |
+| `F5` | Reload the workbook from disk |
+| `q` `Ctrl-Q` `Ctrl-C` | Quit |
+| `ZZ` `ZQ` | Save and quit, quit without saving or asking |
+| `?` `F1` | Show the keys |
 
 ### Insert mode
 
 | Key | Action |
 | --- | --- |
 | `Esc` | Keep the text and stay on the cell |
-| `Enter`, `Tab`, `Shift+Tab`, `Up`, `Down` | Keep the text and move |
-| `Ctrl+C` | Drop the text |
+| `Enter`, `Tab`, `Shift-Tab`, `Up`, `Down` | Keep the text and move |
+| `Ctrl-C` | Drop the text |
+| `F1` | Show the keys |
 | `Left` `Right` `Home` `End` | Move the caret |
-| `Backspace` `Delete` `Ctrl+W` `Ctrl+U` | Delete a character, the word before the caret, or everything before it |
+| `Backspace` `Delete` `Ctrl-W` `Ctrl-U` | Delete a character, the word before the caret, or everything before it |
 
 ### Visual modes
 
@@ -67,34 +73,39 @@ Every motion extends the selection.
 | `d` `x` `Delete`, `y`, `c` `s` | Delete, yank or change the selection |
 | `o` | Jump to the selection's other corner |
 | `v` `V` | Switch between selecting cells and rows, or leave |
-| `Esc` `Ctrl+C` | Leave |
+| `Esc` `Ctrl-C` | Leave |
+| `?` `F1` | Show the keys |
 
-### Commands
+### Unsaved changes
 
-| Command | Action |
+Quitting, opening another workbook or reloading with unsaved edits asks first, and says what happens
+next. `ZQ` is the one way to lose edits without being asked.
+
+| Key | Action |
 | --- | --- |
-| `:w` | Save |
-| `:w book.xlsx` | Save a new workbook to this file, refusing one that exists |
-| `:q` `:q!` | Quit, refusing if there are unsaved edits, or discarding them |
-| `:wq` `:x` | Save and quit |
-| `:wq book.xlsx` `:x book.xlsx` | Save a new workbook to this file and quit |
-| `:e` `:e!` | Choose a workbook to open, refusing if there are unsaved edits, or discarding them once one opens |
-| `:e book.xlsx` `:e! book.xlsx` | Open this workbook, refusing if there are unsaved edits, or discarding them |
-| `:25` `:C7` | Go to a row or a cell |
+| `s` | Save, then carry on |
+| `d` | Discard the edits and carry on. When opening a workbook, they're kept until a file opens |
+| Anything else | Stay, keeping the edits |
+
+### Mouse
+
+In normal mode, click a cell to move there, or a sheet's tab to show it. The wheel moves the cursor
+three rows, and extends a selection in the visual modes. A click closes the keys list. Hold `Shift`
+to select text in the terminal.
 
 ### File dialog
 
-Opening a workbook, or saving a new one without giving a name, opens a dialog. It lists folders and
-`.xlsx` files, and adds `.xlsx` to a name with no extension. After `:wq`, `ZZ`, `:x` or the quit
-prompt, tuicalc quits once the save succeeds. Opening a file starts a new undo history, and what you
-yanked can still be pasted.
+Opening a workbook, or saving a new one, opens a dialog. It lists folders and `.xlsx` files, and adds
+`.xlsx` to a name with no extension. If it opened because you were quitting or opening another file,
+that carries on once the save succeeds. Opening a file starts a new undo history, and what you yanked
+can still be pasted.
 
 | Key | Action |
 | --- | --- |
 | Typing, `Backspace` | Edit the name, which can also be a path |
 | `Up` `Down` | Highlight a line, and a file's name fills in the name |
 | `Enter` | Open the highlighted folder, or otherwise open or save the file, asking before overwriting one |
-| `Esc` `Ctrl+C` | Close without opening or saving, keeping the edits |
+| `Esc` `Ctrl-C` | Close without opening or saving, keeping the edits |
 
 ## Entering values
 
@@ -121,7 +132,7 @@ file after it was opened.
 - Saving an opened workbook under another name (Save As), and adding or removing sheets, rows or
   columns, aren't supported yet.
 - Vim's modes work on the grid, so a cell's text is edited in insert mode only, without a normal
-  mode inside the cell. Search (`/`), `.`, macros, marks and named registers aren't supported yet.
+  mode inside the cell. `.`, macros, marks and named registers aren't supported yet.
 - Rows aren't inserted or removed, so `dd` clears a row and `p` overwrites the row below.
 - Pasted cells take the formatting of the cells they land on, not of the cells they came from.
 - Inserting a cell beside cells that omit their `r` attribute, which Excel never writes, can shift
