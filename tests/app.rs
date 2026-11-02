@@ -1750,3 +1750,46 @@ fn a_failed_save_in_the_dialog_does_not_quit() {
     assert!(!app.should_quit());
     assert_eq!(app.mode(), Mode::SaveDialog);
 }
+
+#[test]
+fn zz_and_x_quit_a_blank_workbook_with_no_edits() {
+    let mut app = blank_app();
+    keys(&mut app, "ZZ");
+    assert!(app.should_quit());
+    assert!(app.save_dialog().is_none());
+
+    let mut app = blank_app();
+    run(&mut app, "x");
+    assert!(app.should_quit());
+    assert!(app.save_dialog().is_none());
+}
+
+#[test]
+fn zz_and_x_open_the_dialog_for_a_blank_workbook_with_edits() {
+    let dir = save_folder();
+    let mut app = blank_app();
+    enter_value(&mut app, "5");
+    app.set_save_directory(dir.path());
+
+    keys(&mut app, "ZZ");
+    assert_eq!(app.mode(), Mode::SaveDialog);
+    assert!(!app.should_quit());
+    press(&mut app, KeyCode::Esc);
+
+    run(&mut app, "x");
+    assert_eq!(app.mode(), Mode::SaveDialog);
+    type_text(&mut app, "kept");
+    press(&mut app, KeyCode::Enter);
+    assert!(app.should_quit());
+}
+
+#[test]
+fn wq_opens_the_dialog_for_a_blank_workbook_with_no_edits() {
+    let dir = save_folder();
+    let mut app = blank_app();
+    app.set_save_directory(dir.path());
+
+    run(&mut app, "wq");
+    assert_eq!(app.mode(), Mode::SaveDialog);
+    assert!(!app.should_quit());
+}

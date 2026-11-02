@@ -704,7 +704,7 @@ impl App {
                 None => self.switch_sheet(1),
             },
             ('g', KeyCode::Char('T')) => self.switch_sheet(-1),
-            ('Z', KeyCode::Char('Z')) => self.save_and_quit(),
+            ('Z', KeyCode::Char('Z')) => self.save_if_edited_and_quit(),
             ('Z', KeyCode::Char('Q')) => self.should_quit = true,
             ('z', KeyCode::Char('z')) => self.scroll.row = self.cursor.row.saturating_sub(rows / 2),
             ('z', KeyCode::Char('t')) => self.scroll.row = self.cursor.row,
@@ -862,6 +862,15 @@ impl App {
             }
             KeyCode::Char('=') if !ctrl => self.begin_edit(vec!['=']),
             _ => {}
+        }
+    }
+
+    /// `ZZ` and `:x`: as `:wq`, except that a blank workbook with no edits has nothing to save.
+    fn save_if_edited_and_quit(&mut self) {
+        if self.workbook.path().is_none() && !self.workbook.is_dirty() {
+            self.should_quit = true;
+        } else {
+            self.save_and_quit();
         }
     }
 
@@ -1079,7 +1088,8 @@ impl App {
                 self.status = "E37: No write since last change (add ! to override)".into();
             }
             "q" | "q!" => self.should_quit = true,
-            "wq" | "x" => self.save_and_quit(),
+            "wq" => self.save_and_quit(),
+            "x" => self.save_if_edited_and_quit(),
             _ => {
                 if let Ok(row) = command.parse::<u32>() {
                     self.cursor.row = row.saturating_sub(1).min(MAX_ROWS - 1);
