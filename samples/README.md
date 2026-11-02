@@ -15,3 +15,18 @@ All but `foreign-writer.xlsx` were saved by real Excel, so they contain what Exc
 
 To rebuild them, run `generate.ps1`, which needs Windows and Excel. The data is the same on every
 run, but the files won't be byte-identical because Excel records timestamps and generated IDs.
+
+## Giant workbooks
+
+`generate.ps1 -Giant` writes the same six workbooks to `giant/`, with millions of cells added, for
+trying how tuicalc performs. It takes about a minute. Git ignores the folder because the files are
+far too big to commit, and the tests don't use them.
+
+| File | What it adds | Cells | Size |
+| --- | --- | --- | --- |
+| `sales-pivot.xlsx` | 1,000,000 rows in the table and pivot table | 6.0 million | 52 MB |
+| `dates-1904.xlsx` | `Timeline`: 1,000,000 rows of dates, times and currency | 5.0 million | 54 MB |
+| `financial-model.xlsx` | `Ledger`: 500,000 rows with formulas using the named ranges | 5.0 million | 48 MB |
+| `formula-edge-cases.xlsx` | `Bulk`: 300,000 rows of shared formulas and errors | 2.4 million | 20 MB |
+| `text-and-layout.xlsx` | `Bulk text`: 500,000 rows of different text in several scripts | 2.0 million | 20 MB |
+| `foreign-writer.xlsx` | `Bulk`: 500,000 rows of prefixed inline strings with no cell references | 2.0 million | 5 MB |
