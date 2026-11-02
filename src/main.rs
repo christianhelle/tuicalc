@@ -35,14 +35,17 @@ fn main() -> ExitCode {
         }
     };
 
+    let mut app = App::new(workbook);
     let mut terminal = ratatui::init();
     release_mouse_on_panic();
     let result = execute!(io::stdout(), EnableMouseCapture)
-        .and_then(|()| run(&mut terminal, App::new(workbook)));
+        .and_then(|()| run(&mut terminal, &mut app));
     // A terminal left capturing the mouse would type escape codes into the user's shell.
     let released = execute!(io::stdout(), DisableMouseCapture);
     ratatui::restore();
     let result = result.and(released);
+    // Freeing millions of cells takes a noticeable moment, and the process is ending anyway.
+    std::mem::forget(app);
     if let Err(error) = result {
         eprintln!("tcalc: {error}");
         return ExitCode::FAILURE;
@@ -59,15 +62,15 @@ fn release_mouse_on_panic() {
     }));
 }
 
-fn run(terminal: &mut DefaultTerminal, mut app: App) -> io::Result<()> {
+fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
     while !app.should_quit() {
-        terminal.draw(|frame| draw(frame, &mut app))?;
+        terminal.draw(|frame| draw(frame, app))?;
         match event::read()? {
             Event::Key(key) => app.handle_key(key),
             Event::Mouse(mouse) => {
                 let size = terminal.size()?;
                 let screen = Rect::new(0, 0, size.width, size.height);
-                handle_mouse(&mut app, screen, mouse);
+                handle_mouse(app, screen, mouse);
             }
             _ => {}
         }
