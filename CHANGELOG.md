@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New workbooks: `tcalc` with no arguments opens a blank workbook. Saving it
   opens a dialog for browsing folders and naming the file, which asks before
   overwriting one, and `:w book.xlsx` saves straight to a new file.
+- Opening workbooks from inside the app: `Ctrl+O` or `:e` browses for a file, and
+  `:e book.xlsx` opens one directly. Unsaved edits block this unless `:e!` is used.
 - Vim motions: tuicalc starts in normal mode. `h` `j` `k` `l` and the arrow keys
   move, and most motions take a count such as `5j`. `w`, `b` and `e` move between
   runs of filled cells in a row, `{` and `}` between gaps in a column. `0`, `^`
