@@ -2014,6 +2014,78 @@ fn saving_still_opens_the_dialog_for_saving() {
 }
 
 #[test]
+fn f5_reloads_the_workbook_from_disk_keeping_the_cursor() {
+    let (file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
+    press(&mut app, KeyCode::Char('j'));
+    press(&mut app, KeyCode::Char('l'));
+    let changed = single_sheet(&sheet(r#"<row r="1"><c r="A1"><v>2</v></c></row>"#), &[]);
+    std::fs::write(&file.path, changed).unwrap();
+
+    press(&mut app, KeyCode::F(5));
+
+    assert_eq!(value(&app, "A1"), CellValue::Number(2.0));
+    assert_eq!(app.cursor(), a1("B2"));
+    assert_eq!(app.status(), "Reloaded book.xlsx");
+}
+
+#[test]
+fn f5_asks_about_unsaved_edits_and_discarding_reloads() {
+    let (_file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+
+    press(&mut app, KeyCode::F(5));
+    assert_eq!(app.mode(), Mode::ConfirmDiscard);
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
+
+    press(&mut app, KeyCode::F(5));
+    press(&mut app, KeyCode::Char('d'));
+    assert_eq!(value(&app, "A1"), CellValue::Empty);
+    assert!(!app.workbook.is_dirty());
+}
+
+#[test]
+fn f5_says_so_when_there_is_no_file_to_reload() {
+    let mut app = App::new(Workbook::blank().unwrap());
+    enter_value(&mut app, "5");
+
+    press(&mut app, KeyCode::F(5));
+
+    assert_eq!(app.status(), "Nothing to reload");
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
+}
+
+#[test]
+fn f5_keeps_the_loaded_workbook_if_the_file_cannot_be_read() {
+    let (file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
+    std::fs::write(&file.path, b"not a workbook").unwrap();
+
+    press(&mut app, KeyCode::F(5));
+
+    assert!(
+        app.status().starts_with("Reload failed:"),
+        "{}",
+        app.status()
+    );
+    assert!(app.status_is_error());
+    assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+}
+
+#[test]
+fn f5_starts_at_the_top_if_the_sheet_is_gone() {
+    let (file, mut app) = app_from(&two_sheets());
+    press(&mut app, KeyCode::F(6));
+    press(&mut app, KeyCode::Char('j'));
+    std::fs::write(&file.path, single_sheet(&sheet(""), &[])).unwrap();
+
+    press(&mut app, KeyCode::F(5));
+
+    assert_eq!(app.sheet_index(), 0);
+    assert_eq!(app.cursor(), a1("A1"));
+}
+
+#[test]
 fn e_refuses_while_there_are_unsaved_edits() {
     let (_file, mut app) = app_with("");
     enter_value(&mut app, "5");

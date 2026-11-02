@@ -45,6 +45,7 @@ pub(crate) fn is_ctrl(key: KeyEvent) -> bool {
 pub enum NextStep {
     Quit,
     OpenFile,
+    Reload,
 }
 
 /// One cell's part in a change.
@@ -791,6 +792,10 @@ impl App {
         match key.code {
             KeyCode::PageDown if ctrl => self.switch_sheet(1),
             KeyCode::PageUp if ctrl => self.switch_sheet(-1),
+            KeyCode::F(5) if self.workbook.path().is_none() => {
+                self.status = "Nothing to reload".into();
+            }
+            KeyCode::F(5) => self.ask_before_losing_edits(NextStep::Reload),
             KeyCode::F(6) if shift => self.switch_sheet(-1),
             KeyCode::F(6) => self.switch_sheet(1),
             KeyCode::Char('q' | 'c') if ctrl => {
@@ -999,6 +1004,25 @@ impl App {
         }
     }
 
+    /// Reads the file again, staying on the same sheet and cell if they still exist.
+    fn reload(&mut self) {
+        let Some(path) = self.workbook.path().map(Path::to_path_buf) else {
+            return;
+        };
+        match Workbook::open(path) {
+            Ok(workbook) => {
+                let (sheet, cursor) = (self.sheet, self.cursor);
+                self.load_workbook(workbook);
+                if sheet < self.workbook.sheets.len() {
+                    self.sheet = sheet;
+                    self.cursor = cursor;
+                }
+                self.status = format!("Reloaded {}", self.file_name());
+            }
+            Err(error) => self.report_error(format!("Reload failed: {error}")),
+        }
+    }
+
     /// Replaces the workbook, keeping only the register, so cells can be pasted across files.
     fn load_workbook(&mut self, workbook: Workbook) {
         let origin = CellRef { col: 0, row: 0 };
@@ -1060,6 +1084,7 @@ impl App {
         match step {
             NextStep::Quit => self.should_quit = true,
             NextStep::OpenFile => self.open_file_dialog(DialogKind::Open),
+            NextStep::Reload => self.reload(),
         }
     }
 

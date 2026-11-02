@@ -81,6 +81,7 @@ const DISCARD_DIALOG_WIDTH: u16 = 60;
 fn draw_discard_dialog(frame: &mut Frame, app: &App) {
     let next = match app.next_step() {
         Some(NextStep::OpenFile) => "open",
+        Some(NextStep::Reload) => "reload",
         _ => "quit",
     };
     let lines = vec![
