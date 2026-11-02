@@ -503,17 +503,35 @@ fn column_and_row_headers_are_bold_cyan_on_the_terminal_background() {
 }
 
 #[test]
-fn the_grid_sits_in_a_box_titled_with_the_sheet_name() {
+fn the_grid_sits_in_a_box_titled_with_the_file_and_sheet() {
     let (_file, mut app) = app_with("");
 
     let screen = render(&mut app, 46, 14);
 
-    assert!(screen[3].starts_with("┏ Sheet1 ━"), "{}", screen[3]);
+    assert!(
+        screen[3].starts_with("┏ book.xlsx — Sheet1 ━"),
+        "{}",
+        screen[3]
+    );
     assert!(screen[3].ends_with('┓'), "{}", screen[3]);
     assert!(screen[11].starts_with('┗'), "{}", screen[11]);
     assert!(screen[11].ends_with('┛'), "{}", screen[11]);
     assert!(screen[5].starts_with('┃'), "{}", screen[5]);
     assert!(screen[5].ends_with('┃'), "{}", screen[5]);
+}
+
+#[test]
+fn the_grid_title_marks_unsaved_changes_and_unnamed_workbooks() {
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('s'));
+    press(&mut app, KeyCode::Char('1'));
+    press(&mut app, KeyCode::Enter);
+    let screen = render(&mut app, 46, 14);
+    assert!(screen[3].contains(" book.xlsx* — Sheet1 "), "{}", screen[3]);
+
+    let mut blank = App::new(Workbook::blank().unwrap());
+    let screen = render(&mut blank, 46, 14);
+    assert!(screen[3].contains(" [No Name] — "), "{}", screen[3]);
 }
 
 #[test]

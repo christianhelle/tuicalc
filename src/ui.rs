@@ -40,7 +40,9 @@ fn layout(area: Rect) -> [Rect; 4] {
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let [formula_bar, grid, tabs, status] = layout(frame.area());
     let editing = app.mode() == Mode::Insert;
-    let grid_block = section_block(!editing, &app.current_sheet().name);
+    let marker = if app.workbook.is_dirty() { "*" } else { "" };
+    let title = format!("{}{marker} — {}", app.file_name(), app.current_sheet().name);
+    let grid_block = section_block(!editing, &title);
     let grid_inner = grid_block.inner(grid);
     frame.render_widget(grid_block, grid);
     let visible_cols = u32::from(grid_inner.width.saturating_sub(ROW_HEADER_WIDTH) / COLUMN_WIDTH);
