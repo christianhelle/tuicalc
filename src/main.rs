@@ -38,8 +38,8 @@ fn main() -> ExitCode {
     let mut app = App::new(workbook);
     let mut terminal = ratatui::init();
     release_mouse_on_panic();
-    let result = execute!(io::stdout(), EnableMouseCapture)
-        .and_then(|()| run(&mut terminal, &mut app));
+    let result =
+        execute!(io::stdout(), EnableMouseCapture).and_then(|()| run(&mut terminal, &mut app));
     // A terminal left capturing the mouse would type escape codes into the user's shell.
     let released = execute!(io::stdout(), DisableMouseCapture);
     ratatui::restore();

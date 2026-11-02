@@ -273,12 +273,15 @@ fn read_shared_strings(xml: &str) -> Result<Vec<String>, XlsxError> {
     loop {
         let event = reader.read_event().map_err(xml_error)?;
         match &event {
-            Event::Start(element) => match local_name(element).as_str() {
-                "si" => current.clear(),
-                "rPh" => in_phonetic = true,
-                "t" => in_text = !in_phonetic,
-                _ => {}
-            },
+            Event::Start(element) => {
+                let name = element.local_name();
+                match AsRef::<str>::as_ref(&name) {
+                    "si" => current.clear(),
+                    "rPh" => in_phonetic = true,
+                    "t" => in_text = !in_phonetic,
+                    _ => {}
+                }
+            }
             Event::Empty(element) if local_name(element) == "si" => strings.push(String::new()),
             Event::End(element) => match AsRef::<str>::as_ref(&element.local_name()) {
                 "si" => strings.push(decode_excel_escapes(&std::mem::take(&mut current))),
@@ -396,7 +399,8 @@ fn read_sheet(
         match &event {
             Event::Start(element) | Event::Empty(element) => {
                 let empty = matches!(event, Event::Empty(_));
-                match local_name(element).as_str() {
+                let name = element.local_name();
+                match AsRef::<str>::as_ref(&name) {
                     "row" => {
                         next.row = attr(element, "r")
                             .and_then(|r| r.parse::<u32>().ok())
