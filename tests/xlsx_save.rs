@@ -478,3 +478,18 @@ fn after_save_as_a_plain_save_goes_to_the_new_file() {
         number(7.0)
     );
 }
+
+#[test]
+fn save_over_replaces_an_existing_file() {
+    let file = write_temp(b"old contents");
+    let mut book = Workbook::blank().unwrap();
+    book.sheets[0].set_cell(a1("A1"), number(3.0));
+
+    book.save_over(&file.path).unwrap();
+    assert!(!book.is_dirty());
+    assert_eq!(book.path(), Some(file.path.as_path()));
+    assert_eq!(
+        Workbook::open(&file.path).unwrap().sheets[0].cell(a1("A1")),
+        number(3.0)
+    );
+}

@@ -119,6 +119,14 @@ impl Workbook {
         Ok(())
     }
 
+    /// Writes the workbook over an existing file, which it then belongs to.
+    pub fn save_over(&mut self, path: impl AsRef<Path>) -> Result<(), XlsxError> {
+        let bytes = self.current_package()?;
+        replace_file(path.as_ref(), &bytes)?;
+        self.adopt(path.as_ref(), bytes);
+        Ok(())
+    }
+
     /// The package as it would be saved now.
     fn current_package(&self) -> Result<Vec<u8>, XlsxError> {
         if self.is_dirty() {
