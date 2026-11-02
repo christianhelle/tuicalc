@@ -444,3 +444,91 @@ fn a_blank_workbook_shows_no_name_on_the_status_line() {
         screen[9]
     );
 }
+
+/// A blank workbook with its save dialog open in `dir`.
+fn app_in_save_dialog(dir: &std::path::Path) -> App {
+    let mut app = App::new(Workbook::blank().unwrap());
+    app.set_save_directory(dir);
+    app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    app
+}
+
+#[test]
+fn the_save_dialog_shows_the_folder_list_and_name() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("reports")).unwrap();
+    std::fs::write(dir.path().join("old.xlsx"), b"x").unwrap();
+    let mut app = app_in_save_dialog(dir.path());
+    press(&mut app, KeyCode::Char('b'));
+
+    let text = render(&mut app, 100, 20).join("\n");
+
+    assert!(text.contains("Save as"), "{text}");
+    assert!(text.contains(&dir.path().display().to_string()), "{text}");
+    assert!(text.contains("  .."), "{text}");
+    assert!(text.contains("  reports"), "{text}");
+    assert!(text.contains("  old.xlsx"), "{text}");
+    assert!(text.contains("Name: b"), "{text}");
+    assert!(text.contains("Enter save"), "{text}");
+}
+
+#[test]
+fn the_save_dialog_marks_the_highlighted_line() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("old.xlsx"), b"x").unwrap();
+    let mut app = app_in_save_dialog(dir.path());
+    press(&mut app, KeyCode::Up);
+
+    let screen = render(&mut app, 100, 20);
+    let y = screen
+        .iter()
+        .position(|line| line.contains("> old.xlsx"))
+        .unwrap();
+    let x = screen[y].find("> old.xlsx").unwrap() as u16;
+
+    let terminal = terminal_for(&mut app, 100, 20);
+    assert!(is_selector(&terminal.backend().buffer()[(x, y as u16)]));
+}
+
+#[test]
+fn the_save_dialog_list_scrolls_to_keep_the_highlight_visible() {
+    let dir = tempfile::tempdir().unwrap();
+    for number in 0..40 {
+        std::fs::write(dir.path().join(format!("file{number:02}.xlsx")), b"x").unwrap();
+    }
+    let mut app = app_in_save_dialog(dir.path());
+    press(&mut app, KeyCode::Up);
+
+    let text = render(&mut app, 100, 30).join("\n");
+
+    assert!(text.contains("> file39.xlsx"), "{text}");
+    assert!(!text.contains("file00.xlsx"), "{text}");
+}
+
+#[test]
+fn the_save_dialog_shows_messages_and_the_overwrite_question() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("old.xlsx"), b"x").unwrap();
+    let mut app = app_in_save_dialog(dir.path());
+
+    press(&mut app, KeyCode::Enter);
+    let text = render(&mut app, 100, 20).join("\n");
+    assert!(text.contains("Enter a file name"), "{text}");
+
+    press(&mut app, KeyCode::Up);
+    press(&mut app, KeyCode::Enter);
+    let text = render(&mut app, 100, 20).join("\n");
+    assert!(text.contains("old.xlsx exists. Overwrite? [y/n]"), "{text}");
+}
+
+#[test]
+fn the_save_dialog_keeps_the_end_of_a_long_folder_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let deep = dir.path().join("a".repeat(70)).join("the-last-folder");
+    std::fs::create_dir_all(&deep).unwrap();
+    let mut app = app_in_save_dialog(&deep);
+
+    let text = render(&mut app, 60, 20).join("\n");
+
+    assert!(text.contains("the-last-folder"), "{text}");
+}

@@ -4,10 +4,12 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::widgets::{Block, Clear};
 use unicode_width::UnicodeWidthChar;
 
 use crate::address::{CellRef, column_name};
 use crate::app::{App, Mode};
+use crate::save_dialog::SaveDialog;
 use crate::text::{display_text, edit_text, is_right_aligned};
 
 /// The header bars and the cursor, as a nod to Lotus 1-2-3. The color is exact because a terminal
@@ -41,6 +43,115 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         let x = status.x + 1 + text_width(&chars[..app.caret()]) as u16;
         frame.set_cursor_position((x.min(status.right().saturating_sub(1)), status.y));
     }
+    if let Some(dialog) = app.save_dialog() {
+        draw_save_dialog(frame, dialog);
+    }
+}
+
+const SAVE_DIALOG_WIDTH: u16 = 60;
+const SAVE_DIALOG_LIST_ROWS: usize = 12;
+const SAVE_DIALOG_HINT: &str = "Enter save    Esc cancel";
+const SAVE_DIALOG_NAME_LABEL: &str = "Name: ";
+
+/// Draws the dialog over the middle of the screen.
+fn draw_save_dialog(frame: &mut Frame, dialog: &SaveDialog) {
+    let area = frame.area();
+    let list_rows = dialog.entries().len().clamp(1, SAVE_DIALOG_LIST_ROWS) as u16;
+    let width = area.width.min(SAVE_DIALOG_WIDTH);
+    let height = area.height.min(list_rows + 5);
+    let popup = Rect {
+        x: area.x + (area.width - width) / 2,
+        y: area.y + (area.height - height) / 2,
+        width,
+        height,
+    };
+    let block = Block::bordered().title(" Save as ");
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(block, popup);
+    if inner.width == 0 || inner.height < 3 {
+        return;
+    }
+
+    let room = usize::from(inner.width);
+    let list_rows = inner.height - 3;
+    let buffer = frame.buffer_mut();
+    let path = dialog.directory().display().to_string();
+    buffer.set_stringn(
+        inner.x,
+        inner.y,
+        keep_end(&path, room),
+        room,
+        Style::default(),
+    );
+    draw_save_dialog_list(buffer, inner, dialog, list_rows);
+
+    let name_y = inner.y + 1 + list_rows;
+    let label_width = SAVE_DIALOG_NAME_LABEL.len();
+    // One cell stays free for the terminal cursor after the name.
+    let name = keep_end(dialog.name(), room.saturating_sub(label_width + 1));
+    let line = format!("{SAVE_DIALOG_NAME_LABEL}{name}");
+    buffer.set_stringn(inner.x, name_y, &line, room, Style::default());
+    buffer.set_stringn(
+        inner.x,
+        name_y + 1,
+        save_dialog_hint(dialog),
+        room,
+        Style::default(),
+    );
+    if dialog.pending_overwrite().is_none() {
+        let chars: Vec<char> = line.chars().collect();
+        let x = inner.x + text_width(&chars) as u16;
+        frame.set_cursor_position((x.min(inner.right().saturating_sub(1)), name_y));
+    }
+}
+
+/// Draws as much of the list as fits, starting late enough to show the highlight.
+fn draw_save_dialog_list(buffer: &mut Buffer, inner: Rect, dialog: &SaveDialog, rows: u16) {
+    let room = usize::from(inner.width);
+    let first = dialog.highlight().map_or(0, |highlight| {
+        (highlight + 1).saturating_sub(usize::from(rows))
+    });
+    let visible = dialog.entries().iter().enumerate().skip(first);
+    for (offset, (index, entry)) in visible.take(usize::from(rows)).enumerate() {
+        let y = inner.y + 1 + offset as u16;
+        let selected = dialog.highlight() == Some(index);
+        let (marker, style) = if selected {
+            (">", FRAME_STYLE)
+        } else {
+            (" ", Style::default())
+        };
+        let line = format!("{marker} {:<room$}", entry.label());
+        buffer.set_stringn(inner.x, y, line, room, style);
+    }
+}
+
+fn save_dialog_hint(dialog: &SaveDialog) -> String {
+    if let Some(path) = dialog.pending_overwrite() {
+        let name = path
+            .file_name()
+            .unwrap_or(path.as_os_str())
+            .to_string_lossy();
+        format!("{name} exists. Overwrite? [y/n]")
+    } else if dialog.message().is_empty() {
+        SAVE_DIALOG_HINT.to_string()
+    } else {
+        dialog.message().to_string()
+    }
+}
+
+/// Cuts text from the left to fit `room` terminal cells, so its end stays readable.
+fn keep_end(text: &str, room: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if text_width(&chars) <= room {
+        return text.to_string();
+    }
+    let mut start = 0;
+    while start < chars.len() && text_width(&chars[start..]) + 1 > room {
+        start += 1;
+    }
+    let tail: String = chars[start..].iter().collect();
+    format!("…{tail}")
 }
 
 /// Shows the cursor's address and contents, or the text being edited with its caret.
@@ -156,7 +267,7 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         Mode::VisualRow => ("V-LINE", VISUAL_HELP),
         Mode::ConfirmQuit => ("NORMAL", CONFIRM_QUIT),
         Mode::Command => ("COMMAND", ""),
-        Mode::SaveDialog => ("SAVE", ""),
+        Mode::SaveDialog => ("SAVE", "Choose a folder and a name"),
     };
     let message = if app.status().is_empty() || app.mode() == Mode::ConfirmQuit {
         hint
