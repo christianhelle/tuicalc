@@ -974,6 +974,19 @@ fn the_wheel_extends_a_selection_but_leaves_edits_and_help_alone() {
 }
 
 #[test]
+fn the_way_to_quit_fits_on_an_80_column_terminal() {
+    let (_file, mut app) = app_with("");
+
+    let screen = render(&mut app, 80, 14);
+
+    assert!(
+        status_line(&screen).contains("q quit"),
+        "{}",
+        status_line(&screen)
+    );
+}
+
+#[test]
 fn the_save_dialog_marks_the_highlighted_line() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("old.xlsx"), b"x").unwrap();

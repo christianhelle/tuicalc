@@ -459,8 +459,7 @@ fn draw_tabs(buffer: &mut Buffer, area: Rect, app: &App) {
     }
 }
 
-const NORMAL_HINTS: &str =
-    " ? help · i edit · v select · u undo · / find · gt sheet · Ctrl-S save · q quit";
+const NORMAL_HINTS: &str = " ? help · i edit · v select · / find · gt sheet · Ctrl-S save · q quit";
 const VISUAL_HINTS: &str = " d delete · y copy · c change · o other corner · Esc back · ? help";
 const INSERT_HINTS: &str = " Esc done · Enter next · Ctrl-C cancel · F1 help";
 
