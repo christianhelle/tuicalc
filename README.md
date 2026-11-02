@@ -148,3 +148,7 @@ Tests run against four public seams: workbook file I/O, the workbook model, app 
 key events, and the screen rendered to an in-memory terminal.
 
 [`samples/`](samples/README.md) holds complex workbooks to try by hand, which the tests also use.
+
+## License
+
+[MIT](LICENSE)
