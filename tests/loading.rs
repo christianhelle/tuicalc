@@ -314,18 +314,11 @@ fn nothing_can_change_or_be_copied_until_the_workbook_has_arrived() {
     ] {
         type_keys(&mut app, keys);
         assert_eq!(app.status(), STILL_OPENING, "{keys}");
-        assert!(
-            matches!(app.mode(), Mode::Normal | Mode::Visual | Mode::VisualRow),
-            "{keys}"
-        );
-        assert_eq!(app.mode() == Mode::Insert, false, "{keys}");
-        key(&mut app, KeyCode::Char('j'));
+        assert_ne!(app.mode(), Mode::Insert, "{keys}");
         if app.selection().is_some() {
-            key(&mut app, KeyCode::Char('v'));
+            key(&mut app, KeyCode::Esc);
         }
-        if app.selection().is_some() {
-            key(&mut app, KeyCode::Char('v'));
-        }
+        assert_eq!(app.mode(), Mode::Normal, "{keys}");
         assert!(!app.workbook.is_dirty(), "{keys}");
     }
 
@@ -382,4 +375,134 @@ fn a_search_while_loading_says_it_only_covered_what_has_arrived() {
     type_keys(&mut app, "/plums");
     key(&mut app, KeyCode::Enter);
     assert_eq!(app.status(), "No match for plums");
+}
+
+/// An app with `5` typed over A1 of a finished workbook holding numbers, and the cursor on A2.
+fn app_with_an_edit() -> (TempXlsx, App) {
+    let file = write_temp(&single_sheet(&sheet(&numbers(3)), &[]));
+    let mut app = App::new(Workbook::open(&file.path).unwrap());
+    type_keys(&mut app, "s5");
+    key(&mut app, KeyCode::Enter);
+    (file, app)
+}
+
+fn open_through_the_dialog(app: &mut App, path: &Path) {
+    ctrl(app, 'o');
+    if app.mode() == Mode::ConfirmDiscard {
+        key(app, KeyCode::Char('d'));
+    }
+    type_keys(app, &path.display().to_string());
+    key(app, KeyCode::Enter);
+}
+
+#[test]
+fn opening_another_file_shows_it_straight_away_and_says_so_when_done() {
+    let (first, mut app) = app_with_an_edit();
+    let second = write_temp(&single_sheet(&sheet(&numbers(5000)), &[]));
+
+    open_through_the_dialog(&mut app, &second.path);
+
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(app.is_loading());
+    assert_eq!(app.workbook.path(), Some(second.path.as_path()));
+    assert_ne!(app.workbook.path(), Some(first.path.as_path()));
+
+    app.finish_loading();
+    assert_eq!(app.status(), "Opened book.xlsx");
+    assert_eq!(number_at(&app, "A5000"), Some(5000.0));
+    key(&mut app, KeyCode::Char('u'));
+    assert_eq!(app.status(), "Nothing to undo");
+}
+
+#[test]
+fn esc_while_opening_another_file_returns_to_the_last_one_intact() {
+    let (first, mut app) = app_with_an_edit();
+    let second = write_temp(&single_sheet(&sheet(&numbers(5000)), &[]));
+
+    open_through_the_dialog(&mut app, &second.path);
+    key(&mut app, KeyCode::Esc);
+
+    assert!(!app.should_quit());
+    assert!(!app.is_loading());
+    assert_eq!(app.workbook.path(), Some(first.path.as_path()));
+    assert_eq!(app.cursor(), a1("A2"));
+    assert_eq!(number_at(&app, "A1"), Some(5.0), "the edit is still there");
+    assert!(app.workbook.is_dirty());
+    assert_eq!(app.status(), "Stopped opening");
+    key(&mut app, KeyCode::Char('u'));
+    assert_eq!(number_at(&app, "A1"), Some(1.0), "and can be undone");
+}
+
+#[test]
+fn a_problem_deep_in_another_file_returns_to_the_last_one_with_the_error() {
+    let (first, mut app) = app_with_an_edit();
+    let broken = format!(r#"<worksheet><sheetData>{}</row>"#, numbers(2));
+    let second = write_temp(&single_sheet(&broken, &[]));
+
+    open_through_the_dialog(&mut app, &second.path);
+    app.finish_loading();
+
+    assert!(!app.should_quit());
+    assert_eq!(app.workbook.path(), Some(first.path.as_path()));
+    assert_eq!(number_at(&app, "A1"), Some(5.0));
+    assert!(app.status().starts_with("Open failed:"), "{}", app.status());
+    assert!(app.status_is_error());
+}
+
+#[test]
+fn a_file_that_is_not_a_workbook_still_stays_in_the_dialog() {
+    let (first, mut app) = app_with_an_edit();
+    let broken = write_temp(b"not a workbook");
+
+    open_through_the_dialog(&mut app, &broken.path);
+
+    assert_eq!(app.mode(), Mode::FileDialog);
+    assert!(!app.is_loading());
+    assert_eq!(app.workbook.path(), Some(first.path.as_path()));
+}
+
+#[test]
+fn reloading_keeps_the_place_straight_away_and_survives_a_problem_deep_in_the_file() {
+    let file = write_temp(&single_sheet(&sheet(&numbers(5000)), &[]));
+    let mut app = App::new(Workbook::open(&file.path).unwrap());
+    type_keys(&mut app, "3jl");
+
+    key(&mut app, KeyCode::F(5));
+    assert!(app.is_loading());
+    assert_eq!(app.cursor(), a1("B4"));
+    app.finish_loading();
+    assert_eq!(app.status(), "Reloaded book.xlsx");
+    assert_eq!(app.cursor(), a1("B4"));
+
+    let broken = format!(r#"<worksheet><sheetData>{}</row>"#, numbers(2));
+    std::fs::write(&file.path, single_sheet(&broken, &[])).unwrap();
+    key(&mut app, KeyCode::F(5));
+    app.finish_loading();
+    assert!(
+        app.status().starts_with("Reload failed:"),
+        "{}",
+        app.status()
+    );
+    assert_eq!(
+        number_at(&app, "A5000"),
+        Some(5000.0),
+        "the last read stands"
+    );
+    assert_eq!(app.cursor(), a1("B4"));
+}
+
+#[test]
+fn switching_sheets_while_loading_lands_on_the_sheet_and_it_fills_in() {
+    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
+    let (workbook, load) = Workbook::open_loading(samples.join("financial-model.xlsx"), 0).unwrap();
+    let mut app = App::opening(workbook, load);
+
+    key(&mut app, KeyCode::F(6));
+    assert_eq!(app.current_sheet().name, "Monthly Plan");
+
+    app.finish_loading();
+    assert_eq!(
+        app.current_sheet().cell(a1("B4")).value,
+        CellValue::Number(1000.0)
+    );
 }

@@ -1699,6 +1699,7 @@ fn open_file(app: &mut App, path: &Path) {
     ctrl(app, KeyCode::Char('o'));
     type_text(app, &path.display().to_string());
     press(app, KeyCode::Enter);
+    app.finish_loading();
 }
 
 #[test]
@@ -1852,6 +1853,7 @@ fn f5_reloads_the_workbook_from_disk_keeping_the_cursor() {
     std::fs::write(&file.path, changed).unwrap();
 
     press(&mut app, KeyCode::F(5));
+    app.finish_loading();
 
     assert_eq!(value(&app, "A1"), CellValue::Number(2.0));
     assert_eq!(app.cursor(), a1("B2"));
@@ -1870,6 +1872,7 @@ fn f5_asks_about_unsaved_edits_and_discarding_reloads() {
 
     press(&mut app, KeyCode::F(5));
     press(&mut app, KeyCode::Char('d'));
+    app.finish_loading();
     assert_eq!(value(&app, "A1"), CellValue::Empty);
     assert!(!app.workbook.is_dirty());
 }
@@ -1910,6 +1913,7 @@ fn f5_starts_at_the_top_if_the_sheet_is_gone() {
     std::fs::write(&file.path, single_sheet(&sheet(""), &[])).unwrap();
 
     press(&mut app, KeyCode::F(5));
+    app.finish_loading();
 
     assert_eq!(app.sheet_index(), 0);
     assert_eq!(app.cursor(), a1("A1"));
@@ -2338,6 +2342,7 @@ fn choosing_a_file_in_the_dialog_opens_it() {
     press(&mut app, KeyCode::Up);
     assert_eq!(highlighted(&app).as_deref(), Some("good.xlsx"));
     press(&mut app, KeyCode::Enter);
+    app.finish_loading();
 
     assert_eq!(app.mode(), Mode::Normal);
     assert!(app.file_dialog().is_none());

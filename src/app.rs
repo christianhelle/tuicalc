@@ -58,6 +58,32 @@ pub enum NextStep {
 /// A workbook on screen whose cells are still arriving.
 struct Loading {
     load: WorkbookLoad,
+    kind: LoadKind,
+    /// What to go back to if the load doesn't work out. The first workbook has nothing to go to.
+    previous: Option<Box<PreviousBook>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LoadKind {
+    Open,
+    Reload,
+}
+
+/// A workbook put aside while another loads, and the place the user was in it.
+struct PreviousBook {
+    workbook: Workbook,
+    sheet: usize,
+    cursor: CellRef,
+    scroll: CellRef,
+    anchor: CellRef,
+    cursors: Vec<CellRef>,
+    undo: Vec<Change>,
+    redo: Vec<Change>,
+}
+
+/// Freeing a large workbook takes a noticeable moment, so it's done out of the user's way.
+fn free_later<T: Send + 'static>(value: T) {
+    thread::spawn(move || drop(value));
 }
 
 /// One cell's part in a change.
@@ -163,7 +189,11 @@ impl App {
     /// An app showing a workbook whose cells are on their way.
     pub fn opening(workbook: Workbook, load: WorkbookLoad) -> Self {
         let mut app = Self::new(workbook);
-        app.loading = Some(Loading { load });
+        app.loading = Some(Loading {
+            load,
+            kind: LoadKind::Open,
+            previous: None,
+        });
         app
     }
 
@@ -217,15 +247,77 @@ impl App {
         match event {
             LoadEvent::Cells { sheet, chunk } => chunk.apply_to(&mut self.workbook.sheets[sheet]),
             LoadEvent::Failed(error) => {
-                self.loading = None;
-                self.load_failure = Some(error.to_string());
-                self.should_quit = true;
+                let Some(loading) = self.loading.take() else {
+                    return;
+                };
+                let verb = match loading.kind {
+                    LoadKind::Open => "Open",
+                    LoadKind::Reload => "Reload",
+                };
+                match loading.previous {
+                    Some(previous) => {
+                        self.go_back_to(*previous);
+                        self.report_error(format!("{verb} failed: {error}"));
+                    }
+                    None => {
+                        self.load_failure = Some(error.to_string());
+                        self.should_quit = true;
+                    }
+                }
             }
         }
     }
 
     fn finish_load(&mut self) {
-        self.loading = None;
+        let Some(loading) = self.loading.take() else {
+            return;
+        };
+        if let Some(previous) = loading.previous {
+            free_later(previous);
+            let verb = match loading.kind {
+                LoadKind::Open => "Opened",
+                LoadKind::Reload => "Reloaded",
+            };
+            self.status = format!("{verb} {}", self.file_name());
+        }
+    }
+
+    /// Puts another workbook on screen with its cells on their way, keeping this one until they
+    /// have all arrived.
+    fn begin_load(&mut self, workbook: Workbook, load: WorkbookLoad, kind: LoadKind) {
+        let origin = CellRef { col: 0, row: 0 };
+        let previous = PreviousBook {
+            sheet: self.sheet,
+            cursor: self.cursor,
+            scroll: self.scroll,
+            anchor: self.anchor,
+            cursors: std::mem::replace(&mut self.cursors, vec![origin; workbook.sheets.len()]),
+            undo: std::mem::take(&mut self.undo),
+            redo: std::mem::take(&mut self.redo),
+            workbook: std::mem::replace(&mut self.workbook, workbook),
+        };
+        self.sheet = 0;
+        self.cursor = origin;
+        self.scroll = origin;
+        self.anchor = origin;
+        self.loading = Some(Loading {
+            load,
+            kind,
+            previous: Some(Box::new(previous)),
+        });
+    }
+
+    fn go_back_to(&mut self, previous: PreviousBook) {
+        free_later(std::mem::replace(&mut self.workbook, previous.workbook));
+        self.sheet = previous.sheet;
+        self.cursor = previous.cursor;
+        self.scroll = previous.scroll;
+        self.anchor = previous.anchor;
+        self.cursors = previous.cursors;
+        self.undo = previous.undo;
+        self.redo = previous.redo;
+        self.mode = Mode::Normal;
+        self.help_from = Mode::Normal;
     }
 
     /// Says why something that needs the whole workbook isn't happening; returns whether it isn't.
@@ -239,8 +331,16 @@ impl App {
 
     /// Stops loading at the user's request.
     fn cancel_load(&mut self) {
-        self.loading = None;
-        self.should_quit = true;
+        let Some(loading) = self.loading.take() else {
+            return;
+        };
+        match loading.previous {
+            Some(previous) => {
+                self.go_back_to(*previous);
+                self.status = "Stopped opening".into();
+            }
+            None => self.should_quit = true,
+        }
     }
 
     pub fn set_dialog_directory(&mut self, directory: &Path) {
@@ -1062,10 +1162,10 @@ impl App {
                 let result = self.workbook.save_over(path);
                 self.finish_dialog_save(result);
             }
-            DialogAction::Open(path) => match Workbook::open(path) {
-                Ok(workbook) => {
+            DialogAction::Open(path) => match Workbook::open_loading(path, 0) {
+                Ok((workbook, load)) => {
                     self.close_file_dialog();
-                    self.load_workbook(workbook);
+                    self.begin_load(workbook, load, LoadKind::Open);
                 }
                 Err(error) => {
                     if let Some(dialog) = &mut self.file_dialog {
@@ -1104,32 +1204,18 @@ impl App {
         let Some(path) = self.workbook.path().map(Path::to_path_buf) else {
             return;
         };
-        match Workbook::open(path) {
-            Ok(workbook) => {
-                let (sheet, cursor) = (self.sheet, self.cursor);
-                self.load_workbook(workbook);
+        match Workbook::open_loading(path, self.sheet) {
+            Ok((workbook, load)) => {
+                let (sheet, cursor, scroll) = (self.sheet, self.cursor, self.scroll);
+                self.begin_load(workbook, load, LoadKind::Reload);
                 if sheet < self.workbook.sheets.len() {
                     self.sheet = sheet;
                     self.cursor = cursor;
+                    self.scroll = scroll;
                 }
-                self.status = format!("Reloaded {}", self.file_name());
             }
             Err(error) => self.report_error(format!("Reload failed: {error}")),
         }
-    }
-
-    /// Replaces the workbook, keeping only the register, so cells can be pasted across files.
-    fn load_workbook(&mut self, workbook: Workbook) {
-        let origin = CellRef { col: 0, row: 0 };
-        self.cursors = vec![origin; workbook.sheets.len()];
-        self.workbook = workbook;
-        self.sheet = 0;
-        self.cursor = origin;
-        self.scroll = origin;
-        self.anchor = origin;
-        self.undo.clear();
-        self.redo.clear();
-        self.status = format!("Opened {}", self.file_name());
     }
 
     pub fn file_name(&self) -> String {
@@ -1201,6 +1287,9 @@ impl App {
         self.cursors[self.sheet] = self.cursor;
         self.sheet = next;
         self.cursor = self.cursors[next];
+        if let Some(loading) = &self.loading {
+            loading.load.prefer(next);
+        }
     }
 
     /// `{n}gt`: shows a sheet by its 1-based position.
