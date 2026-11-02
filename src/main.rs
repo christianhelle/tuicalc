@@ -1,6 +1,7 @@
 use std::io;
 use std::panic;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
 use crossterm::execute;
@@ -11,31 +12,33 @@ use tuicalc::ui::{draw, handle_mouse};
 use tuicalc::xlsx::Workbook;
 
 const USAGE: &str = "Usage: tcalc [file.xlsx]";
+/// How long to spend taking in a loading workbook's cells before looking at the keyboard and
+/// drawing again.
+const LOADING_FRAME: Duration = Duration::from_millis(12);
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let target = args.first().map_or("a blank workbook", String::as_str);
     let opened = match args.as_slice() {
         [flag] if flag == "--help" || flag == "-h" => {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
         }
-        [] => Workbook::blank(),
-        [path] => Workbook::open(path),
+        [] => Workbook::blank().map(App::new),
+        [path] => Workbook::open_loading(path, 0).map(|(book, load)| App::opening(book, load)),
         _ => {
             eprintln!("{USAGE}");
             return ExitCode::from(2);
         }
     };
-    let workbook = match opened {
-        Ok(workbook) => workbook,
+    let mut app = match opened {
+        Ok(app) => app,
         Err(error) => {
-            let target = args.first().map_or("a blank workbook", String::as_str);
             eprintln!("tcalc: cannot open {target}: {error}");
             return ExitCode::FAILURE;
         }
     };
 
-    let mut app = App::new(workbook);
     let mut terminal = ratatui::init();
     release_mouse_on_panic();
     let result =
@@ -44,10 +47,15 @@ fn main() -> ExitCode {
     let released = execute!(io::stdout(), DisableMouseCapture);
     ratatui::restore();
     let result = result.and(released);
+    let failure = app.load_failure().map(str::to_string);
     // Freeing millions of cells takes a noticeable moment, and the process is ending anyway.
     std::mem::forget(app);
     if let Err(error) = result {
         eprintln!("tcalc: {error}");
+        return ExitCode::FAILURE;
+    }
+    if let Some(failure) = failure {
+        eprintln!("tcalc: cannot open {target}: {failure}");
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
@@ -65,15 +73,27 @@ fn release_mouse_on_panic() {
 fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
     while !app.should_quit() {
         terminal.draw(|frame| draw(frame, app))?;
-        match event::read()? {
-            Event::Key(key) => app.handle_key(key),
-            Event::Mouse(mouse) => {
-                let size = terminal.size()?;
-                let screen = Rect::new(0, 0, size.width, size.height);
-                handle_mouse(app, screen, mouse);
+        if app.is_loading() {
+            app.absorb_loaded(LOADING_FRAME);
+            while !app.should_quit() && event::poll(Duration::ZERO)? {
+                handle_event(terminal, app, event::read()?)?;
             }
-            _ => {}
+        } else {
+            handle_event(terminal, app, event::read()?)?;
         }
+    }
+    Ok(())
+}
+
+fn handle_event(terminal: &DefaultTerminal, app: &mut App, event: Event) -> io::Result<()> {
+    match event {
+        Event::Key(key) => app.handle_key(key),
+        Event::Mouse(mouse) => {
+            let size = terminal.size()?;
+            let screen = Rect::new(0, 0, size.width, size.height);
+            handle_mouse(app, screen, mouse);
+        }
+        _ => {}
     }
     Ok(())
 }
