@@ -435,9 +435,20 @@ fn quitting_with_unsaved_edits_asks_first() {
     assert_eq!(app.mode(), Mode::ConfirmDiscard);
 
     press(&mut app, KeyCode::Char('x'));
-    assert_eq!(app.mode(), Mode::ConfirmDiscard, "other keys keep asking");
-    assert_eq!(app.current_sheet().cell(a1("A2")), Cell::default());
+    assert_eq!(app.mode(), Mode::Normal, "other keys cancel, as in tuilook");
+    assert!(!app.should_quit());
+    assert_eq!(
+        value(&app, "A1"),
+        CellValue::Number(5.0),
+        "and do nothing else"
+    );
 
+    ctrl(&mut app, KeyCode::Char('q'));
+    ctrl(&mut app, KeyCode::Char('c'));
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(!app.should_quit());
+
+    ctrl(&mut app, KeyCode::Char('q'));
     press(&mut app, KeyCode::Esc);
     assert_eq!(app.mode(), Mode::Normal);
     assert!(!app.should_quit());

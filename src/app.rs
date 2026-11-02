@@ -1082,11 +1082,10 @@ impl App {
                     self.take_step(step);
                 }
             }
-            KeyCode::Esc => {
+            _ => {
                 self.mode = Mode::Normal;
                 self.next_step = None;
             }
-            _ => {}
         }
     }
 
