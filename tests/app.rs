@@ -394,6 +394,38 @@ fn quitting_a_clean_workbook_is_immediate() {
 }
 
 #[test]
+fn q_quits_a_clean_workbook_and_asks_about_unsaved_edits() {
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('q'));
+    assert!(app.should_quit());
+
+    let (_file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+    press(&mut app, KeyCode::Char('q'));
+    assert!(!app.should_quit());
+    assert_eq!(app.mode(), Mode::ConfirmDiscard);
+}
+
+#[test]
+fn q_is_only_a_quit_key_in_normal_mode() {
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('s'));
+    press(&mut app, KeyCode::Char('q'));
+    assert!(!app.should_quit());
+    assert_eq!(app.buffer(), "q");
+    press(&mut app, KeyCode::Esc);
+
+    press(&mut app, KeyCode::Char('v'));
+    press(&mut app, KeyCode::Char('q'));
+    assert!(!app.should_quit());
+
+    press(&mut app, KeyCode::Esc);
+    press(&mut app, KeyCode::Char('d'));
+    press(&mut app, KeyCode::Char('q'));
+    assert!(!app.should_quit(), "cancels the waiting operator");
+}
+
+#[test]
 fn quitting_with_unsaved_edits_asks_first() {
     let (file, mut app) = app_with("");
     enter_value(&mut app, "5");

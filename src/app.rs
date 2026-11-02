@@ -796,6 +796,7 @@ impl App {
             KeyCode::Char('q' | 'c') if ctrl => {
                 self.ask_before_losing_edits(NextStep::Quit);
             }
+            KeyCode::Char('q') => self.ask_before_losing_edits(NextStep::Quit),
             KeyCode::Char('s') if ctrl => {
                 self.save();
             }
