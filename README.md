@@ -8,7 +8,8 @@ tcalc path/to/book.xlsx
 tcalc
 ```
 
-With no file, `tcalc` opens a blank workbook.
+With no file, `tcalc` opens a blank workbook. `Ctrl+O` or `:e` opens another one from inside the
+app.
 
 The project is tuicalc, and the command is `tcalc`, which is quicker to type.
 
@@ -44,6 +45,7 @@ a "paragraph" is a run of filled cells in the column.
 | `u` `Ctrl+R`, `Ctrl+Z` `Ctrl+Y` | Undo, redo |
 | `v` `Ctrl+V` `V` | Select cells or whole rows |
 | `:` | Start a command |
+| `Ctrl+O` | Choose a workbook to open, refusing if there are unsaved edits |
 | `ZZ` `ZQ`, `Ctrl+S`, `Ctrl+Q` `Ctrl+C` | Save and quit, quit without saving, save, quit |
 
 ### Insert mode
@@ -76,20 +78,23 @@ Every motion extends the selection.
 | `:q` `:q!` | Quit, refusing if there are unsaved edits, or discarding them |
 | `:wq` `:x` | Save and quit |
 | `:wq book.xlsx` `:x book.xlsx` | Save a new workbook to this file and quit |
+| `:e` `:e!` | Choose a workbook to open, refusing if there are unsaved edits, or discarding them once one opens |
+| `:e book.xlsx` `:e! book.xlsx` | Open this workbook, refusing if there are unsaved edits, or discarding them |
 | `:25` `:C7` | Go to a row or a cell |
 
-### Save dialog
+### File dialog
 
-Saving a new workbook without giving a name opens a dialog. It lists folders and `.xlsx` files, and
-adds `.xlsx` to a name with no extension. After `:wq`, `ZZ`, `:x` or the quit prompt, tuicalc quits
-once the save succeeds.
+Opening a workbook, or saving a new one without giving a name, opens a dialog. It lists folders and
+`.xlsx` files, and adds `.xlsx` to a name with no extension. After `:wq`, `ZZ`, `:x` or the quit
+prompt, tuicalc quits once the save succeeds. Opening a file starts a new undo history, and what you
+yanked can still be pasted.
 
 | Key | Action |
 | --- | --- |
 | Typing, `Backspace` | Edit the name, which can also be a path |
 | `Up` `Down` | Highlight a line, and a file's name fills in the name |
-| `Enter` | Open the highlighted folder, or otherwise save, asking before overwriting a file |
-| `Esc` `Ctrl+C` | Close without saving, keeping the edits |
+| `Enter` | Open the highlighted folder, or otherwise open or save the file, asking before overwriting one |
+| `Esc` `Ctrl+C` | Close without opening or saving, keeping the edits |
 
 ## Entering values
 
