@@ -2,7 +2,15 @@
 # foreign-writer.xlsx, which is written by hand to look like the output of other tools.
 #
 # Excel runs invisibly. Only Excel processes started by this script are ever stopped.
+#
+# With -Giant, it writes the same workbooks with millions of cells added to samples/giant/ instead,
+# for trying how tuicalc performs. They're tens of megabytes each, so git ignores them.
+param([switch]$Giant)
+
 $ErrorActionPreference = 'Stop'
+
+$OutputFolder = if ($Giant) { Join-Path $PSScriptRoot 'giant' } else { $PSScriptRoot }
+[void](New-Item -ItemType Directory -Force $OutputFolder)
 
 $missing = [Type]::Missing
 $xlOpenXMLWorkbook = 51
@@ -20,6 +28,137 @@ $xlDatabase = 1
 $xlSrcRange = 1
 $xlYes = 1
 
+# How much data each giant workbook adds. Excel's limit is 1,048,576 rows.
+$SalesRows = if ($Giant) { 1000000 } else { 1500 }
+$LedgerRows = 500000
+$BulkFormulaRows = 300000
+$BulkTextRows = 500000
+$TimelineRows = 1000000
+$ForeignRows = 500000
+
+# Filling millions of cells needs whole arrays handed to Excel in one go, and building those in
+# script takes far too long. The fixed generator keeps the data the same on every rebuild.
+Add-Type -TypeDefinition @'
+using System;
+using System.Globalization;
+using System.IO;
+
+public class SampleRandom {
+    private long seed;
+    public SampleRandom(long seed) { this.seed = seed; }
+    public long Next() {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        return seed;
+    }
+}
+
+public static class SampleData {
+    // Done here because PowerShell's own COM binding refuses to pass a 2D array to Value2.
+    public static void Fill(object range, object[,] values) {
+        range.GetType().InvokeMember("Value2", System.Reflection.BindingFlags.SetProperty, null, range, new object[] { values });
+    }
+
+    private static readonly string[] Regions = { "North", "South", "East", "West" };
+    private static readonly string[] Products = { "Widget", "Gadget", "Gizmo", "Doohickey", "Thingamajig" };
+    private static readonly string[] Accounts = { "Sales", "Rent", "Wages", "Travel", "Software", "Interest" };
+    private static readonly string[] Departments = { "Finance", "Research", "Support", "Operations" };
+
+    public static object[,] Sales(int rows) {
+        var values = new object[rows + 1, 5];
+        string[] titles = { "Date", "Region", "Product", "Units", "Price" };
+        for (int c = 0; c < 5; c++) values[0, c] = titles[c];
+        var random = new SampleRandom(42);
+        for (int r = 1; r <= rows; r++) {
+            values[r, 0] = (double)(45292 + random.Next() % 366);
+            values[r, 1] = Regions[random.Next() % 4];
+            values[r, 2] = Products[random.Next() % 5];
+            values[r, 3] = (double)(1 + random.Next() % 50);
+            values[r, 4] = (double)(5 + random.Next() % 200) / 4;
+        }
+        return values;
+    }
+
+    public static object[,] Ledger(int rows) {
+        var values = new object[rows + 1, 8];
+        string[] titles = { "Date", "Account", "Department", "Reference", "Debit", "Credit", "Quantity", "Rate" };
+        for (int c = 0; c < 8; c++) values[0, c] = titles[c];
+        var random = new SampleRandom(7);
+        for (int r = 1; r <= rows; r++) {
+            values[r, 0] = (double)(45292 + random.Next() % 731);
+            values[r, 1] = Accounts[random.Next() % 6];
+            values[r, 2] = Departments[random.Next() % 4];
+            values[r, 3] = "INV-" + r.ToString("D7", CultureInfo.InvariantCulture);
+            values[r, 4] = (double)(random.Next() % 1000000) / 100;
+            values[r, 5] = (double)(random.Next() % 1000000) / 100;
+            values[r, 6] = (double)(1 + random.Next() % 500);
+            values[r, 7] = (double)(random.Next() % 10000) / 1000;
+        }
+        return values;
+    }
+
+    public static object[,] Numbers(int rows) {
+        var values = new object[rows, 2];
+        var random = new SampleRandom(11);
+        for (int r = 0; r < rows; r++) {
+            values[r, 0] = (double)(random.Next() % 1000);
+            values[r, 1] = (double)(random.Next() % 1000);
+        }
+        return values;
+    }
+
+    // Every string is different, so the shared strings table grows with the sheet.
+    public static object[,] Text(int rows) {
+        var values = new object[rows + 1, 4];
+        string[] titles = { "Latin", "Japanese", "Arabic and emoji", "Paragraph" };
+        for (int c = 0; c < 4; c++) values[0, c] = titles[c];
+        var random = new SampleRandom(23);
+        for (int r = 1; r <= rows; r++) {
+            string id = r.ToString(CultureInfo.InvariantCulture);
+            values[r, 0] = "Customer " + id + " <" + Regions[random.Next() % 4] + "> & sons";
+            values[r, 1] = "顧客番号 " + id + " 東京都";
+            values[r, 2] = "مرحبا " + id + " 📊";
+            values[r, 3] = "Record " + id + " has a longer note that runs well past the width of its column, "
+                + "the sort of free text people paste in, ending with code " + random.Next().ToString(CultureInfo.InvariantCulture);
+        }
+        return values;
+    }
+
+    public static object[,] Timeline(int rows) {
+        var values = new object[rows + 1, 5];
+        string[] titles = { "Date", "Moment", "Time of day", "Elapsed", "Amount" };
+        for (int c = 0; c < 5; c++) values[0, c] = titles[c];
+        var random = new SampleRandom(99);
+        for (int r = 1; r <= rows; r++) {
+            double day = 43538 + r % 3650;
+            double time = (double)(random.Next() % 86400) / 86400;
+            values[r, 0] = day;
+            values[r, 1] = day + time;
+            values[r, 2] = time;
+            values[r, 3] = (double)(random.Next() % 100000) / 1000;
+            values[r, 4] = (double)(random.Next() % 10000000) / 100 - 50000;
+        }
+        return values;
+    }
+
+    // The rows other tools write: prefixed, with inline strings and no references at all.
+    public static void WriteForeignRows(TextWriter writer, int rows) {
+        var random = new SampleRandom(5);
+        for (int r = 1; r <= rows; r++) {
+            string id = r.ToString(CultureInfo.InvariantCulture);
+            writer.Write("<x:row><x:c t=\"inlineStr\"><x:is><x:t>row ");
+            writer.Write(id);
+            writer.Write(" &amp; more</x:t></x:is></x:c><x:c><x:v>");
+            writer.Write(id);
+            writer.Write("</x:v></x:c><x:c><x:v>");
+            writer.Write(((double)(random.Next() % 1000000) / 100).ToString(CultureInfo.InvariantCulture));
+            writer.Write("</x:v></x:c><x:c t=\"b\"><x:v>");
+            writer.Write(random.Next() % 2);
+            writer.Write("</x:v></x:c></x:row>");
+        }
+    }
+}
+'@
+
 function Add-Sheet($book, [string]$name) {
     $sheet = $book.Worksheets.Add($missing, $book.Worksheets.Item($book.Worksheets.Count))
     $sheet.Name = $name
@@ -30,7 +169,7 @@ function Save-Book($excel, $book, [string]$fileName) {
     $book.Worksheets.Item(1).Activate()
     # Keeps the author's name out of files that get committed.
     $book.RemovePersonalInformation = $true
-    $path = Join-Path $PSScriptRoot $fileName
+    $path = Join-Path $OutputFolder $fileName
     if (Test-Path $path) { Remove-Item $path -Confirm:$false }
     $book.SaveAs($path, $xlOpenXMLWorkbook)
     $book.Close($false)
@@ -125,47 +264,33 @@ function New-FinancialModel($excel) {
     $summary.Range('A1').AddComment('Sum of the Net column on the plan') | Out-Null
     [void]$summary.Hyperlinks.Add($summary.Range('A6'), 'https://example.com/model', $missing, $missing, 'Model notes')
 
+    if ($Giant) {
+        $ledger = Add-Sheet $book 'Ledger'
+        [SampleData]::Fill($ledger.Range('A1').Resize($LedgerRows + 1, 8), [SampleData]::Ledger($LedgerRows))
+        $ledger.Range('I1').Value2 = 'Net'
+        $ledger.Range('J1').Value2 = 'Tax'
+        $ledger.Range('I2').Resize($LedgerRows, 1).Formula = '=E2-F2'
+        $ledger.Range('J2').Resize($LedgerRows, 1).Formula = '=I2*TaxRate'
+        $ledger.Range('A2').Resize($LedgerRows, 1).NumberFormat = 'yyyy-mm-dd'
+        $ledger.Range('E2').Resize($LedgerRows, 2).NumberFormat = '#,##0.00'
+        $ledger.Range('I2').Resize($LedgerRows, 2).NumberFormat = '#,##0.00'
+        $ledger.Range('A1:J1').Font.Bold = $true
+        $ledger.Activate()
+        $excel.ActiveWindow.SplitRow = 1
+        $excel.ActiveWindow.FreezePanes = $true
+    }
+
     Save-Book $excel $book 'financial-model.xlsx'
 }
 
-# 1,500 rows of sales in a table with a calculated column, summarised by a pivot table and chart.
+# Rows of sales in a table with a calculated column, summarised by a pivot table and chart.
 function New-SalesPivot($excel) {
     $book = $excel.Workbooks.Add()
     $data = $book.Worksheets.Item(1)
     $data.Name = 'Sales'
 
-    $regions = 'North', 'South', 'East', 'West'
-    $products = 'Widget', 'Gadget', 'Gizmo', 'Doohickey', 'Thingamajig'
-    $rows = 1500
-    $values = New-Object 'object[,]' ($rows + 1), 5
-    $titles = 'Date', 'Region', 'Product', 'Units', 'Price'
-    for ($c = 0; $c -lt 5; $c++) { $values[0, $c] = $titles[$c] }
-    # A fixed generator keeps the data the same on every rebuild.
-    [long]$seed = 42
-    for ($r = 1; $r -le $rows; $r++) {
-        $next = {
-            $script:seed = ($script:seed * 1103515245 + 12345) % 2147483648
-            $script:seed
-        }
-        $script:seed = $seed
-        $values[$r, 0] = [double](45292 + ((& $next) % 366))
-        $values[$r, 1] = $regions[(& $next) % 4]
-        $values[$r, 2] = $products[(& $next) % 5]
-        $values[$r, 3] = [double](1 + ((& $next) % 50))
-        $values[$r, 4] = [double](5 + ((& $next) % 200)) / 4
-        $seed = $script:seed
-    }
-    for ($r = 0; $r -le $rows; $r++) {
-        for ($c = 0; $c -lt 5; $c++) {
-            $cell = $data.Cells.Item($r + 1, $c + 1)
-            # PowerShell ties a COM assignment to the type first seen on that line of script.
-            if ($values[$r, $c] -is [string]) {
-                $cell.Value2 = [string]$values[$r, $c]
-            } else {
-                $cell.Value2 = [double]$values[$r, $c]
-            }
-        }
-    }
+    $rows = $SalesRows
+    [SampleData]::Fill($data.Range('A1').Resize($rows + 1, 5), [SampleData]::Sales($rows))
     $data.Range('F1').Value2 = 'Revenue'
     $table = $data.ListObjects.Add($xlSrcRange, $data.Range('A1').Resize($rows + 1, 6), $missing, $xlYes)
     $table.Name = 'SalesTable'
@@ -247,6 +372,18 @@ function New-FormulaEdgeCases($excel) {
     $back.Range('A1').Formula = "='R&D <2024> ""é""'!A1"
     $back.Range('A2:A4').Formula = "=Shared!C1+Arrays!A1"
 
+    if ($Giant) {
+        # Shared formulas by the hundred thousand, with an error in every tenth row or so.
+        $bulk = Add-Sheet $book 'Bulk'
+        [SampleData]::Fill($bulk.Range('A1').Resize($BulkFormulaRows, 2), [SampleData]::Numbers($BulkFormulaRows))
+        $bulk.Range('C1').Resize($BulkFormulaRows, 1).Formula = '=A1+B1'
+        $bulk.Range('D1').Resize($BulkFormulaRows, 1).Formula = '=$A$1+A1+$B1+B$1'
+        $bulk.Range('E1').Resize($BulkFormulaRows, 1).Formula = '=IF(A1>500,"high","low")'
+        $bulk.Range('F1').Resize($BulkFormulaRows, 1).Formula = '=1/MOD(A1,10)'
+        $bulk.Range('G1').Resize($BulkFormulaRows, 1).Formula = '=IFERROR(F1,"caught")'
+        $bulk.Range('H1').Resize($BulkFormulaRows, 1).Formula = '="row "&ROW()'
+    }
+
     Save-Book $excel $book 'formula-edge-cases.xlsx'
 }
 
@@ -291,6 +428,11 @@ function New-TextAndLayout($excel) {
     $layout.Range('XFD1048576').Value2 = 'last cell on the sheet'
     $layout.Rows.Item(3).RowHeight = 40
     $layout.Range('A1').EntireRow.Group() | Out-Null
+
+    if ($Giant) {
+        $bulkText = Add-Sheet $book 'Bulk text'
+        [SampleData]::Fill($bulkText.Range('A1').Resize($BulkTextRows + 1, 4), [SampleData]::Text($BulkTextRows))
+    }
 
     Save-Book $excel $book 'text-and-layout.xlsx'
 }
@@ -339,6 +481,17 @@ function New-Dates1904($excel) {
     $sheet.Range('D3').NumberFormat = 'yyyy-mm-dd'
     $sheet.Columns.Item(1).ColumnWidth = 24
     $sheet.Columns.Item(2).ColumnWidth = 24
+
+    if ($Giant) {
+        $timeline = Add-Sheet $book 'Timeline'
+        [SampleData]::Fill($timeline.Range('A1').Resize($TimelineRows + 1, 5), [SampleData]::Timeline($TimelineRows))
+        $timeline.Range('A2').Resize($TimelineRows, 1).NumberFormat = 'yyyy-mm-dd'
+        $timeline.Range('B2').Resize($TimelineRows, 1).NumberFormat = 'yyyy-mm-dd hh:mm:ss'
+        $timeline.Range('C2').Resize($TimelineRows, 1).NumberFormat = 'hh:mm:ss'
+        $timeline.Range('D2').Resize($TimelineRows, 1).NumberFormat = '0.000'
+        $timeline.Range('E2').Resize($TimelineRows, 1).NumberFormat = '#,##0.00 [$EUR]'
+    }
+
     Save-Book $excel $book 'dates-1904.xlsx'
 }
 
@@ -354,13 +507,25 @@ function New-ForeignWriter {
         'data/first.xml' = '<?xml version="1.0" encoding="UTF-8"?><x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheetData><x:row r="1"><x:c r="A1" t="inlineStr"><x:is><x:t>inline &amp; prefixed</x:t></x:is></x:c><x:c r="B1"><x:v>1.5</x:v></x:c></x:row><x:row r="3"><x:c r="A3"><x:f>B1*2</x:f><x:v>3</x:v></x:c><x:c r="B3" t="b"><x:v>1</x:v></x:c></x:row></x:sheetData></x:worksheet>'
         'data/second.xml' = '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row><c t="inlineStr"><is><t>first</t></is></c><c><v>2</v></c></row><row/><row><c><v>3</v></c></row></sheetData></worksheet>'
     }
-    $path = Join-Path $PSScriptRoot 'foreign-writer.xlsx'
+    if ($Giant) {
+        $parts['[Content_Types].xml'] = $parts['[Content_Types].xml'].Replace('</Types>', '<Override PartName="/data/bulk.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>')
+        $parts['data/book.xml'] = $parts['data/book.xml'].Replace('</x:sheets>', '<x:sheet name="Bulk" sheetId="3" r:id="three"/></x:sheets>')
+        $parts['data/_rels/book.xml.rels'] = $parts['data/_rels/book.xml.rels'].Replace('</Relationships>', '<Relationship Id="three" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="bulk.xml"/></Relationships>')
+    }
+    $path = Join-Path $OutputFolder 'foreign-writer.xlsx'
     if (Test-Path $path) { Remove-Item $path -Confirm:$false }
     $zip = [IO.Compression.ZipFile]::Open($path, 'Create')
     try {
         foreach ($name in $parts.Keys) {
             $writer = [IO.StreamWriter]::new($zip.CreateEntry($name).Open(), [Text.UTF8Encoding]::new($false))
             $writer.Write($parts[$name])
+            $writer.Dispose()
+        }
+        if ($Giant) {
+            $writer = [IO.StreamWriter]::new($zip.CreateEntry('data/bulk.xml').Open(), [Text.UTF8Encoding]::new($false))
+            $writer.Write('<?xml version="1.0" encoding="UTF-8"?><x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheetData>')
+            [SampleData]::WriteForeignRows($writer, $ForeignRows)
+            $writer.Write('</x:sheetData></x:worksheet>')
             $writer.Dispose()
         }
     } finally {
