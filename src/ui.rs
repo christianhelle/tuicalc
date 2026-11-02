@@ -282,9 +282,11 @@ fn draw_tabs(buffer: &mut Buffer, area: Rect, app: &App) {
     }
 }
 
-const HELP: &str = "i insert | v visual | : command | u undo | gt sheet | :w save | :q quit";
-const VISUAL_HELP: &str = "d delete | y yank | c change | o other corner | Esc back";
-const CONFIRM_QUIT: &str = "Unsaved changes: [s]ave and quit, [d]iscard, Esc to stay";
+const NORMAL_HINTS: &str =
+    " i edit · v select · u undo · gt sheet · : command · Ctrl-S save · Ctrl-Q quit";
+const VISUAL_HINTS: &str = " d delete · y copy · c change · o other corner · Esc back";
+const INSERT_HINTS: &str = " Esc done · Enter next · Ctrl-C cancel";
+const CONFIRM_QUIT: &str = " Unsaved changes: [s]ave and quit, [d]iscard, Esc to stay";
 
 fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     if area.width == 0 || area.height == 0 {
@@ -301,33 +303,38 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         );
         return;
     }
-    let marker = if app.workbook.is_dirty() { "*" } else { "" };
-    let (name, hint) = match app.mode() {
-        Mode::Normal => ("NORMAL", HELP),
-        Mode::Insert => ("INSERT", "Esc done | Enter next | Ctrl+C cancel"),
-        Mode::Visual => ("VISUAL", VISUAL_HELP),
-        Mode::VisualRow => ("V-LINE", VISUAL_HELP),
-        Mode::ConfirmQuit => ("NORMAL", CONFIRM_QUIT),
-        Mode::Command => ("COMMAND", ""),
+    let (name, color, hint) = match app.mode() {
+        Mode::Normal => ("NORMAL", Color::Blue, NORMAL_HINTS),
+        Mode::Insert => ("INSERT", Color::Green, INSERT_HINTS),
+        Mode::Visual => ("VISUAL", Color::Magenta, VISUAL_HINTS),
+        Mode::VisualRow => ("V-LINE", Color::Magenta, VISUAL_HINTS),
+        Mode::ConfirmQuit => ("NORMAL", Color::Blue, CONFIRM_QUIT),
+        Mode::Command => ("COMMAND", Color::Blue, ""),
         Mode::FileDialog => match app.file_dialog().map(FileDialog::kind) {
-            Some(DialogKind::Open) => ("OPEN", "Choose a workbook"),
-            _ => ("SAVE", "Choose a folder and a name"),
+            Some(DialogKind::Open) => ("OPEN", Color::Blue, " Choose a workbook"),
+            _ => ("SAVE", Color::Blue, " Choose a folder and a name"),
         },
     };
     let message = if app.status().is_empty() || app.mode() == Mode::ConfirmQuit {
-        hint
+        hint.to_string()
     } else {
-        app.status()
+        format!(" {}", app.status())
     };
+    let badge = format!(" {name} ");
+    let badge_style = Style::new().fg(Color::Black).bg(color);
+    let room = usize::from(area.width);
+    buffer.set_stringn(area.x, area.y, &badge, room, badge_style);
+    let badge_width = badge.len() as u16;
+    if badge_width < area.width {
+        buffer.set_stringn(
+            area.x + badge_width,
+            area.y,
+            message,
+            room - usize::from(badge_width),
+            Style::default(),
+        );
+    }
     let pending = app.pending_keys();
-    let line = format!("-- {name} -- {}{marker} | {message}", app.file_name());
-    buffer.set_stringn(
-        area.x,
-        area.y,
-        line,
-        usize::from(area.width),
-        Style::default(),
-    );
     let width = pending.chars().count() as u16;
     if width > 0 && width < area.width {
         let x = area.right() - width;

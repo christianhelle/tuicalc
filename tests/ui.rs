@@ -336,7 +336,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
 
     let screen = render(&mut app, 80, 14);
     assert!(
-        status_line(&screen).starts_with("-- NORMAL -- book.xlsx | i insert"),
+        status_line(&screen).starts_with(" NORMAL  i edit · "),
         "{}",
         status_line(&screen)
     );
@@ -345,7 +345,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     press(&mut app, KeyCode::Char('1'));
     let screen = render(&mut app, 80, 14);
     assert!(
-        status_line(&screen).starts_with("-- INSERT -- book.xlsx | Esc done"),
+        status_line(&screen).starts_with(" INSERT  Esc done · "),
         "{}",
         status_line(&screen)
     );
@@ -353,7 +353,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     press(&mut app, KeyCode::Enter);
     let screen = render(&mut app, 80, 14);
     assert!(
-        status_line(&screen).starts_with("-- NORMAL -- book.xlsx* |"),
+        status_line(&screen).starts_with(" NORMAL "),
         "{}",
         status_line(&screen)
     );
@@ -361,7 +361,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
     let screen = render(&mut app, 80, 14);
     assert!(
-        status_line(&screen).contains("book.xlsx | Saved book.xlsx"),
+        status_line(&screen).starts_with(" NORMAL  Saved book.xlsx"),
         "{}",
         status_line(&screen)
     );
@@ -396,7 +396,7 @@ fn the_status_line_names_the_mode() {
     press(&mut app, KeyCode::Char('v'));
     let screen = render(&mut app, 80, 14);
     assert!(
-        status_line(&screen).starts_with("-- VISUAL -- book.xlsx | d delete"),
+        status_line(&screen).starts_with(" VISUAL  d delete · "),
         "{}",
         status_line(&screen)
     );
@@ -404,7 +404,7 @@ fn the_status_line_names_the_mode() {
     press(&mut app, KeyCode::Char('V'));
     let screen = render(&mut app, 80, 14);
     assert!(
-        status_line(&screen).starts_with("-- V-LINE -- "),
+        status_line(&screen).starts_with(" V-LINE "),
         "{}",
         status_line(&screen)
     );
@@ -568,14 +568,24 @@ fn the_cursors_column_and_row_headers_stand_out_in_yellow() {
 }
 
 #[test]
-fn a_blank_workbook_shows_no_name_on_the_status_line() {
-    let mut app = App::new(Workbook::blank().unwrap());
-    let screen = render(&mut app, 60, 14);
-    assert!(
-        status_line(&screen).starts_with("-- NORMAL -- [No Name] | i insert"),
-        "{}",
-        status_line(&screen)
-    );
+fn the_status_line_badge_is_black_on_the_modes_colour() {
+    use ratatui::style::Color;
+
+    let (_file, mut app) = app_with("");
+    let badge_of = |app: &mut App| {
+        let terminal = terminal_for(app, 60, 14);
+        let cell = &terminal.backend().buffer()[(1, 13)];
+        (cell.fg, cell.bg)
+    };
+
+    assert_eq!(badge_of(&mut app), (Color::Black, Color::Blue));
+    press(&mut app, KeyCode::Char('s'));
+    assert_eq!(badge_of(&mut app), (Color::Black, Color::Green));
+    press(&mut app, KeyCode::Esc);
+    press(&mut app, KeyCode::Char('v'));
+    assert_eq!(badge_of(&mut app), (Color::Black, Color::Magenta));
+    press(&mut app, KeyCode::Char('V'));
+    assert_eq!(badge_of(&mut app), (Color::Black, Color::Magenta));
 }
 
 /// A blank workbook with its save dialog open in `dir`.
@@ -731,7 +741,7 @@ fn the_open_dialog_is_labelled_for_opening() {
     assert!(!text.contains("Save as"), "{text}");
     assert!(text.contains("Enter open"), "{text}");
     assert!(
-        status_line(&screen).starts_with("-- OPEN --"),
+        status_line(&screen).starts_with(" OPEN "),
         "{}",
         status_line(&screen)
     );
