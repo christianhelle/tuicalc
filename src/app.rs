@@ -870,6 +870,10 @@ impl App {
 
     /// Saves to a new file and reports the outcome; returns whether it worked.
     fn save_named(&mut self, name: &str) -> bool {
+        if self.workbook.path().is_some() {
+            self.status = "Save As isn't supported yet".into();
+            return false;
+        }
         match self.workbook.save_as(with_default_extension(name)) {
             Ok(()) => {
                 self.status = format!("Saved {}", self.file_name());

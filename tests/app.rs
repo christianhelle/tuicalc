@@ -1373,3 +1373,17 @@ fn wq_with_a_name_stays_open_if_the_save_fails() {
     assert!(!app.should_quit());
     assert!(app.status().starts_with("Save failed"), "{}", app.status());
 }
+
+#[test]
+fn w_with_a_name_is_refused_on_an_opened_workbook() {
+    let (file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+    let other = file.path.with_file_name("other.xlsx");
+
+    run(&mut app, &format!("w {}", other.display()));
+
+    assert_eq!(app.status(), "Save As isn't supported yet");
+    assert!(!other.exists());
+    assert_eq!(app.file_name(), "book.xlsx");
+    assert!(app.workbook.is_dirty());
+}
