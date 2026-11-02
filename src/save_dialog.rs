@@ -25,6 +25,14 @@ impl Entry {
     }
 }
 
+/// What the application should do after a key press.
+#[derive(Debug, PartialEq, Eq)]
+pub enum DialogAction {
+    Stay,
+    /// Save to a file that doesn't exist yet.
+    Save(PathBuf),
+}
+
 #[derive(Debug)]
 pub struct SaveDialog {
     directory: PathBuf,
@@ -60,11 +68,11 @@ impl SaveDialog {
         &self.name
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) {
+    pub fn handle_key(&mut self, key: KeyEvent) -> DialogAction {
         match key.code {
             KeyCode::Down => self.move_highlight(1),
             KeyCode::Up => self.move_highlight(-1),
-            KeyCode::Enter => self.confirm(),
+            KeyCode::Enter => return self.confirm(),
             KeyCode::Backspace => {
                 self.name.pop();
                 self.highlight = None;
@@ -75,9 +83,10 @@ impl SaveDialog {
             }
             _ => {}
         }
+        DialogAction::Stay
     }
 
-    fn confirm(&mut self) {
+    fn confirm(&mut self) -> DialogAction {
         match self.highlight.map(|index| self.entries[index].clone()) {
             Some(Entry::Parent) => {
                 if let Some(parent) = self.directory.parent().map(Path::to_path_buf) {
@@ -85,8 +94,16 @@ impl SaveDialog {
                 }
             }
             Some(Entry::Folder(name)) => self.enter_folder(self.directory.join(name)),
-            _ => {}
+            _ => return self.submit(),
         }
+        DialogAction::Stay
+    }
+
+    fn submit(&mut self) -> DialogAction {
+        DialogAction::Save(
+            self.directory
+                .join(with_default_extension(self.name.trim())),
+        )
     }
 
     fn enter_folder(&mut self, directory: PathBuf) {
@@ -135,6 +152,16 @@ fn list_entries(directory: &Path) -> io::Result<Vec<Entry>> {
         .chain(folders.into_iter().map(Entry::Folder))
         .chain(files.into_iter().map(Entry::File))
         .collect())
+}
+
+/// A file name as typed, with `.xlsx` added if it has no extension.
+pub fn with_default_extension(name: &str) -> PathBuf {
+    let path = Path::new(name);
+    if path.extension().is_some() {
+        path.to_path_buf()
+    } else {
+        PathBuf::from(format!("{name}.xlsx"))
+    }
 }
 
 fn is_workbook(path: &Path) -> bool {

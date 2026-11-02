@@ -1537,3 +1537,41 @@ fn typing_edits_the_name_and_removes_the_highlight() {
     assert_eq!(app.save_dialog().unwrap().name(), "jx");
     assert_eq!(highlighted(&app), None);
 }
+
+#[test]
+fn enter_saves_the_name_in_the_current_folder_and_closes_the_dialog() {
+    let dir = save_folder();
+    let mut app = blank_app();
+    enter_value(&mut app, "5");
+    app.set_save_directory(dir.path());
+    ctrl(&mut app, KeyCode::Char('s'));
+
+    type_text(&mut app, "budget");
+    press(&mut app, KeyCode::Enter);
+
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(app.save_dialog().is_none());
+    assert_eq!(app.status(), "Saved budget.xlsx");
+    assert!(!app.workbook.is_dirty());
+    assert!(!app.should_quit());
+    assert_eq!(
+        Workbook::open(dir.path().join("budget.xlsx"))
+            .unwrap()
+            .sheets[0]
+            .cell(a1("A1"))
+            .value,
+        CellValue::Number(5.0)
+    );
+}
+
+#[test]
+fn a_typed_path_is_relative_to_the_current_folder() {
+    let dir = save_folder();
+    let mut app = app_in_save_dialog(dir.path());
+
+    type_text(&mut app, "A-folder/inner.xlsx");
+    press(&mut app, KeyCode::Enter);
+
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(dir.path().join("A-folder").join("inner.xlsx").exists());
+}
