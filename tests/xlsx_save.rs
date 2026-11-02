@@ -463,3 +463,18 @@ fn save_as_refuses_an_existing_file_and_leaves_it_alone() {
     assert_eq!(book.path(), None);
     assert!(book.is_dirty());
 }
+
+#[test]
+fn after_save_as_a_plain_save_goes_to_the_new_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("new.xlsx");
+    let mut book = Workbook::blank().unwrap();
+    book.save_as(&path).unwrap();
+
+    book.sheets[0].set_cell(a1("A1"), number(7.0));
+    book.save().unwrap();
+    assert_eq!(
+        Workbook::open(&path).unwrap().sheets[0].cell(a1("A1")),
+        number(7.0)
+    );
+}
