@@ -4,7 +4,7 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, Clear};
+use ratatui::widgets::{Block, BorderType, Clear};
 use unicode_width::UnicodeWidthChar;
 
 use crate::address::{CellRef, column_name};
@@ -33,10 +33,19 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    let visible_cols = u32::from(grid.width.saturating_sub(ROW_HEADER_WIDTH) / COLUMN_WIDTH);
-    let visible_rows = u32::from(grid.height.saturating_sub(1));
+    let grid_block = section_block(true, &app.current_sheet().name);
+    let grid_inner = grid_block.inner(grid);
+    frame.render_widget(grid_block, grid);
+    let visible_cols = u32::from(grid_inner.width.saturating_sub(ROW_HEADER_WIDTH) / COLUMN_WIDTH);
+    let visible_rows = u32::from(grid_inner.height.saturating_sub(1));
     app.set_viewport(visible_cols, visible_rows);
-    draw_grid(frame.buffer_mut(), grid, app, visible_cols, visible_rows);
+    draw_grid(
+        frame.buffer_mut(),
+        grid_inner,
+        app,
+        visible_cols,
+        visible_rows,
+    );
     draw_formula_bar(frame, formula_bar, app);
     draw_tabs(frame.buffer_mut(), tabs, app);
     draw_status(frame.buffer_mut(), status, app);
@@ -48,6 +57,18 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if let Some(dialog) = app.file_dialog() {
         draw_file_dialog(frame, dialog);
     }
+}
+
+/// A pane's box: a thick border marks the one in use.
+fn section_block(focused: bool, title: &str) -> Block<'static> {
+    let border = if focused {
+        BorderType::Thick
+    } else {
+        BorderType::Plain
+    };
+    Block::bordered()
+        .border_type(border)
+        .title(format!(" {title} "))
 }
 
 const FILE_DIALOG_WIDTH: u16 = 60;

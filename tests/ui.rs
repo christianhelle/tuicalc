@@ -54,9 +54,15 @@ fn render(app: &mut App, width: u16, height: u16) -> Vec<String> {
         .collect()
 }
 
-/// The screen line holding the given sheet row, 1-based, with the formula bar and headers above.
+/// A line of the grid without the box drawn around it.
+fn inside_box(line: &str) -> &str {
+    let line = line.strip_prefix(['┃', '│']).unwrap_or(line);
+    line.strip_suffix(['┃', '│']).unwrap_or(line)
+}
+
+/// The grid line holding the given visible row, 1-based, without the box around it.
 fn grid_line(screen: &[String], row: usize) -> &str {
-    &screen[row + 1]
+    inside_box(&screen[cell_position(0, 0).1 as usize + row - 1])
 }
 
 fn header_y() -> u16 {
@@ -64,7 +70,7 @@ fn header_y() -> u16 {
 }
 
 fn row_number_x() -> u16 {
-    0
+    1
 }
 
 fn formula_line(screen: &[String]) -> &str {
@@ -72,7 +78,7 @@ fn formula_line(screen: &[String]) -> &str {
 }
 
 fn header_line(screen: &[String]) -> &str {
-    &screen[1]
+    inside_box(&screen[header_y() as usize])
 }
 
 fn tabs_line(screen: &[String]) -> &str {
@@ -85,15 +91,12 @@ fn status_line(screen: &[String]) -> &str {
 
 /// Where a cell's text starts on screen, for a visible column and row counted from zero.
 fn cell_position(col: u16, row: u16) -> (u16, u16) {
-    (8 + col * 12, 2 + row)
+    (9 + col * 12, 3 + row)
 }
 
 /// One cell's text as drawn in the grid, for a zero-based column.
 fn drawn_cell(line: &str, col: usize) -> String {
-    line.chars()
-        .skip(cell_position(col as u16, 0).0 as usize)
-        .take(11)
-        .collect()
+    line.chars().skip(8 + col * 12).take(11).collect()
 }
 
 #[test]
@@ -102,7 +105,7 @@ fn draws_column_and_row_headers_with_aligned_values() {
         r#"<row r="2"><c r="A2" t="inlineStr"><is><t>name</t></is></c><c r="B2"><v>42</v></c></row>"#,
     );
 
-    let screen = render(&mut app, 44, 10);
+    let screen = render(&mut app, 46, 10);
 
     assert_eq!(
         header_line(&screen).trim_end(),
@@ -121,7 +124,7 @@ fn numbers_show_as_many_significant_digits_as_fit() {
         r#"<row r="1"><c r="A1"><v>0.30000000000000004</v></c><c r="B1"><v>-0.333333333333333</v></c><c r="C1"><v>1E+20</v></c></row><row r="2"><c r="A2"><v>123456</v></c><c r="B2"><v>0.00001</v></c><c r="C2"><v>12345678901234</v></c></row>"#,
     );
 
-    let screen = render(&mut app, 44, 10);
+    let screen = render(&mut app, 46, 10);
 
     let row = grid_line(&screen, 1);
     assert_eq!(drawn_cell(row, 0).trim(), "0.3");
@@ -139,7 +142,7 @@ fn shows_booleans_errors_formula_results_and_dates() {
     let rows = r##"<row r="1"><c r="A1" t="b"><v>1</v></c><c r="B1" t="e"><v>#REF!</v></c><c r="C1"><f>B2*2</f><v>8</v></c></row><row r="2"><c r="A2"><f>NEW()</f></c><c r="B2" s="1"><v>45000</v></c><c r="C2" s="1"><v>45000.5</v></c></row>"##;
     let (_file, mut app) = app_from(&single_sheet(&sheet(rows), &[("xl/styles.xml", styles)]));
 
-    let screen = render(&mut app, 44, 10);
+    let screen = render(&mut app, 46, 10);
 
     let row = grid_line(&screen, 1);
     assert_eq!(drawn_cell(row, 0).trim(), "TRUE");
@@ -177,7 +180,7 @@ lines</t></is></c></row>"#,
 fn highlights_the_cursor_cell_and_scrolls_with_it() {
     let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
 
-    let terminal = terminal_for(&mut app, 40, 10);
+    let terminal = terminal_for(&mut app, 40, 12);
     let buffer = terminal.backend().buffer();
     assert!(is_selector(&buffer[cell_position(0, 0)]));
     assert!(!is_selector(&buffer[cell_position(1, 0)]));
@@ -186,7 +189,7 @@ fn highlights_the_cursor_cell_and_scrolls_with_it() {
     for _ in 0..9 {
         press(&mut app, KeyCode::Down);
     }
-    let screen = render(&mut app, 40, 10);
+    let screen = render(&mut app, 40, 12);
     assert!(
         grid_line(&screen, 1).starts_with("5 "),
         "{}",
@@ -197,7 +200,7 @@ fn highlights_the_cursor_cell_and_scrolls_with_it() {
         "{}",
         grid_line(&screen, 6)
     );
-    let terminal = terminal_for(&mut app, 40, 10);
+    let terminal = terminal_for(&mut app, 40, 12);
     assert!(is_selector(
         &terminal.backend().buffer()[cell_position(0, 5)]
     ));
@@ -489,6 +492,20 @@ fn column_and_row_headers_are_bold_cyan_on_the_terminal_background() {
     assert_eq!(row_number.symbol(), "1");
     assert_eq!(row_number.fg, Color::Cyan);
     assert_eq!(row_number.bg, Color::Reset);
+}
+
+#[test]
+fn the_grid_sits_in_a_box_titled_with_the_sheet_name() {
+    let (_file, mut app) = app_with("");
+
+    let screen = render(&mut app, 46, 10);
+
+    assert!(screen[1].starts_with("┏ Sheet1 ━"), "{}", screen[1]);
+    assert!(screen[1].ends_with('┓'), "{}", screen[1]);
+    assert!(screen[7].starts_with('┗'), "{}", screen[7]);
+    assert!(screen[7].ends_with('┛'), "{}", screen[7]);
+    assert!(screen[3].starts_with('┃'), "{}", screen[3]);
+    assert!(screen[3].ends_with('┃'), "{}", screen[3]);
 }
 
 #[test]
