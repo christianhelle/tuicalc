@@ -12,9 +12,9 @@ use tuicalc::ui::{draw, handle_mouse};
 use tuicalc::xlsx::Workbook;
 
 const USAGE: &str = "Usage: tcalc [file.xlsx]";
-/// How long to spend taking in a loading workbook's cells before looking at the keyboard and
-/// drawing again.
-const LOADING_FRAME: Duration = Duration::from_millis(12);
+/// How long to spend on a load or save in progress before looking at the keyboard and drawing
+/// again.
+const BUSY_FRAME: Duration = Duration::from_millis(12);
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -73,8 +73,8 @@ fn release_mouse_on_panic() {
 fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
     while !app.should_quit() {
         terminal.draw(|frame| draw(frame, app))?;
-        if app.is_loading() {
-            app.absorb_loaded(LOADING_FRAME);
+        if app.is_busy() {
+            app.absorb_background(BUSY_FRAME);
             while !app.should_quit() && event::poll(Duration::ZERO)? {
                 handle_event(terminal, app, event::read()?)?;
             }

@@ -5,7 +5,9 @@ mod common;
 use std::time::Duration;
 
 use common::*;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tuicalc::address::CellRef;
+use tuicalc::app::{App, Mode};
 use tuicalc::model::{Cell, CellValue};
 use tuicalc::xlsx::{Workbook, XlsxError};
 
@@ -105,4 +107,114 @@ fn saving_to_a_new_file_refuses_one_that_exists_and_saving_over_replaces_it() {
     let saved = book.begin_save_over(&other.path).wait().unwrap();
     book.finish_save(saved);
     assert_eq!(number_on_disk(&other.path, "A1"), CellValue::Number(9.0));
+}
+
+// The app with a save on its way to the disk.
+
+fn key(app: &mut App, code: KeyCode) {
+    app.handle_key(KeyEvent::from(code));
+}
+
+fn ctrl(app: &mut App, c: char) {
+    app.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
+}
+
+fn type_keys(app: &mut App, keys: &str) {
+    for c in keys.chars() {
+        key(app, KeyCode::Char(c));
+    }
+}
+
+/// An app with `5` typed over A1 of a workbook holding numbers, and the cursor on A2.
+fn app_with_an_edit() -> (TempXlsx, App) {
+    let file = write_temp(&single_sheet(&sheet(&numbers(3)), &[]));
+    let mut app = App::new(Workbook::open(&file.path).unwrap());
+    type_keys(&mut app, "s5");
+    key(&mut app, KeyCode::Enter);
+    (file, app)
+}
+
+#[test]
+fn ctrl_s_returns_at_once_and_reports_when_the_save_has_finished() {
+    let (file, mut app) = app_with_an_edit();
+
+    ctrl(&mut app, 's');
+    assert!(app.is_saving());
+    assert!(app.is_busy());
+    assert!(
+        app.workbook.is_dirty(),
+        "not saved until it's known to have worked"
+    );
+    assert_eq!(app.status(), "");
+
+    app.finish_saving();
+    assert!(!app.is_saving());
+    assert_eq!(app.status(), "Saved book.xlsx");
+    assert!(!app.workbook.is_dirty());
+    assert_eq!(number_on_disk(&file.path, "A1"), CellValue::Number(5.0));
+}
+
+#[test]
+fn a_save_that_fails_says_why_and_keeps_the_edits() {
+    let (file, mut app) = app_with_an_edit();
+    std::fs::write(&file.path, b"replaced by something else").unwrap();
+
+    ctrl(&mut app, 's');
+    app.finish_saving();
+
+    assert!(!app.is_saving());
+    assert!(app.status().starts_with("Save failed:"), "{}", app.status());
+    assert!(app.status_is_error());
+    assert!(app.workbook.is_dirty());
+}
+
+#[test]
+fn taking_in_the_outcome_for_a_while_ends_the_save() {
+    let (_file, mut app) = app_with_an_edit();
+
+    ctrl(&mut app, 's');
+    app.absorb_background(Duration::from_secs(30));
+
+    assert!(!app.is_saving());
+    assert_eq!(app.status(), "Saved book.xlsx");
+}
+
+#[test]
+fn zz_quits_only_once_the_save_has_worked() {
+    let (_file, mut app) = app_with_an_edit();
+
+    type_keys(&mut app, "ZZ");
+    assert!(!app.should_quit());
+    assert!(app.is_saving());
+
+    app.finish_saving();
+    assert!(app.should_quit());
+}
+
+#[test]
+fn saving_from_the_discard_dialog_takes_the_step_once_the_save_has_worked() {
+    let (_file, mut app) = app_with_an_edit();
+
+    key(&mut app, KeyCode::Char('q'));
+    key(&mut app, KeyCode::Char('s'));
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(!app.should_quit());
+
+    app.finish_saving();
+    assert!(app.should_quit());
+}
+
+#[test]
+fn a_save_that_fails_forgets_the_step_waiting_on_it() {
+    let (file, mut app) = app_with_an_edit();
+    std::fs::write(&file.path, b"replaced by something else").unwrap();
+
+    type_keys(&mut app, "ZZ");
+    app.finish_saving();
+    assert!(!app.should_quit());
+    assert_eq!(app.next_step(), None);
+
+    std::fs::write(&file.path, single_sheet(&sheet(&numbers(3)), &[])).unwrap();
+    key(&mut app, KeyCode::F(5));
+    assert_eq!(app.mode(), Mode::ConfirmDiscard, "still has its edits");
 }

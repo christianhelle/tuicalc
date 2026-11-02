@@ -364,6 +364,7 @@ fn ctrl_s_saves_and_reports_success_or_failure() {
     enter_value(&mut app, "5");
 
     ctrl(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
 
     assert_eq!(app.status(), "Saved book.xlsx");
     assert!(!app.workbook.is_dirty());
@@ -377,6 +378,7 @@ fn ctrl_s_saves_and_reports_success_or_failure() {
     enter_value(&mut app, "6");
     std::fs::write(&file.path, b"replaced by something else").unwrap();
     ctrl(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
 
     assert!(app.status().starts_with("Save failed:"), "{}", app.status());
     assert!(app.workbook.is_dirty());
@@ -472,6 +474,7 @@ fn save_and_quit_stays_open_if_the_save_fails() {
     std::fs::write(&file.path, b"changed").unwrap();
 
     press(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
 
     assert!(!app.should_quit());
     assert!(app.status().starts_with("Save failed:"), "{}", app.status());
@@ -527,6 +530,7 @@ fn undo_returns_to_the_sheet_of_the_edit_and_saves_only_edited_sheets() {
     ctrl(&mut app, KeyCode::PageDown);
     enter_value(&mut app, "2");
     ctrl(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
     let reloaded = Workbook::open(&file.path).unwrap();
     assert_eq!(
         reloaded.sheets[0].cell(a1("A1")).value,
@@ -1207,6 +1211,7 @@ fn ctrl_s_saves_and_then_q_quits_without_asking() {
     enter_value(&mut app, "5");
 
     ctrl(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
     assert_eq!(app.status(), "Saved book.xlsx");
     assert_eq!(app.mode(), Mode::Normal);
     let reloaded = Workbook::open(&file.path).unwrap();
@@ -1224,6 +1229,7 @@ fn zz_saves_and_quits_and_zq_quits_without_saving() {
     let (file, mut app) = app_with("");
     enter_value(&mut app, "5");
     keys(&mut app, "ZZ");
+    app.finish_saving();
     assert!(app.should_quit());
     let saved = Workbook::open(&file.path).unwrap();
     assert_eq!(saved.sheets[0].cell(a1("A1")).value, CellValue::Number(5.0));
@@ -1242,6 +1248,7 @@ fn a_failed_zz_stays_open() {
     enter_value(&mut app, "5");
     std::fs::write(&file.path, b"changed").unwrap();
     keys(&mut app, "ZZ");
+    app.finish_saving();
     assert!(!app.should_quit());
     assert!(app.status().starts_with("Save failed:"), "{}", app.status());
 }
@@ -1749,6 +1756,7 @@ fn undo_history_does_not_follow_into_another_file() {
     let (_first, mut app) = app_with("");
     enter_value(&mut app, "5");
     ctrl(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
     let second = other_workbook();
 
     open_file(&mut app, &second.path);
@@ -1768,6 +1776,7 @@ fn saving_after_opening_writes_to_the_opened_file() {
     press(&mut app, KeyCode::Char('j'));
     enter_value(&mut app, "7");
     ctrl(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
 
     let saved = Workbook::open(&second.path).unwrap();
     assert_eq!(saved.sheets[0].cell(a1("A2")).value, CellValue::Number(7.0));
@@ -1780,6 +1789,7 @@ fn yanked_cells_can_be_pasted_into_another_file() {
     enter_value(&mut app, "5");
     keys(&mut app, "kyy");
     ctrl(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
     let second = other_workbook();
     open_file(&mut app, &second.path);
 
@@ -2245,6 +2255,7 @@ fn saving_at_ctrl_o_saves_and_then_opens_the_dialog() {
 
     ctrl(&mut app, KeyCode::Char('o'));
     press(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
 
     assert_eq!(app.file_dialog().unwrap().kind(), DialogKind::Open);
     assert!(!app.workbook.is_dirty());
@@ -2298,6 +2309,7 @@ fn a_failed_save_at_ctrl_o_stays_put_with_the_error() {
     std::fs::write(&file.path, b"changed").unwrap();
 
     press(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
 
     assert_eq!(app.mode(), Mode::Normal);
     assert!(app.file_dialog().is_none());

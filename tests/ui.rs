@@ -361,6 +361,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     );
 
     app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    app.finish_saving();
     let screen = render(&mut app, 80, 14);
     assert!(
         status_line(&screen).starts_with(" NORMAL  Saved book.xlsx"),
@@ -595,6 +596,7 @@ fn errors_on_the_status_line_are_red_and_other_messages_are_not() {
     };
 
     app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    app.finish_saving();
     assert_ne!(message_colour(&mut app), Color::Red, "a save that worked");
 
     press(&mut app, KeyCode::Char('s'));
@@ -602,6 +604,7 @@ fn errors_on_the_status_line_are_red_and_other_messages_are_not() {
     press(&mut app, KeyCode::Enter);
     std::fs::write(&file.path, b"changed by something else").unwrap();
     app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    app.finish_saving();
     assert_eq!(message_colour(&mut app), Color::Red, "a save that failed");
 
     press(&mut app, KeyCode::Char('j'));

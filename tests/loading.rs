@@ -349,6 +349,7 @@ fn editing_and_saving_work_once_the_workbook_has_arrived() {
     type_keys(&mut app, "s7");
     key(&mut app, KeyCode::Enter);
     ctrl(&mut app, 's');
+    app.finish_saving();
 
     assert_eq!(app.status(), "Saved book.xlsx");
     let saved = Workbook::open(&file.path).unwrap();

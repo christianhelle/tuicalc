@@ -13,7 +13,9 @@ use crate::formula::translate;
 use crate::help::{self, HelpTable};
 use crate::model::{Cell, CellValue, Sheet};
 use crate::text::{cell_contains, edit_text, parse_input};
-use crate::xlsx::{LoadEvent, Waited, Workbook, WorkbookLoad, XlsxError};
+use crate::xlsx::{
+    LoadEvent, SavedPackage, Waited, Workbook, WorkbookLoad, WorkbookSave, XlsxError,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -147,6 +149,8 @@ pub struct App {
     /// The mode to go back to when the help closes.
     help_from: Mode,
     loading: Option<Loading>,
+    /// The save on its way to the disk.
+    saving: Option<WorkbookSave>,
     /// Why the workbook the app opened with couldn't be read, once it has given up.
     load_failure: Option<String>,
 }
@@ -168,6 +172,7 @@ impl App {
             search_query: None,
             help_from: Mode::Normal,
             loading: None,
+            saving: None,
             load_failure: None,
             dialog_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             workbook,
@@ -204,6 +209,53 @@ impl App {
     /// How much of the workbook has been read, from 0 to 1, while it's loading.
     pub fn loading_progress(&self) -> Option<f64> {
         self.loading.as_ref().map(|loading| loading.load.progress())
+    }
+
+    pub fn is_saving(&self) -> bool {
+        self.saving.is_some()
+    }
+
+    /// Whether something is happening that the screen should keep up with without a key press.
+    pub fn is_busy(&self) -> bool {
+        self.is_loading() || self.is_saving()
+    }
+
+    /// Spends up to `budget` on the save or load in progress, stopping short if there's no news.
+    pub fn absorb_background(&mut self, budget: Duration) {
+        if let Some(save) = &self.saving {
+            if let Some(result) = save.result_within(budget) {
+                self.end_save(result);
+            }
+        } else {
+            self.absorb_loaded(budget);
+        }
+    }
+
+    /// Waits for the save in progress.
+    pub fn finish_saving(&mut self) {
+        if let Some(save) = &self.saving {
+            let result = save.wait();
+            self.end_save(result);
+        }
+    }
+
+    /// Takes in the outcome of a save, and takes whatever step was waiting on it.
+    fn end_save(&mut self, result: Result<SavedPackage, XlsxError>) {
+        self.saving = None;
+        match result {
+            Ok(saved) => {
+                self.workbook.finish_save(saved);
+                self.status = format!("Saved {}", self.file_name());
+                self.status_is_error = false;
+                if let Some(step) = self.next_step.take() {
+                    self.take_step(step);
+                }
+            }
+            Err(error) => {
+                self.next_step = None;
+                self.report_error(format!("Save failed: {error}"));
+            }
+        }
     }
 
     pub fn load_failure(&self) -> Option<&str> {
@@ -1014,9 +1066,7 @@ impl App {
                 self.ask_before_losing_edits(NextStep::Quit);
             }
             KeyCode::Char('q') => self.ask_before_losing_edits(NextStep::Quit),
-            KeyCode::Char('s') if ctrl => {
-                self.save();
-            }
+            KeyCode::Char('s') if ctrl => self.save(),
             KeyCode::Char('o') if ctrl => self.ask_before_losing_edits(NextStep::OpenFile),
             KeyCode::Char('g') if ctrl => self.begin_prompt(Mode::GoTo),
             KeyCode::Char('/') if !ctrl => self.begin_prompt(Mode::Search),
@@ -1112,30 +1162,22 @@ impl App {
         }
     }
 
-    /// Saves and quits, leaving the quit to the file dialog if the file needs a name.
+    /// Saves and quits, as long as the save works out.
     fn save_and_quit(&mut self) {
-        self.next_step = self.workbook.path().is_none().then_some(NextStep::Quit);
-        self.should_quit = self.save();
+        self.next_step = Some(NextStep::Quit);
+        self.save();
     }
 
-    /// Saves and reports the outcome; returns whether the file is now up to date.
-    fn save(&mut self) -> bool {
+    /// Starts saving, or asks where to if the workbook has no file yet. Whatever `next_step` holds
+    /// happens once the save has worked.
+    fn save(&mut self) {
         if self.refuse_while_loading() {
-            return false;
+            return;
         }
-        if self.workbook.path().is_none() {
-            self.open_file_dialog(DialogKind::Save);
-            return false;
-        }
-        match self.workbook.save() {
-            Ok(()) => {
-                self.status = format!("Saved {}", self.file_name());
-                true
-            }
-            Err(error) => {
-                self.report_error(format!("Save failed: {error}"));
-                false
-            }
+        match self.workbook.begin_save() {
+            Ok(save) => self.saving = Some(save),
+            Err(XlsxError::NoFileName) => self.open_file_dialog(DialogKind::Save),
+            Err(error) => self.report_error(format!("Save failed: {error}")),
         }
     }
 
@@ -1258,14 +1300,7 @@ impl App {
         match key.code {
             KeyCode::Char('s' | 'S') => {
                 self.mode = Mode::Normal;
-                // Without a file name the save dialog takes over, and takes the step afterwards.
-                if self.save() {
-                    if let Some(step) = self.next_step.take() {
-                        self.take_step(step);
-                    }
-                } else if self.file_dialog.is_none() {
-                    self.next_step = None;
-                }
+                self.save();
             }
             KeyCode::Char('d' | 'D') => {
                 self.mode = Mode::Normal;
