@@ -69,36 +69,43 @@ fn draw_save_dialog(frame: &mut Frame, dialog: &SaveDialog) {
     let inner = block.inner(popup);
     frame.render_widget(Clear, popup);
     frame.render_widget(block, popup);
-    if inner.width == 0 || inner.height < 3 {
+    if inner.width == 0 || inner.height == 0 {
         return;
     }
 
     let room = usize::from(inner.width);
-    let list_rows = inner.height - 3;
+    // A short terminal gives up the list first, then the path, then the hint.
+    let list_rows = inner.height.saturating_sub(3);
+    let show_path = inner.height >= 3;
+    let show_hint = inner.height >= 2;
     let buffer = frame.buffer_mut();
-    let path = dialog.directory().display().to_string();
-    buffer.set_stringn(
-        inner.x,
-        inner.y,
-        keep_end(&path, room),
-        room,
-        Style::default(),
-    );
+    if show_path {
+        let path = dialog.directory().display().to_string();
+        buffer.set_stringn(
+            inner.x,
+            inner.y,
+            keep_end(&path, room),
+            room,
+            Style::default(),
+        );
+    }
     draw_save_dialog_list(buffer, inner, dialog, list_rows);
 
-    let name_y = inner.y + 1 + list_rows;
+    let name_y = inner.y + u16::from(show_path) + list_rows;
     let label_width = SAVE_DIALOG_NAME_LABEL.len();
     // One cell stays free for the terminal cursor after the name.
     let name = keep_end(dialog.name(), room.saturating_sub(label_width + 1));
     let line = format!("{SAVE_DIALOG_NAME_LABEL}{name}");
     buffer.set_stringn(inner.x, name_y, &line, room, Style::default());
-    buffer.set_stringn(
-        inner.x,
-        name_y + 1,
-        save_dialog_hint(dialog),
-        room,
-        Style::default(),
-    );
+    if show_hint {
+        buffer.set_stringn(
+            inner.x,
+            name_y + 1,
+            save_dialog_hint(dialog),
+            room,
+            Style::default(),
+        );
+    }
     if dialog.pending_overwrite().is_none() {
         let chars: Vec<char> = line.chars().collect();
         let x = inner.x + text_width(&chars) as u16;

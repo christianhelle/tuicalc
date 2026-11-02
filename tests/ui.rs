@@ -532,3 +532,27 @@ fn the_save_dialog_keeps_the_end_of_a_long_folder_path() {
 
     assert!(text.contains("the-last-folder"), "{text}");
 }
+
+#[test]
+fn the_save_dialog_name_stays_visible_in_a_short_terminal() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app_in_save_dialog(dir.path());
+    press(&mut app, KeyCode::Char('b'));
+
+    let text = render(&mut app, 40, 3).join("\n");
+
+    assert!(text.contains("Name: b"), "{text}");
+}
+
+#[test]
+fn the_save_dialog_survives_any_terminal_size() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("old.xlsx"), b"x").unwrap();
+    let mut app = app_in_save_dialog(dir.path());
+    press(&mut app, KeyCode::Up);
+    for width in 1..30 {
+        for height in 1..12 {
+            render(&mut app, width, height);
+        }
+    }
+}
