@@ -107,6 +107,14 @@ can still be pasted.
 | `Enter` | Open the highlighted folder, or otherwise open or save the file, asking before overwriting one |
 | `Esc` `Ctrl-C` | Close without opening or saving, keeping the edits |
 
+### Large workbooks
+
+A workbook appears as soon as it's opened, and its cells fill in behind the scenes, with the sheet
+you're looking at first and progress on the status line. You can move around, search and switch
+sheets straight away, and `Esc` stops opening. Until it finishes, `G` and `Ctrl-End` go to the last
+cell so far, search covers what has loaded so far, and editing, copying and saving wait. If opening
+another workbook or reloading stops or fails, you return to where you were, unsaved edits included.
+
 ## Entering values
 
 Numbers, `TRUE`/`FALSE` and error literals such as `#N/A` are recognised. A leading `=` makes a
