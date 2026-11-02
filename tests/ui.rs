@@ -556,3 +556,20 @@ fn the_save_dialog_survives_any_terminal_size() {
         }
     }
 }
+
+#[test]
+fn column_and_row_headers_are_bold_but_the_cursor_is_not() {
+    let (_file, mut app) = app_with(r#"<row r="1"><c r="B1"><v>1</v></c></row>"#);
+
+    let terminal = terminal_for(&mut app, 50, 8);
+    let buffer = terminal.backend().buffer();
+    let is_bold = |x: u16, y: u16| buffer[(x, y)].modifier.contains(Modifier::BOLD);
+
+    assert_eq!(buffer[(13, 1)].symbol(), "A");
+    assert!(is_bold(13, 1), "a column letter");
+    assert_eq!(buffer[(0, 2)].symbol(), "1");
+    assert!(is_bold(0, 2), "a row number");
+    assert!(is_selector(&buffer[(8, 2)]));
+    assert!(!is_bold(8, 2), "the cursor");
+    assert!(!is_bold(30, 2), "cell contents");
+}

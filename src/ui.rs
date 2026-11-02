@@ -13,11 +13,13 @@ use crate::save_dialog::SaveDialog;
 use crate::text::{display_text, edit_text, is_right_aligned};
 
 /// The header bars and the cursor, as a nod to Lotus 1-2-3. The color is exact because a terminal
-/// theme can make its own "cyan" any shade, and the text isn't bold because some terminals show
-/// bold black as grey.
+/// theme can make its own "cyan" any shade.
 const FRAME_STYLE: Style = Style::new()
     .fg(Color::Black)
     .bg(Color::Rgb(0x00, 0xA8, 0xA8));
+/// Bold keeps the column letters and row numbers readable, though some terminals show bold black
+/// as grey.
+const HEADER_STYLE: Style = FRAME_STYLE.add_modifier(Modifier::BOLD);
 const ROW_HEADER_WIDTH: u16 = 8;
 const COLUMN_WIDTH: u16 = 12;
 /// Column width less the gap separating neighbouring cells.
@@ -308,7 +310,7 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
         return;
     }
     let scroll = app.scroll();
-    let header_style = FRAME_STYLE;
+    let header_style = HEADER_STYLE;
     buffer.set_style(Rect { height: 1, ..area }, header_style);
     buffer.set_style(
         Rect {
