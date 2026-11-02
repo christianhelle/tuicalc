@@ -26,14 +26,19 @@ const COLUMN_WIDTH: u16 = 12;
 /// Column width less the line separating neighbouring cells.
 const CONTENT_WIDTH: usize = COLUMN_WIDTH as usize - 1;
 
-pub fn draw(frame: &mut Frame, app: &mut App) {
-    let [formula_bar, grid, tabs, status] = Layout::vertical([
-        Constraint::Length(1),
+/// Where each part of the screen goes. Drawing and mouse clicks must agree, so both ask here.
+fn layout(area: Rect) -> [Rect; 4] {
+    Layout::vertical([
+        Constraint::Length(3),
         Constraint::Min(0),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
-    .areas(frame.area());
+    .areas(area)
+}
+
+pub fn draw(frame: &mut Frame, app: &mut App) {
+    let [formula_bar, grid, tabs, status] = layout(frame.area());
     let grid_block = section_block(true, &app.current_sheet().name);
     let grid_inner = grid_block.inner(grid);
     frame.render_widget(grid_block, grid);
@@ -47,7 +52,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         visible_cols,
         visible_rows,
     );
-    draw_formula_bar(frame, formula_bar, app);
+    let formula_block = section_block(false, &app.cursor().to_string());
+    let formula_inner = formula_block.inner(formula_bar);
+    frame.render_widget(formula_block, formula_bar);
+    draw_formula_bar(frame, formula_inner, app);
     draw_tabs(frame.buffer_mut(), tabs, app);
     draw_status(frame.buffer_mut(), status, app);
     if app.mode() == Mode::Command && status.width > 0 && status.height > 0 {
@@ -193,13 +201,11 @@ fn keep_end(text: &str, room: usize) -> String {
     format!("…{tail}")
 }
 
-/// Shows the cursor's address and contents, or the text being edited with its caret.
+/// Shows the cursor's contents, or the text being edited with its caret.
 fn draw_formula_bar(frame: &mut Frame, area: Rect, app: &App) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let label = format!("{:<8}", app.cursor().to_string());
-    let label_width = label.len() as u16;
     let editing = app.mode() == Mode::Insert;
     let content = if editing {
         app.buffer()
@@ -213,7 +219,8 @@ fn draw_formula_bar(frame: &mut Frame, area: Rect, app: &App) {
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect();
-    let room = usize::from(area.width.saturating_sub(label_width + 1));
+    // One cell stays free for the terminal cursor after the text.
+    let room = usize::from(area.width.saturating_sub(1));
     let caret = if editing { app.caret() } else { 0 };
 
     // Drop leading characters until the caret fits in the visible room.
@@ -222,20 +229,13 @@ fn draw_formula_bar(frame: &mut Frame, area: Rect, app: &App) {
         start += 1;
     }
     let visible: String = content[start..].iter().collect();
-    let buffer = frame.buffer_mut();
-    let bold = Style::default().add_modifier(Modifier::BOLD);
-    buffer.set_stringn(area.x, area.y, &label, usize::from(area.width), bold);
     if room > 0 {
-        buffer.set_stringn(
-            area.x + label_width,
-            area.y,
-            visible,
-            room,
-            Style::default(),
-        );
+        frame
+            .buffer_mut()
+            .set_stringn(area.x, area.y, visible, room, Style::default());
     }
     if editing {
-        let x = area.x + label_width + text_width(&content[start..caret]) as u16;
+        let x = area.x + text_width(&content[start..caret]) as u16;
         frame.set_cursor_position((x.min(area.right().saturating_sub(1)), area.y));
     }
 }

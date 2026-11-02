@@ -80,7 +80,7 @@ fn row_label(line: &str) -> String {
 }
 
 fn formula_line(screen: &[String]) -> &str {
-    &screen[0]
+    inside_box(&screen[1])
 }
 
 fn header_line(screen: &[String]) -> &str {
@@ -97,7 +97,7 @@ fn status_line(screen: &[String]) -> &str {
 
 /// Where a cell's text starts on screen, for a visible column and row counted from zero.
 fn cell_position(col: u16, row: u16) -> (u16, u16) {
-    (9 + col * 12, 4 + row)
+    (9 + col * 12, 6 + row)
 }
 
 /// One cell's text as drawn in the grid, for a zero-based column.
@@ -111,7 +111,7 @@ fn draws_column_and_row_headers_with_aligned_values() {
         r#"<row r="2"><c r="A2" t="inlineStr"><is><t>name</t></is></c><c r="B2"><v>42</v></c></row>"#,
     );
 
-    let screen = render(&mut app, 46, 10);
+    let screen = render(&mut app, 46, 14);
 
     assert_eq!(
         header_line(&screen),
@@ -137,7 +137,7 @@ fn numbers_show_as_many_significant_digits_as_fit() {
         r#"<row r="1"><c r="A1"><v>0.30000000000000004</v></c><c r="B1"><v>-0.333333333333333</v></c><c r="C1"><v>1E+20</v></c></row><row r="2"><c r="A2"><v>123456</v></c><c r="B2"><v>0.00001</v></c><c r="C2"><v>12345678901234</v></c></row>"#,
     );
 
-    let screen = render(&mut app, 46, 10);
+    let screen = render(&mut app, 46, 14);
 
     let row = grid_line(&screen, 1);
     assert_eq!(drawn_cell(row, 0).trim(), "0.3");
@@ -155,7 +155,7 @@ fn shows_booleans_errors_formula_results_and_dates() {
     let rows = r##"<row r="1"><c r="A1" t="b"><v>1</v></c><c r="B1" t="e"><v>#REF!</v></c><c r="C1"><f>B2*2</f><v>8</v></c></row><row r="2"><c r="A2"><f>NEW()</f></c><c r="B2" s="1"><v>45000</v></c><c r="C2" s="1"><v>45000.5</v></c></row>"##;
     let (_file, mut app) = app_from(&single_sheet(&sheet(rows), &[("xl/styles.xml", styles)]));
 
-    let screen = render(&mut app, 46, 10);
+    let screen = render(&mut app, 46, 14);
 
     let row = grid_line(&screen, 1);
     assert_eq!(drawn_cell(row, 0).trim(), "TRUE");
@@ -178,7 +178,7 @@ fn long_and_wide_text_stays_inside_its_column() {
 lines</t></is></c></row>"#,
     );
 
-    let screen = render(&mut app, 40, 10);
+    let screen = render(&mut app, 40, 14);
 
     assert_eq!(drawn_cell(grid_line(&screen, 1), 0), "far too lon");
     assert_eq!(drawn_cell(grid_line(&screen, 1), 1).trim(), "1");
@@ -193,7 +193,7 @@ lines</t></is></c></row>"#,
 fn highlights_the_cursor_cell_and_scrolls_with_it() {
     let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
 
-    let terminal = terminal_for(&mut app, 40, 13);
+    let terminal = terminal_for(&mut app, 40, 15);
     let buffer = terminal.backend().buffer();
     assert!(is_selector(&buffer[cell_position(0, 0)]));
     assert!(!is_selector(&buffer[cell_position(1, 0)]));
@@ -202,10 +202,10 @@ fn highlights_the_cursor_cell_and_scrolls_with_it() {
     for _ in 0..9 {
         press(&mut app, KeyCode::Down);
     }
-    let screen = render(&mut app, 40, 13);
+    let screen = render(&mut app, 40, 15);
     assert_eq!(row_label(grid_line(&screen, 1)), "5");
     assert_eq!(row_label(grid_line(&screen, 6)), "10");
-    let terminal = terminal_for(&mut app, 40, 13);
+    let terminal = terminal_for(&mut app, 40, 15);
     assert!(is_selector(
         &terminal.backend().buffer()[cell_position(0, 5)]
     ));
@@ -213,7 +213,7 @@ fn highlights_the_cursor_cell_and_scrolls_with_it() {
     for _ in 0..4 {
         press(&mut app, KeyCode::Right);
     }
-    let screen = render(&mut app, 40, 13);
+    let screen = render(&mut app, 40, 15);
     assert_eq!(
         header_line(&screen).trim_end(),
         "       │     D     │     E     │"
@@ -226,14 +226,17 @@ fn the_formula_bar_shows_the_address_and_full_contents() {
         r#"<row r="1"><c r="A1"><f>SUM(B1:B9)</f><v>3</v></c><c r="B1" t="inlineStr"><is><t>far too long for the column</t></is></c></row>"#,
     );
 
-    let screen = render(&mut app, 50, 10);
-    assert_eq!(formula_line(&screen).trim_end(), "A1      =SUM(B1:B9)");
+    let screen = render(&mut app, 50, 14);
+    assert!(screen[0].starts_with("┌ A1 ─"), "{}", screen[0]);
+    assert_eq!(formula_line(&screen).trim_end(), "=SUM(B1:B9)");
+    assert!(screen[2].starts_with('└'), "{}", screen[2]);
 
     press(&mut app, KeyCode::Right);
-    let screen = render(&mut app, 50, 10);
+    let screen = render(&mut app, 50, 14);
+    assert!(screen[0].starts_with("┌ B1 ─"), "{}", screen[0]);
     assert_eq!(
         formula_line(&screen).trim_end(),
-        "B1      far too long for the column"
+        "far too long for the column"
     );
 }
 
@@ -248,13 +251,13 @@ fn editing_shows_the_buffer_with_the_terminal_cursor_at_the_caret() {
 
     let mut terminal = terminal_for(&mut app, 50, 10);
 
-    assert!(terminal.backend().buffer()[(8, 0)].symbol() == "日");
+    assert!(terminal.backend().buffer()[(1, 1)].symbol() == "日");
     assert_eq!(
         terminal.get_cursor_position().unwrap().x,
-        8 + 4,
+        1 + 4,
         "wide characters take two cells"
     );
-    assert_eq!(terminal.get_cursor_position().unwrap().y, 0);
+    assert_eq!(terminal.get_cursor_position().unwrap().y, 1);
 }
 
 #[test]
@@ -269,10 +272,10 @@ fn long_edits_scroll_to_keep_the_caret_visible() {
     let mut terminal = terminal_for(&mut app, 30, 10);
 
     let position = terminal.get_cursor_position().unwrap();
-    assert!(position.x < 30, "caret stays on screen, at {}", position.x);
+    assert!(position.x < 29, "caret stays in the box, at {}", position.x);
     let buffer = terminal.backend().buffer();
-    let line: String = (8..30)
-        .map(|x| buffer[(x, 0)].symbol().to_string())
+    let line: String = (1..29)
+        .map(|x| buffer[(x, 1)].symbol().to_string())
         .collect();
     assert!(text.ends_with(line.trim_end()), "{line}");
 }
@@ -307,7 +310,7 @@ fn many_sheets(count: usize) -> Vec<u8> {
 fn tabs_mark_the_current_sheet_and_keep_it_on_screen() {
     let (_file, mut app) = app_from(&many_sheets(10));
 
-    let screen = render(&mut app, 30, 10);
+    let screen = render(&mut app, 30, 14);
     assert!(
         tabs_line(&screen).starts_with(" Sheet0  Sheet1 "),
         "{}",
@@ -331,7 +334,7 @@ fn tabs_mark_the_current_sheet_and_keep_it_on_screen() {
 fn the_status_line_shows_file_state_help_messages_and_prompts() {
     let (_file, mut app) = app_with("");
 
-    let screen = render(&mut app, 80, 10);
+    let screen = render(&mut app, 80, 14);
     assert!(
         status_line(&screen).starts_with("-- NORMAL -- book.xlsx | i insert"),
         "{}",
@@ -340,7 +343,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
 
     press(&mut app, KeyCode::Char('s'));
     press(&mut app, KeyCode::Char('1'));
-    let screen = render(&mut app, 80, 10);
+    let screen = render(&mut app, 80, 14);
     assert!(
         status_line(&screen).starts_with("-- INSERT -- book.xlsx | Esc done"),
         "{}",
@@ -348,7 +351,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     );
 
     press(&mut app, KeyCode::Enter);
-    let screen = render(&mut app, 80, 10);
+    let screen = render(&mut app, 80, 14);
     assert!(
         status_line(&screen).starts_with("-- NORMAL -- book.xlsx* |"),
         "{}",
@@ -356,7 +359,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     );
 
     app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
-    let screen = render(&mut app, 80, 10);
+    let screen = render(&mut app, 80, 14);
     assert!(
         status_line(&screen).contains("book.xlsx | Saved book.xlsx"),
         "{}",
@@ -368,7 +371,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     press(&mut app, KeyCode::Char('2'));
     press(&mut app, KeyCode::Enter);
     app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
-    let screen = render(&mut app, 80, 10);
+    let screen = render(&mut app, 80, 14);
     assert!(
         status_line(&screen).contains("[s]ave and quit"),
         "{}",
@@ -391,7 +394,7 @@ fn draws_at_any_terminal_size_without_panicking() {
 fn the_status_line_names_the_mode() {
     let (_file, mut app) = app_with("");
     press(&mut app, KeyCode::Char('v'));
-    let screen = render(&mut app, 80, 10);
+    let screen = render(&mut app, 80, 14);
     assert!(
         status_line(&screen).starts_with("-- VISUAL -- book.xlsx | d delete"),
         "{}",
@@ -399,7 +402,7 @@ fn the_status_line_names_the_mode() {
     );
 
     press(&mut app, KeyCode::Char('V'));
-    let screen = render(&mut app, 80, 10);
+    let screen = render(&mut app, 80, 14);
     assert!(
         status_line(&screen).starts_with("-- V-LINE -- "),
         "{}",
@@ -453,7 +456,7 @@ fn unfinished_commands_show_at_the_right_of_the_status_line() {
     for c in "2d3".chars() {
         press(&mut app, KeyCode::Char(c));
     }
-    let screen = render(&mut app, 100, 10);
+    let screen = render(&mut app, 100, 14);
     assert!(
         status_line(&screen).trim_end().ends_with(" 2d3"),
         "{}",
@@ -461,7 +464,7 @@ fn unfinished_commands_show_at_the_right_of_the_status_line() {
     );
 
     press(&mut app, KeyCode::Char('g'));
-    let screen = render(&mut app, 100, 10);
+    let screen = render(&mut app, 100, 14);
     assert!(
         status_line(&screen).trim_end().ends_with(" 6dg"),
         "{}",
@@ -469,7 +472,7 @@ fn unfinished_commands_show_at_the_right_of_the_status_line() {
     );
 
     press(&mut app, KeyCode::Esc);
-    let screen = render(&mut app, 100, 10);
+    let screen = render(&mut app, 100, 14);
     assert!(
         !status_line(&screen).trim_end().ends_with('g'),
         "{}",
@@ -503,14 +506,14 @@ fn column_and_row_headers_are_bold_cyan_on_the_terminal_background() {
 fn the_grid_sits_in_a_box_titled_with_the_sheet_name() {
     let (_file, mut app) = app_with("");
 
-    let screen = render(&mut app, 46, 10);
+    let screen = render(&mut app, 46, 14);
 
-    assert!(screen[1].starts_with("┏ Sheet1 ━"), "{}", screen[1]);
-    assert!(screen[1].ends_with('┓'), "{}", screen[1]);
-    assert!(screen[7].starts_with('┗'), "{}", screen[7]);
-    assert!(screen[7].ends_with('┛'), "{}", screen[7]);
-    assert!(screen[3].starts_with('┃'), "{}", screen[3]);
-    assert!(screen[3].ends_with('┃'), "{}", screen[3]);
+    assert!(screen[3].starts_with("┏ Sheet1 ━"), "{}", screen[3]);
+    assert!(screen[3].ends_with('┓'), "{}", screen[3]);
+    assert!(screen[11].starts_with('┗'), "{}", screen[11]);
+    assert!(screen[11].ends_with('┛'), "{}", screen[11]);
+    assert!(screen[5].starts_with('┃'), "{}", screen[5]);
+    assert!(screen[5].ends_with('┃'), "{}", screen[5]);
 }
 
 #[test]
@@ -535,7 +538,7 @@ fn the_cursors_column_and_row_headers_stand_out_in_yellow() {
 #[test]
 fn a_blank_workbook_shows_no_name_on_the_status_line() {
     let mut app = App::new(Workbook::blank().unwrap());
-    let screen = render(&mut app, 60, 10);
+    let screen = render(&mut app, 60, 14);
     assert!(
         status_line(&screen).starts_with("-- NORMAL -- [No Name] | i insert"),
         "{}",
@@ -659,7 +662,7 @@ fn the_save_dialog_survives_any_terminal_size() {
 fn column_and_row_headers_are_bold_but_the_cursor_is_not() {
     let (_file, mut app) = app_with(r#"<row r="1"><c r="B1"><v>1</v></c></row>"#);
 
-    let terminal = terminal_for(&mut app, 50, 8);
+    let terminal = terminal_for(&mut app, 50, 16);
     let buffer = terminal.backend().buffer();
     let is_bold = |x: u16, y: u16| buffer[(x, y)].modifier.contains(Modifier::BOLD);
 
