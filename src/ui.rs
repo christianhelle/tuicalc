@@ -11,6 +11,7 @@ use unicode_width::UnicodeWidthChar;
 use crate::address::{CellRef, column_name};
 use crate::app::{App, Mode, NextStep};
 use crate::file_dialog::{DialogKind, FileDialog};
+use crate::help::{HELP_KEYS, HELP_WIDTH};
 use crate::text::{display_text, edit_text, is_right_aligned};
 
 /// The cursor and highlighted dialog lines. Reversed video follows the terminal's theme.
@@ -76,11 +77,39 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if app.mode() == Mode::GoTo {
         draw_go_to_dialog(frame, app);
     }
+    if app.mode() == Mode::Help {
+        draw_help(frame, app);
+    }
     if app.mode() == Mode::Search && status.width > 0 && status.height > 0 {
         let chars: Vec<char> = app.buffer().chars().collect();
         let x = status.x + SEARCH_PROMPT_WIDTH + text_width(&chars[..app.caret()]) as u16;
         frame.set_cursor_position((x.min(status.right().saturating_sub(1)), status.y));
     }
+}
+
+/// Lists the keys that matter right now, over the middle of the screen.
+fn draw_help(frame: &mut Frame, app: &App) {
+    let lines: Vec<Line> = app
+        .help_table()
+        .iter()
+        .map(|(keys, action)| {
+            let width = unicode_width::UnicodeWidthStr::width(*keys);
+            let padding = " ".repeat(HELP_KEYS.saturating_sub(width));
+            Line::from(vec![
+                Span::styled(format!("{keys}{padding}"), Style::new().fg(Color::Cyan)),
+                Span::raw(*action),
+            ])
+        })
+        .collect();
+    let area = frame.area().centered(
+        Constraint::Length(HELP_WIDTH),
+        Constraint::Length(lines.len() as u16 + 2),
+    );
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(lines).block(Block::bordered().title(" Keys ")),
+        area,
+    );
 }
 
 /// The width of the badge and the ` /` before the typed text.
@@ -360,9 +389,9 @@ fn draw_tabs(buffer: &mut Buffer, area: Rect, app: &App) {
 }
 
 const NORMAL_HINTS: &str =
-    " i edit · v select · u undo · gt sheet · : command · Ctrl-S save · Ctrl-Q quit";
-const VISUAL_HINTS: &str = " d delete · y copy · c change · o other corner · Esc back";
-const INSERT_HINTS: &str = " Esc done · Enter next · Ctrl-C cancel";
+    " ? help · i edit · v select · u undo · / find · gt sheet · Ctrl-S save · q quit";
+const VISUAL_HINTS: &str = " d delete · y copy · c change · o other corner · Esc back · ? help";
+const INSERT_HINTS: &str = " Esc done · Enter next · Ctrl-C cancel · F1 help";
 
 fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     if area.width == 0 || area.height == 0 {
@@ -386,7 +415,7 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         Mode::VisualRow => ("V-LINE", Color::Magenta, VISUAL_HINTS),
         Mode::ConfirmDiscard => ("NORMAL", Color::Blue, ""),
         Mode::Command => ("COMMAND", Color::Blue, ""),
-        Mode::GoTo | Mode::Search => ("NORMAL", Color::Blue, ""),
+        Mode::GoTo | Mode::Search | Mode::Help => ("NORMAL", Color::Blue, ""),
         Mode::FileDialog => match app.file_dialog().map(FileDialog::kind) {
             Some(DialogKind::Open) => ("OPEN", Color::Blue, " Choose a workbook"),
             _ => ("SAVE", Color::Blue, " Choose a folder and a name"),

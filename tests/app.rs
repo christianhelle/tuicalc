@@ -2269,6 +2269,54 @@ fn an_empty_search_repeats_the_last_one() {
 }
 
 #[test]
+fn question_mark_opens_help_and_any_key_closes_it_without_doing_anything() {
+    let (_file, mut app) = app_with("");
+
+    press(&mut app, KeyCode::Char('?'));
+    assert_eq!(app.mode(), Mode::Help);
+
+    press(&mut app, KeyCode::Char('q'));
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(!app.should_quit(), "the key is swallowed");
+
+    press(&mut app, KeyCode::F(1));
+    assert_eq!(app.mode(), Mode::Help);
+    ctrl(&mut app, KeyCode::Char('c'));
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(!app.should_quit());
+}
+
+#[test]
+fn help_from_a_selection_returns_to_the_selection() {
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('V'));
+
+    press(&mut app, KeyCode::Char('?'));
+    assert_eq!(app.mode(), Mode::Help);
+    assert_eq!(app.help_table(), tuicalc::help::VISUAL_HELP);
+    press(&mut app, KeyCode::Char('x'));
+
+    assert_eq!(app.mode(), Mode::VisualRow);
+    assert!(app.selection().is_some());
+}
+
+#[test]
+fn f1_helps_while_editing_and_question_mark_is_still_text() {
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('s'));
+    press(&mut app, KeyCode::Char('?'));
+    assert_eq!(app.buffer(), "?");
+
+    press(&mut app, KeyCode::F(1));
+    assert_eq!(app.mode(), Mode::Help);
+    assert_eq!(app.help_table(), tuicalc::help::INSERT_HELP);
+
+    press(&mut app, KeyCode::Char('x'));
+    assert_eq!(app.mode(), Mode::Insert);
+    assert_eq!(app.buffer(), "?", "the edit carries on untouched");
+}
+
+#[test]
 fn e_refuses_while_there_are_unsaved_edits() {
     let (_file, mut app) = app_with("");
     enter_value(&mut app, "5");

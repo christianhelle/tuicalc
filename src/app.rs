@@ -8,6 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
 use crate::file_dialog::{DialogAction, DialogKind, FileDialog, with_default_extension};
 use crate::formula::translate;
+use crate::help::{self, HelpTable};
 use crate::model::{Cell, CellValue, Sheet};
 use crate::text::{display_text, edit_text, parse_input};
 use crate::xlsx::{Workbook, XlsxError};
@@ -26,6 +27,8 @@ pub enum Mode {
     GoTo,
     /// Typing the text to look for.
     Search,
+    /// Showing the keys of the mode it was opened from.
+    Help,
     /// Waiting for the user to decide what happens to unsaved edits.
     ConfirmDiscard,
     /// Choosing where to save a workbook that has no file yet.
@@ -113,6 +116,8 @@ pub struct App {
     next_step: Option<NextStep>,
     /// The latest search, which `n` and `N` repeat.
     search_query: Option<String>,
+    /// The mode to go back to when the help closes.
+    help_from: Mode,
 }
 
 impl App {
@@ -130,6 +135,7 @@ impl App {
             file_dialog: None,
             next_step: None,
             search_query: None,
+            help_from: Mode::Normal,
             dialog_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             workbook,
             sheet: 0,
@@ -259,6 +265,7 @@ impl App {
             Mode::Command => self.command_key(key),
             Mode::GoTo => self.go_to_key(key),
             Mode::Search => self.search_key(key),
+            Mode::Help => self.mode = self.help_from,
             Mode::ConfirmDiscard => self.confirm_discard_key(key),
             Mode::FileDialog => self.file_dialog_key(key),
         }
@@ -713,6 +720,7 @@ impl App {
                 self.mode = Mode::Normal;
             }
             (KeyCode::Char('c'), _) if is_ctrl(key) => self.mode = Mode::Normal,
+            (KeyCode::Char('?') | KeyCode::F(1), _) => self.open_help(),
             (KeyCode::Char('v'), _) => self.mode = Mode::Visual,
             (KeyCode::Char('V'), _) => self.mode = Mode::VisualRow,
             (KeyCode::Char('o' | 'O'), _) => std::mem::swap(&mut self.anchor, &mut self.cursor),
@@ -820,6 +828,8 @@ impl App {
             KeyCode::Char('o') if ctrl => self.ask_before_losing_edits(NextStep::OpenFile),
             KeyCode::Char('g') if ctrl => self.begin_prompt(Mode::GoTo),
             KeyCode::Char('/') if !ctrl => self.begin_prompt(Mode::Search),
+            KeyCode::Char('?') if !ctrl => self.open_help(),
+            KeyCode::F(1) => self.open_help(),
             KeyCode::Char('n') if !ctrl => self.find_match(true),
             KeyCode::Char('N') if !ctrl => self.find_match(false),
             KeyCode::Char('z') if ctrl => self.undo(),
@@ -1194,6 +1204,16 @@ impl App {
         self.begin_edit(text.chars().collect());
     }
 
+    fn open_help(&mut self) {
+        self.help_from = self.mode;
+        self.mode = Mode::Help;
+    }
+
+    /// The table of keys the help shows.
+    pub fn help_table(&self) -> HelpTable {
+        help::table(self.help_from)
+    }
+
     /// Starts typing into an empty one-line prompt.
     fn begin_prompt(&mut self, mode: Mode) {
         self.buffer.clear();
@@ -1384,6 +1404,7 @@ impl App {
         match key.code {
             // As in vim, Esc keeps what was typed and Ctrl-C is the way out without it.
             KeyCode::Esc => self.commit_edit(),
+            KeyCode::F(1) => self.open_help(),
             KeyCode::Char('c') if is_ctrl(key) => self.mode = Mode::Normal,
             KeyCode::Char('u') if is_ctrl(key) => {
                 self.buffer.drain(..self.caret);

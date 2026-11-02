@@ -336,7 +336,7 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
 
     let screen = render(&mut app, 80, 14);
     assert!(
-        status_line(&screen).starts_with(" NORMAL  i edit · "),
+        status_line(&screen).starts_with(" NORMAL  ? help · "),
         "{}",
         status_line(&screen)
     );
@@ -766,6 +766,61 @@ fn the_search_prompt_takes_over_the_status_line_with_the_caret_after_the_text() 
     let mut terminal = terminal_for(&mut app, 80, 14);
     let caret = terminal.get_cursor_position().unwrap();
     assert_eq!((caret.x, caret.y), (" NORMAL  /ab".len() as u16, 13));
+}
+
+#[test]
+fn help_lists_keys_in_cyan_in_a_dialog_titled_keys() {
+    use ratatui::style::Color;
+
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('?'));
+
+    let screen = render(&mut app, 90, 24);
+    let row = screen
+        .iter()
+        .position(|line| line.contains("Ctrl-G"))
+        .unwrap();
+    assert!(
+        screen[row].contains("Go to a cell or row"),
+        "{}",
+        screen[row]
+    );
+    assert!(screen.join("").contains("Press any key to close"));
+    assert!(screen[0].contains("Keys"), "{}", screen[0]);
+    let x = screen[row].find("Ctrl-G").unwrap();
+    let x = screen[row][..x].chars().count() as u16;
+
+    let terminal = terminal_for(&mut app, 90, 24);
+    assert_eq!(terminal.backend().buffer()[(x, row as u16)].fg, Color::Cyan);
+}
+
+#[test]
+fn the_help_dialog_for_each_mode_looks_right() {
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('?'));
+    insta::assert_snapshot!("help_in_normal_mode", render(&mut app, 90, 24).join("\n"));
+    press(&mut app, KeyCode::Esc);
+
+    press(&mut app, KeyCode::Char('v'));
+    press(&mut app, KeyCode::Char('?'));
+    insta::assert_snapshot!("help_while_selecting", render(&mut app, 90, 24).join("\n"));
+    press(&mut app, KeyCode::Esc);
+    press(&mut app, KeyCode::Esc);
+
+    press(&mut app, KeyCode::Char('s'));
+    press(&mut app, KeyCode::F(1));
+    insta::assert_snapshot!("help_while_editing", render(&mut app, 90, 24).join("\n"));
+}
+
+#[test]
+fn the_status_line_offers_help_in_every_mode() {
+    let (_file, mut app) = app_with("");
+    assert!(status_line(&render(&mut app, 100, 14)).contains("? help"));
+    press(&mut app, KeyCode::Char('v'));
+    assert!(status_line(&render(&mut app, 100, 14)).contains("? help"));
+    press(&mut app, KeyCode::Esc);
+    press(&mut app, KeyCode::Char('s'));
+    assert!(status_line(&render(&mut app, 100, 14)).contains("F1 help"));
 }
 
 #[test]
