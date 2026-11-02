@@ -50,12 +50,23 @@ pub struct SaveDialog {
 
 impl SaveDialog {
     pub fn open(directory: &Path) -> Self {
+        let (entries, message) = match list_entries(directory) {
+            Ok(entries) => (entries, String::new()),
+            Err(error) => (
+                directory
+                    .parent()
+                    .map(|_| Entry::Parent)
+                    .into_iter()
+                    .collect(),
+                format!("Cannot read folder: {error}"),
+            ),
+        };
         Self {
             directory: directory.to_path_buf(),
-            entries: list_entries(directory).unwrap_or_default(),
+            entries,
             highlight: None,
             name: String::new(),
-            message: String::new(),
+            message,
             overwrite: None,
         }
     }
@@ -85,6 +96,10 @@ impl SaveDialog {
     /// The latest error or hint for the user.
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    pub fn set_message(&mut self, message: String) {
+        self.message = message;
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> DialogAction {
@@ -153,10 +168,13 @@ impl SaveDialog {
     }
 
     fn enter_folder(&mut self, directory: PathBuf) {
-        if let Ok(entries) = list_entries(&directory) {
-            self.directory = directory;
-            self.entries = entries;
-            self.highlight = None;
+        match list_entries(&directory) {
+            Ok(entries) => {
+                self.directory = directory;
+                self.entries = entries;
+                self.highlight = None;
+            }
+            Err(error) => self.message = format!("Cannot read folder: {error}"),
         }
     }
 

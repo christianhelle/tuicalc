@@ -906,7 +906,11 @@ impl App {
                 self.close_save_dialog();
                 self.status = format!("Saved {}", self.file_name());
             }
-            Err(error) => self.status = format!("Save failed: {error}"),
+            Err(error) => {
+                if let Some(dialog) = &mut self.save_dialog {
+                    dialog.set_message(format!("Save failed: {error}"));
+                }
+            }
         }
     }
 

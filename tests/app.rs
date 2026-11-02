@@ -1656,3 +1656,41 @@ fn esc_and_ctrl_c_close_the_save_dialog_and_keep_the_edits() {
         assert!(!dir.path().join("cancelled.xlsx").exists());
     }
 }
+
+#[test]
+fn a_folder_that_cannot_be_read_shows_an_error_and_stays_put() {
+    let dir = save_folder();
+    let mut app = app_in_save_dialog(dir.path());
+    std::fs::remove_dir(dir.path().join("A-folder")).unwrap();
+
+    press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::Enter);
+
+    let dialog = app.save_dialog().unwrap();
+    assert_eq!(dialog.directory(), dir.path());
+    assert!(!dialog.message().is_empty());
+}
+
+#[test]
+fn a_start_folder_that_cannot_be_read_shows_an_error_and_offers_the_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_in_save_dialog(&dir.path().join("missing"));
+
+    assert!(!app.save_dialog().unwrap().message().is_empty());
+    assert_eq!(listed(&app), [".."]);
+}
+
+#[test]
+fn a_failed_save_shows_the_error_and_leaves_the_dialog_open() {
+    let dir = save_folder();
+    let mut app = app_in_save_dialog(dir.path());
+
+    type_text(&mut app, "no-such-folder/book.xlsx");
+    press(&mut app, KeyCode::Enter);
+
+    assert_eq!(app.mode(), Mode::SaveDialog);
+    let message = app.save_dialog().unwrap().message();
+    assert!(message.starts_with("Save failed"), "{message}");
+    assert_eq!(app.file_name(), "[No Name]");
+}
