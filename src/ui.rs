@@ -19,10 +19,11 @@ const SELECTED_CURSOR_STYLE: Style = SELECTED_STYLE
     .fg(Color::Yellow)
     .add_modifier(Modifier::BOLD);
 const HEADER_STYLE: Style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+const LINE_STYLE: Style = Style::new().fg(Color::DarkGray);
 const CURSOR_HEADER_STYLE: Style = Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD);
 const ROW_HEADER_WIDTH: u16 = 8;
 const COLUMN_WIDTH: u16 = 12;
-/// Column width less the gap separating neighbouring cells.
+/// Column width less the line separating neighbouring cells.
 const CONTENT_WIDTH: usize = COLUMN_WIDTH as usize - 1;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
@@ -37,7 +38,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let grid_inner = grid_block.inner(grid);
     frame.render_widget(grid_block, grid);
     let visible_cols = u32::from(grid_inner.width.saturating_sub(ROW_HEADER_WIDTH) / COLUMN_WIDTH);
-    let visible_rows = u32::from(grid_inner.height.saturating_sub(1));
+    let visible_rows = u32::from(grid_inner.height.saturating_sub(2));
     app.set_viewport(visible_cols, visible_rows);
     draw_grid(
         frame.buffer_mut(),
@@ -349,6 +350,7 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
             HEADER_STYLE
         }
     };
+    draw_grid_lines(buffer, area, cols, rows);
     for offset in 0..cols {
         let x = area.x + ROW_HEADER_WIDTH + offset as u16 * COLUMN_WIDTH;
         let name = column_name(scroll.col + offset);
@@ -359,13 +361,14 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
     let date1904 = app.workbook.date1904;
     let selection = app.selection();
     for row_offset in 0..rows {
-        let y = area.y + 1 + row_offset as u16;
+        let y = area.y + 2 + row_offset as u16;
         let row = scroll.row + row_offset;
+        let number_width = usize::from(ROW_HEADER_WIDTH) - 1;
         buffer.set_stringn(
             area.x,
             y,
-            (row + 1).to_string(),
-            usize::from(ROW_HEADER_WIDTH) - 1,
+            format!("{:>number_width$}", row + 1),
+            number_width,
             header_style(row == app.cursor().row),
         );
         for col_offset in 0..cols {
@@ -389,6 +392,30 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
             };
             buffer.set_stringn(x, y, padded, CONTENT_WIDTH, style);
         }
+    }
+}
+
+/// Draws the line under the headers and the lines between columns.
+fn draw_grid_lines(buffer: &mut Buffer, area: Rect, cols: u32, rows: u32) {
+    if area.width < ROW_HEADER_WIDTH {
+        return;
+    }
+    // The header row is always there, the rule and the data rows only when they fit.
+    let line_rows = std::iter::once(0).chain((0..rows).map(|row| row + 2));
+    for y in line_rows {
+        for col in 0..=cols {
+            let x = ROW_HEADER_WIDTH - 1 + col as u16 * COLUMN_WIDTH;
+            buffer.set_string(area.x + x, area.y + y as u16, "│", LINE_STYLE);
+        }
+    }
+    if area.height >= 2 {
+        let mut rule = "─".repeat(usize::from(ROW_HEADER_WIDTH) - 1);
+        for _ in 0..cols {
+            rule.push('┼');
+            rule.push_str(&"─".repeat(CONTENT_WIDTH));
+        }
+        rule.push('┤');
+        buffer.set_string(area.x, area.y + 1, rule, LINE_STYLE);
     }
 }
 

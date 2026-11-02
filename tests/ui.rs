@@ -66,11 +66,17 @@ fn grid_line(screen: &[String], row: usize) -> &str {
 }
 
 fn header_y() -> u16 {
-    cell_position(0, 0).1 - 1
+    cell_position(0, 0).1 - 2
 }
 
+/// Where a one-digit row number is drawn: at the right of its seven cells.
 fn row_number_x() -> u16 {
-    1
+    7
+}
+
+/// A grid line's row number.
+fn row_label(line: &str) -> String {
+    line.chars().take(7).collect::<String>().trim().to_string()
 }
 
 fn formula_line(screen: &[String]) -> &str {
@@ -91,7 +97,7 @@ fn status_line(screen: &[String]) -> &str {
 
 /// Where a cell's text starts on screen, for a visible column and row counted from zero.
 fn cell_position(col: u16, row: u16) -> (u16, u16) {
-    (9 + col * 12, 3 + row)
+    (9 + col * 12, 4 + row)
 }
 
 /// One cell's text as drawn in the grid, for a zero-based column.
@@ -108,14 +114,21 @@ fn draws_column_and_row_headers_with_aligned_values() {
     let screen = render(&mut app, 46, 10);
 
     assert_eq!(
-        header_line(&screen).trim_end(),
-        "             A           B           C"
+        header_line(&screen),
+        "       │     A     │     B     │     C     │"
     );
-    assert_eq!(grid_line(&screen, 1).trim_end(), "1");
-    let row = grid_line(&screen, 2);
-    assert!(row.starts_with("2       "), "{row}");
-    assert_eq!(drawn_cell(row, 0), "name       ");
-    assert_eq!(drawn_cell(row, 1), "         42");
+    assert_eq!(
+        inside_box(&screen[header_y() as usize + 1]),
+        "───────┼───────────┼───────────┼───────────┤"
+    );
+    assert_eq!(
+        grid_line(&screen, 1),
+        "      1│           │           │           │"
+    );
+    assert_eq!(
+        grid_line(&screen, 2),
+        "      2│name       │         42│           │"
+    );
 }
 
 #[test]
@@ -172,7 +185,7 @@ lines</t></is></c></row>"#,
     let row2 = grid_line(&screen, 2);
     assert!(row2.contains("日本語日本"), "{row2}");
     assert!(!row2.contains("日本語日本語"), "{row2}");
-    assert!(row2.trim_end().ends_with('2'), "{row2}");
+    assert_eq!(row2.split('│').nth(2).unwrap().trim(), "2", "{row2}");
     assert_eq!(drawn_cell(grid_line(&screen, 3), 0), "two lines  ");
 }
 
@@ -180,7 +193,7 @@ lines</t></is></c></row>"#,
 fn highlights_the_cursor_cell_and_scrolls_with_it() {
     let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
 
-    let terminal = terminal_for(&mut app, 40, 12);
+    let terminal = terminal_for(&mut app, 40, 13);
     let buffer = terminal.backend().buffer();
     assert!(is_selector(&buffer[cell_position(0, 0)]));
     assert!(!is_selector(&buffer[cell_position(1, 0)]));
@@ -189,18 +202,10 @@ fn highlights_the_cursor_cell_and_scrolls_with_it() {
     for _ in 0..9 {
         press(&mut app, KeyCode::Down);
     }
-    let screen = render(&mut app, 40, 12);
-    assert!(
-        grid_line(&screen, 1).starts_with("5 "),
-        "{}",
-        grid_line(&screen, 1)
-    );
-    assert!(
-        grid_line(&screen, 6).starts_with("10 "),
-        "{}",
-        grid_line(&screen, 6)
-    );
-    let terminal = terminal_for(&mut app, 40, 12);
+    let screen = render(&mut app, 40, 13);
+    assert_eq!(row_label(grid_line(&screen, 1)), "5");
+    assert_eq!(row_label(grid_line(&screen, 6)), "10");
+    let terminal = terminal_for(&mut app, 40, 13);
     assert!(is_selector(
         &terminal.backend().buffer()[cell_position(0, 5)]
     ));
@@ -208,10 +213,10 @@ fn highlights_the_cursor_cell_and_scrolls_with_it() {
     for _ in 0..4 {
         press(&mut app, KeyCode::Right);
     }
-    let screen = render(&mut app, 40, 10);
+    let screen = render(&mut app, 40, 13);
     assert_eq!(
         header_line(&screen).trim_end(),
-        "             D           E"
+        "       │     D     │     E     │"
     );
 }
 
