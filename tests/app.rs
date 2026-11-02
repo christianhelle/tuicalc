@@ -1420,3 +1420,36 @@ fn saving_an_opened_workbook_never_opens_the_save_dialog() {
     assert_eq!(app.mode(), Mode::Normal);
     assert!(app.save_dialog().is_none());
 }
+
+/// A folder holding two subfolders, two workbooks and a file the dialog should hide.
+fn save_folder() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("b-folder")).unwrap();
+    std::fs::create_dir(dir.path().join("A-folder")).unwrap();
+    std::fs::write(dir.path().join("z.xlsx"), b"z").unwrap();
+    std::fs::write(dir.path().join("Y.XLSX"), b"y").unwrap();
+    std::fs::write(dir.path().join("notes.txt"), b"n").unwrap();
+    dir
+}
+
+fn listed(app: &App) -> Vec<String> {
+    let dialog = app.save_dialog().unwrap();
+    dialog.entries().iter().map(|entry| entry.label()).collect()
+}
+
+#[test]
+fn the_save_dialog_lists_the_parent_then_folders_then_workbooks() {
+    let dir = save_folder();
+    let app = app_in_save_dialog(dir.path());
+    let separator = std::path::MAIN_SEPARATOR;
+    assert_eq!(
+        listed(&app),
+        [
+            "..".to_string(),
+            format!("A-folder{separator}"),
+            format!("b-folder{separator}"),
+            "Y.XLSX".to_string(),
+            "z.xlsx".to_string(),
+        ]
+    );
+}
