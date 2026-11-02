@@ -922,6 +922,17 @@ impl App {
                 let result = self.workbook.save_over(path);
                 self.finish_dialog_save(result);
             }
+            DialogAction::Open(path) => match Workbook::open(path) {
+                Ok(workbook) => {
+                    self.close_file_dialog();
+                    self.load_workbook(workbook);
+                }
+                Err(error) => {
+                    if let Some(dialog) = &mut self.file_dialog {
+                        dialog.set_message(format!("Open failed: {error}"));
+                    }
+                }
+            },
         }
     }
 

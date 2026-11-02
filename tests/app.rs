@@ -2000,3 +2000,65 @@ fn e_bang_opens_the_dialog_and_cancelling_keeps_the_edits() {
     assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
     assert_eq!(app.workbook.path(), Some(file.path.as_path()));
 }
+
+/// A workbook with unsaved edits and the open dialog on `dir`, as `:e!` leaves it.
+fn app_choosing_a_file_to_open(dir: &Path) -> (TempXlsx, App) {
+    let (file, mut app) = app_with("");
+    app.set_dialog_directory(dir);
+    enter_value(&mut app, "5");
+    run(&mut app, "e!");
+    (file, app)
+}
+
+#[test]
+fn choosing_a_file_in_the_dialog_opens_it() {
+    let dir = open_folder();
+    let (_file, mut app) = app_choosing_a_file_to_open(dir.path());
+
+    press(&mut app, KeyCode::Up);
+    assert_eq!(highlighted(&app).as_deref(), Some("good.xlsx"));
+    press(&mut app, KeyCode::Enter);
+
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(app.file_dialog().is_none());
+    assert_eq!(app.status(), "Opened good.xlsx");
+    assert_eq!(value(&app, "A1"), CellValue::Number(42.0));
+    assert!(!app.workbook.is_dirty());
+}
+
+#[test]
+fn typing_a_name_in_the_dialog_opens_that_file() {
+    let dir = open_folder();
+    let (_file, mut app) = app_choosing_a_file_to_open(dir.path());
+
+    type_text(&mut app, "good");
+    press(&mut app, KeyCode::Enter);
+
+    assert_eq!(app.file_name(), "good.xlsx");
+    assert_eq!(
+        app.file_dialog()
+            .map(|dialog| dialog.pending_overwrite().is_some()),
+        None,
+        "opening never asks about overwriting"
+    );
+}
+
+#[test]
+fn a_file_that_cannot_be_opened_leaves_the_dialog_open_with_the_error() {
+    let dir = open_folder();
+    let (file, mut app) = app_choosing_a_file_to_open(dir.path());
+
+    for name in ["broken.xlsx", "missing.xlsx"] {
+        type_text(&mut app, name);
+        press(&mut app, KeyCode::Enter);
+
+        assert_eq!(app.mode(), Mode::FileDialog, "{name}");
+        let dialog = app.file_dialog().unwrap();
+        assert!(dialog.message().starts_with("Open failed"), "{name}");
+        assert_eq!(app.workbook.path(), Some(file.path.as_path()));
+        assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
+        for _ in 0..name.len() {
+            press(&mut app, KeyCode::Backspace);
+        }
+    }
+}

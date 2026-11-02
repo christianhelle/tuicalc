@@ -33,7 +33,9 @@ pub enum DialogAction {
     Save(PathBuf),
     /// Replace a file the user agreed to overwrite.
     Overwrite(PathBuf),
-    /// Close the dialog without saving.
+    /// Open an existing file.
+    Open(PathBuf),
+    /// Close the dialog without doing anything.
     Cancel,
 }
 
@@ -173,6 +175,9 @@ impl FileDialog {
         let path = self
             .directory
             .join(with_default_extension(self.name.trim()));
+        if self.kind == DialogKind::Open {
+            return DialogAction::Open(path);
+        }
         if path.exists() {
             self.overwrite = Some(path);
             return DialogAction::Stay;
