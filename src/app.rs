@@ -891,6 +891,10 @@ impl App {
                 let result = self.workbook.save_as(path);
                 self.finish_dialog_save(result);
             }
+            DialogAction::Overwrite(path) => {
+                let result = self.workbook.save_over(path);
+                self.finish_dialog_save(result);
+            }
         }
     }
 

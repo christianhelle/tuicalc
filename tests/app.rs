@@ -1594,3 +1594,39 @@ fn an_empty_name_is_refused_with_a_message() {
         "the next key clears it"
     );
 }
+
+#[test]
+fn an_existing_file_asks_before_it_is_overwritten() {
+    let dir = save_folder();
+    let target = dir.path().join("z.xlsx");
+    let mut app = app_in_save_dialog(dir.path());
+
+    press(&mut app, KeyCode::Up);
+    press(&mut app, KeyCode::Enter);
+    let dialog = app.save_dialog().unwrap();
+    assert_eq!(dialog.pending_overwrite(), Some(target.as_path()));
+    assert_eq!(std::fs::read(&target).unwrap(), b"z", "nothing written yet");
+
+    press(&mut app, KeyCode::Char('q'));
+    assert!(
+        app.save_dialog().unwrap().pending_overwrite().is_some(),
+        "other keys keep asking"
+    );
+    assert_eq!(app.save_dialog().unwrap().name(), "z.xlsx");
+
+    press(&mut app, KeyCode::Char('n'));
+    assert_eq!(app.save_dialog().unwrap().pending_overwrite(), None);
+    assert_eq!(app.mode(), Mode::SaveDialog);
+
+    press(&mut app, KeyCode::Enter);
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(app.save_dialog().unwrap().pending_overwrite(), None);
+    assert_eq!(app.mode(), Mode::SaveDialog, "Esc goes back to the dialog");
+    assert_eq!(std::fs::read(&target).unwrap(), b"z");
+
+    press(&mut app, KeyCode::Enter);
+    press(&mut app, KeyCode::Char('y'));
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(app.status(), "Saved z.xlsx");
+    assert!(Workbook::open(&target).is_ok(), "now a real workbook");
+}

@@ -31,6 +31,8 @@ pub enum DialogAction {
     Stay,
     /// Save to a file that doesn't exist yet.
     Save(PathBuf),
+    /// Replace a file the user agreed to overwrite.
+    Overwrite(PathBuf),
 }
 
 #[derive(Debug)]
@@ -40,6 +42,8 @@ pub struct SaveDialog {
     highlight: Option<usize>,
     name: String,
     message: String,
+    /// The existing file waiting for the user to allow overwriting it.
+    overwrite: Option<PathBuf>,
 }
 
 impl SaveDialog {
@@ -50,6 +54,7 @@ impl SaveDialog {
             highlight: None,
             name: String::new(),
             message: String::new(),
+            overwrite: None,
         }
     }
 
@@ -70,6 +75,11 @@ impl SaveDialog {
         &self.name
     }
 
+    /// The existing file the dialog is asking to overwrite.
+    pub fn pending_overwrite(&self) -> Option<&Path> {
+        self.overwrite.as_deref()
+    }
+
     /// The latest error or hint for the user.
     pub fn message(&self) -> &str {
         &self.message
@@ -77,6 +87,9 @@ impl SaveDialog {
 
     pub fn handle_key(&mut self, key: KeyEvent) -> DialogAction {
         self.message.clear();
+        if self.overwrite.is_some() {
+            return self.overwrite_key(key);
+        }
         match key.code {
             KeyCode::Down => self.move_highlight(1),
             KeyCode::Up => self.move_highlight(-1),
@@ -89,6 +102,19 @@ impl SaveDialog {
                 self.name.push(c);
                 self.highlight = None;
             }
+            _ => {}
+        }
+        DialogAction::Stay
+    }
+
+    fn overwrite_key(&mut self, key: KeyEvent) -> DialogAction {
+        match key.code {
+            KeyCode::Char('y' | 'Y') => {
+                if let Some(path) = self.overwrite.take() {
+                    return DialogAction::Overwrite(path);
+                }
+            }
+            KeyCode::Char('n' | 'N') | KeyCode::Esc => self.overwrite = None,
             _ => {}
         }
         DialogAction::Stay
@@ -112,10 +138,14 @@ impl SaveDialog {
             self.message = "Enter a file name".into();
             return DialogAction::Stay;
         }
-        DialogAction::Save(
-            self.directory
-                .join(with_default_extension(self.name.trim())),
-        )
+        let path = self
+            .directory
+            .join(with_default_extension(self.name.trim()));
+        if path.exists() {
+            self.overwrite = Some(path);
+            return DialogAction::Stay;
+        }
+        DialogAction::Save(path)
     }
 
     fn enter_folder(&mut self, directory: PathBuf) {
