@@ -433,3 +433,14 @@ fn column_and_row_headers_are_cyan_bars_in_homage_to_lotus_1_2_3() {
     assert!(!is_bar(0, 8), "the sheet tabs");
     assert!(!is_bar(0, 9), "the status line");
 }
+
+#[test]
+fn a_blank_workbook_shows_no_name_on_the_status_line() {
+    let mut app = App::new(Workbook::blank().unwrap());
+    let screen = render(&mut app, 60, 10);
+    assert!(
+        screen[9].starts_with("-- NORMAL -- [No Name] | i insert"),
+        "{}",
+        screen[9]
+    );
+}
