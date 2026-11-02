@@ -858,7 +858,9 @@ impl App {
     }
 
     pub fn file_name(&self) -> String {
-        let path = self.workbook.path();
+        let Some(path) = self.workbook.path() else {
+            return String::new();
+        };
         path.file_name()
             .unwrap_or(path.as_os_str())
             .to_string_lossy()

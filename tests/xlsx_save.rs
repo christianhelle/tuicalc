@@ -3,7 +3,7 @@ mod common;
 use common::*;
 use tuicalc::address::CellRef;
 use tuicalc::model::{Cell, CellValue};
-use tuicalc::xlsx::Workbook;
+use tuicalc::xlsx::{Workbook, XlsxError};
 
 fn a1(text: &str) -> CellRef {
     CellRef::parse(text).unwrap()
@@ -410,4 +410,14 @@ fn a_blank_workbook_has_one_empty_sheet_and_nothing_to_save() {
     assert_eq!(book.sheets[0].extent(), None);
     assert!(!book.date1904);
     assert!(!book.is_dirty());
+}
+
+#[test]
+fn saving_a_blank_workbook_needs_a_file_name() {
+    let mut book = Workbook::blank().unwrap();
+    assert!(matches!(book.save(), Err(XlsxError::NoFileName)));
+
+    book.sheets[0].set_cell(a1("A1"), number(1.0));
+    assert!(matches!(book.save(), Err(XlsxError::NoFileName)));
+    assert!(book.is_dirty(), "the edit is still unsaved");
 }

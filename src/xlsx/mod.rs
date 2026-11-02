@@ -19,6 +19,8 @@ pub enum XlsxError {
     Invalid(String),
     /// Another program modified the file after it was opened.
     ChangedOnDisk,
+    /// The workbook has never been saved, so it has no file to go to.
+    NoFileName,
 }
 
 impl fmt::Display for XlsxError {
@@ -29,6 +31,7 @@ impl fmt::Display for XlsxError {
             Self::Xml(message) => write!(f, "malformed XML: {message}"),
             Self::Invalid(message) => write!(f, "invalid workbook: {message}"),
             Self::ChangedOnDisk => write!(f, "the file changed on disk since it was opened"),
+            Self::NoFileName => write!(f, "no file name"),
         }
     }
 }
@@ -53,7 +56,8 @@ pub struct Workbook {
     pub sheets: Vec<Sheet>,
     /// Whether date serials count from 1904 rather than 1900.
     pub date1904: bool,
-    path: PathBuf,
+    /// The file this workbook belongs to, which a blank one doesn't have yet.
+    path: Option<PathBuf>,
     source: Vec<u8>,
     layout: reader::Layout,
 }
@@ -66,7 +70,7 @@ impl Workbook {
         Ok(Self {
             sheets,
             date1904,
-            path,
+            path: Some(path),
             source,
             layout,
         })
@@ -79,7 +83,7 @@ impl Workbook {
         Ok(Self {
             sheets,
             date1904,
-            path: PathBuf::new(),
+            path: None,
             source,
             layout,
         })
@@ -91,21 +95,24 @@ impl Workbook {
 
     /// Writes edits back to the file this workbook was opened from.
     pub fn save(&mut self) -> Result<(), XlsxError> {
+        let Some(path) = &self.path else {
+            return Err(XlsxError::NoFileName);
+        };
         if !self.is_dirty() {
             return Ok(());
         }
-        if std::fs::read(&self.path)? != self.source {
+        if std::fs::read(path)? != self.source {
             return Err(XlsxError::ChangedOnDisk);
         }
         let patched = writer::patch(&self.source, &self.layout, &self.sheets)?;
-        replace_file(&self.path, &patched)?;
+        replace_file(path, &patched)?;
         self.source = patched;
         self.sheets.iter_mut().for_each(Sheet::mark_saved);
         Ok(())
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 }
 
