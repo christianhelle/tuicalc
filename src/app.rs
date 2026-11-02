@@ -941,6 +941,15 @@ impl App {
         self.mode = Mode::Normal;
     }
 
+    /// Says why a command that would lose unsaved edits isn't running; returns whether it isn't.
+    fn refuse_if_dirty(&mut self) -> bool {
+        let dirty = self.workbook.is_dirty();
+        if dirty {
+            self.status = "E37: No write since last change (add ! to override)".into();
+        }
+        dirty
+    }
+
     fn open_named(&mut self, name: &str) {
         match Workbook::open(with_default_extension(name)) {
             Ok(workbook) => self.load_workbook(workbook),
@@ -1099,6 +1108,12 @@ impl App {
                 return;
             }
             Some(("e", name)) => {
+                if !self.refuse_if_dirty() {
+                    self.open_named(name.trim());
+                }
+                return;
+            }
+            Some(("e!", name)) => {
                 self.open_named(name.trim());
                 return;
             }
@@ -1109,9 +1124,7 @@ impl App {
             "w" => {
                 self.save();
             }
-            "q" if self.workbook.is_dirty() => {
-                self.status = "E37: No write since last change (add ! to override)".into();
-            }
+            "q" if self.refuse_if_dirty() => {}
             "q" | "q!" => self.should_quit = true,
             "wq" => self.save_and_quit(),
             "x" => self.save_if_edited_and_quit(),

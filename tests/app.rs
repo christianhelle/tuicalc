@@ -1888,3 +1888,52 @@ fn yanked_cells_can_be_pasted_into_another_file() {
     assert_eq!(value(&app, "A2"), CellValue::Number(5.0), "the row below");
     assert_eq!(value(&app, "A1"), CellValue::Number(42.0));
 }
+
+#[test]
+fn a_file_that_cannot_be_opened_keeps_the_current_workbook() {
+    let (first, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
+    keys(&mut app, "j");
+    let broken = write_temp(b"not a workbook");
+
+    for target in [
+        broken.path.clone(),
+        broken.path.with_file_name("missing.xlsx"),
+    ] {
+        run(&mut app, &format!("e {}", target.display()));
+
+        assert!(app.status().starts_with("Open failed"), "{}", app.status());
+        assert_eq!(app.workbook.path(), Some(first.path.as_path()));
+        assert_eq!(app.cursor(), a1("A2"));
+        assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
+    }
+}
+
+#[test]
+fn e_with_a_name_refuses_while_there_are_unsaved_edits() {
+    let (first, mut app) = app_with("");
+    enter_value(&mut app, "5");
+    let second = other_workbook();
+
+    run(&mut app, &format!("e {}", second.path.display()));
+
+    assert_eq!(
+        app.status(),
+        "E37: No write since last change (add ! to override)"
+    );
+    assert_eq!(app.workbook.path(), Some(first.path.as_path()));
+    assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
+}
+
+#[test]
+fn e_bang_with_a_name_discards_unsaved_edits() {
+    let (first, mut app) = app_with("");
+    let before = std::fs::read(&first.path).unwrap();
+    enter_value(&mut app, "5");
+    let second = other_workbook();
+
+    run(&mut app, &format!("e! {}", second.path.display()));
+
+    assert_eq!(app.workbook.path(), Some(second.path.as_path()));
+    assert!(!app.workbook.is_dirty());
+    assert_eq!(std::fs::read(&first.path).unwrap(), before);
+}
