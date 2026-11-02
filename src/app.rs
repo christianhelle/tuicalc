@@ -234,7 +234,7 @@ impl App {
             Mode::Visual | Mode::VisualRow => self.visual_key(key),
             Mode::Command => self.command_key(key),
             Mode::ConfirmQuit => self.confirm_quit_key(key),
-            Mode::SaveDialog => {}
+            Mode::SaveDialog => self.save_dialog_key(key),
         }
         self.scroll_to_cursor();
     }
@@ -888,6 +888,12 @@ impl App {
                 self.status = format!("Save failed: {error}");
                 false
             }
+        }
+    }
+
+    fn save_dialog_key(&mut self, key: KeyEvent) {
+        if let Some(dialog) = &mut self.save_dialog {
+            dialog.handle_key(key);
         }
     }
 

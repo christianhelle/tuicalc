@@ -1453,3 +1453,46 @@ fn the_save_dialog_lists_the_parent_then_folders_then_workbooks() {
         ]
     );
 }
+
+fn highlighted(app: &App) -> Option<String> {
+    let dialog = app.save_dialog().unwrap();
+    dialog
+        .highlight()
+        .map(|index| dialog.entries()[index].label())
+}
+
+#[test]
+fn up_and_down_move_the_highlight_and_a_file_fills_in_the_name() {
+    let dir = save_folder();
+    let mut app = app_in_save_dialog(dir.path());
+    assert_eq!(highlighted(&app), None);
+
+    press(&mut app, KeyCode::Up);
+    assert_eq!(highlighted(&app).as_deref(), Some("z.xlsx"), "from the end");
+    assert_eq!(app.save_dialog().unwrap().name(), "z.xlsx");
+
+    press(&mut app, KeyCode::Down);
+    assert_eq!(
+        highlighted(&app).as_deref(),
+        Some("z.xlsx"),
+        "stops at the end"
+    );
+
+    press(&mut app, KeyCode::Up);
+    assert_eq!(highlighted(&app).as_deref(), Some("Y.XLSX"));
+    assert_eq!(app.save_dialog().unwrap().name(), "Y.XLSX");
+
+    for _ in 0..5 {
+        press(&mut app, KeyCode::Up);
+    }
+    assert_eq!(
+        highlighted(&app).as_deref(),
+        Some(".."),
+        "stops at the start"
+    );
+    assert_eq!(
+        app.save_dialog().unwrap().name(),
+        "Y.XLSX",
+        "folders leave the name alone"
+    );
+}

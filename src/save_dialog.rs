@@ -3,6 +3,8 @@
 use std::io;
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
+use crossterm::event::{KeyCode, KeyEvent};
+
 /// One line of the dialog's list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Entry {
@@ -25,6 +27,8 @@ impl Entry {
 pub struct SaveDialog {
     directory: PathBuf,
     entries: Vec<Entry>,
+    highlight: Option<usize>,
+    name: String,
 }
 
 impl SaveDialog {
@@ -32,6 +36,8 @@ impl SaveDialog {
         Self {
             directory: directory.to_path_buf(),
             entries: list_entries(directory).unwrap_or_default(),
+            highlight: None,
+            name: String::new(),
         }
     }
 
@@ -41,6 +47,38 @@ impl SaveDialog {
 
     pub fn entries(&self) -> &[Entry] {
         &self.entries
+    }
+
+    /// The position in the list of the highlighted line.
+    pub fn highlight(&self) -> Option<usize> {
+        self.highlight
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn handle_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Down => self.move_highlight(1),
+            KeyCode::Up => self.move_highlight(-1),
+            _ => {}
+        }
+    }
+
+    fn move_highlight(&mut self, offset: isize) {
+        let Some(last) = self.entries.len().checked_sub(1) else {
+            return;
+        };
+        let next = match self.highlight {
+            Some(index) => index.saturating_add_signed(offset).min(last),
+            None if offset > 0 => 0,
+            None => last,
+        };
+        self.highlight = Some(next);
+        if let Entry::File(name) = &self.entries[next] {
+            self.name = name.clone();
+        }
     }
 }
 
