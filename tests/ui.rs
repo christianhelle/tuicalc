@@ -640,6 +640,34 @@ fn the_save_dialog_shows_the_folder_list_and_name() {
 }
 
 #[test]
+fn the_file_dialog_has_a_yellow_border_and_coloured_key_hints() {
+    use ratatui::style::Color;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app_in_save_dialog(dir.path());
+
+    let screen = render(&mut app, 100, 30);
+    let top = screen
+        .iter()
+        .position(|line| line.contains("Save as"))
+        .unwrap();
+    let left = screen[top].chars().position(|c| c == '┌').unwrap() as u16;
+    let hint = screen
+        .iter()
+        .position(|line| line.contains("Enter save"))
+        .unwrap();
+    let enter = screen[hint].chars().position(|c| c == 'E').unwrap() as u16;
+    let esc = screen[hint].find("Esc").unwrap();
+    let esc = screen[hint][..esc].chars().count() as u16;
+
+    let terminal = terminal_for(&mut app, 100, 30);
+    let buffer = terminal.backend().buffer();
+    assert_eq!(buffer[(left, top as u16)].fg, Color::Yellow);
+    assert_eq!(buffer[(enter, hint as u16)].fg, Color::Yellow);
+    assert_eq!(buffer[(esc, hint as u16)].fg, Color::Cyan);
+}
+
+#[test]
 fn the_save_dialog_marks_the_highlighted_line() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("old.xlsx"), b"x").unwrap();

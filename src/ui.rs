@@ -4,6 +4,7 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear};
 use unicode_width::UnicodeWidthChar;
 
@@ -85,27 +86,23 @@ fn section_block(focused: bool, title: &str) -> Block<'static> {
 
 const FILE_DIALOG_WIDTH: u16 = 60;
 const FILE_DIALOG_LIST_ROWS: usize = 12;
-const SAVE_DIALOG_HINT: &str = "Enter save    Esc cancel";
-const OPEN_DIALOG_HINT: &str = "Enter open    Esc cancel";
 const FILE_DIALOG_NAME_LABEL: &str = "Name: ";
 
 /// Draws the dialog over the middle of the screen.
 fn draw_file_dialog(frame: &mut Frame, dialog: &FileDialog) {
     let area = frame.area();
     let list_rows = dialog.entries().len().clamp(1, FILE_DIALOG_LIST_ROWS) as u16;
-    let width = area.width.min(FILE_DIALOG_WIDTH);
-    let height = area.height.min(list_rows + 5);
-    let popup = Rect {
-        x: area.x + (area.width - width) / 2,
-        y: area.y + (area.height - height) / 2,
-        width,
-        height,
-    };
+    let popup = area.centered(
+        Constraint::Length(FILE_DIALOG_WIDTH),
+        Constraint::Length(list_rows + 5),
+    );
     let title = match dialog.kind() {
         DialogKind::Save => " Save as ",
         DialogKind::Open => " Open ",
     };
-    let block = Block::bordered().title(title);
+    let block = Block::bordered()
+        .border_style(Style::new().fg(Color::Yellow))
+        .title(title);
     let inner = block.inner(popup);
     frame.render_widget(Clear, popup);
     frame.render_widget(block, popup);
@@ -138,13 +135,7 @@ fn draw_file_dialog(frame: &mut Frame, dialog: &FileDialog) {
     let line = format!("{FILE_DIALOG_NAME_LABEL}{name}");
     buffer.set_stringn(inner.x, name_y, &line, room, Style::default());
     if show_hint {
-        buffer.set_stringn(
-            inner.x,
-            name_y + 1,
-            file_dialog_hint(dialog),
-            room,
-            Style::default(),
-        );
+        buffer.set_line(inner.x, name_y + 1, &file_dialog_hint(dialog), inner.width);
     }
     if dialog.pending_overwrite().is_none() {
         let chars: Vec<char> = line.chars().collect();
@@ -173,20 +164,26 @@ fn draw_file_dialog_list(buffer: &mut Buffer, inner: Rect, dialog: &FileDialog, 
     }
 }
 
-fn file_dialog_hint(dialog: &FileDialog) -> String {
+fn file_dialog_hint(dialog: &FileDialog) -> Line<'static> {
     if let Some(path) = dialog.pending_overwrite() {
         let name = path
             .file_name()
             .unwrap_or(path.as_os_str())
             .to_string_lossy();
-        format!("{name} exists. Overwrite? [y/n]")
+        Line::raw(format!("{name} exists. Overwrite? [y/n]"))
     } else if dialog.message().is_empty() {
-        match dialog.kind() {
-            DialogKind::Save => SAVE_DIALOG_HINT.to_string(),
-            DialogKind::Open => OPEN_DIALOG_HINT.to_string(),
-        }
+        let action = match dialog.kind() {
+            DialogKind::Save => " save   ",
+            DialogKind::Open => " open   ",
+        };
+        Line::from(vec![
+            Span::styled("Enter", Style::new().fg(Color::Yellow)),
+            Span::raw(action),
+            Span::styled("Esc", Style::new().fg(Color::Cyan)),
+            Span::raw(" cancel"),
+        ])
     } else {
-        dialog.message().to_string()
+        Line::styled(dialog.message().to_string(), Style::new().fg(Color::Red))
     }
 }
 
