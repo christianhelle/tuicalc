@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `YYYY-MM-DD`, in workbooks of either date system. Text is cut to the terminal
   width of its column, wide characters included. The column and row headers and
   the cursor are black on cyan, in homage to Lotus 1-2-3.
+- New workbooks: `tcalc` with no arguments opens a blank workbook. Saving it
+  opens a dialog for browsing folders and naming the file, which asks before
+  overwriting one, and `:w book.xlsx` saves straight to a new file.
 - Vim motions: tuicalc starts in normal mode. `h` `j` `k` `l` and the arrow keys
   move, and most motions take a count such as `5j`. `w`, `b` and `e` move between
   runs of filled cells in a row, `{` and `}` between gaps in a column. `0`, `^`
