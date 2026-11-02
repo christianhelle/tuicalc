@@ -72,6 +72,19 @@ impl Workbook {
         })
     }
 
+    /// An empty one-sheet workbook that isn't tied to a file yet.
+    pub fn blank() -> Result<Self, XlsxError> {
+        let source = writer::blank_package()?;
+        let (sheets, date1904, layout) = reader::read(&source)?;
+        Ok(Self {
+            sheets,
+            date1904,
+            path: PathBuf::new(),
+            source,
+            layout,
+        })
+    }
+
     pub fn is_dirty(&self) -> bool {
         self.sheets.iter().any(Sheet::is_dirty)
     }

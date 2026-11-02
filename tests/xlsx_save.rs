@@ -401,3 +401,13 @@ fn new_rows_before_an_existing_row_keep_their_own_order() {
     );
     assert!(saved.contains(expected), "{saved}");
 }
+
+#[test]
+fn a_blank_workbook_has_one_empty_sheet_and_nothing_to_save() {
+    let book = Workbook::blank().unwrap();
+    assert_eq!(book.sheets.len(), 1);
+    assert_eq!(book.sheets[0].name, "Sheet1");
+    assert_eq!(book.sheets[0].extent(), None);
+    assert!(!book.date1904);
+    assert!(!book.is_dirty());
+}
