@@ -37,8 +37,16 @@ pub enum DialogAction {
     Cancel,
 }
 
+/// What the dialog is choosing a file for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DialogKind {
+    Save,
+    Open,
+}
+
 #[derive(Debug)]
 pub struct FileDialog {
+    kind: DialogKind,
     directory: PathBuf,
     entries: Vec<Entry>,
     highlight: Option<usize>,
@@ -49,7 +57,7 @@ pub struct FileDialog {
 }
 
 impl FileDialog {
-    pub fn open(directory: &Path) -> Self {
+    pub fn new(kind: DialogKind, directory: &Path) -> Self {
         let (entries, message) = match list_entries(directory) {
             Ok(entries) => (entries, String::new()),
             Err(error) => (
@@ -62,6 +70,7 @@ impl FileDialog {
             ),
         };
         Self {
+            kind,
             directory: directory.to_path_buf(),
             entries,
             highlight: None,
@@ -69,6 +78,10 @@ impl FileDialog {
             message,
             overwrite: None,
         }
+    }
+
+    pub fn kind(&self) -> DialogKind {
+        self.kind
     }
 
     pub fn directory(&self) -> &Path {

@@ -6,6 +6,7 @@ use common::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use tuicalc::address::CellRef;
 use tuicalc::app::{App, Mode};
+use tuicalc::file_dialog::DialogKind;
 use tuicalc::model::{Cell, CellValue};
 use tuicalc::xlsx::Workbook;
 
@@ -1936,4 +1937,66 @@ fn e_bang_with_a_name_discards_unsaved_edits() {
     assert_eq!(app.workbook.path(), Some(second.path.as_path()));
     assert!(!app.workbook.is_dirty());
     assert_eq!(std::fs::read(&first.path).unwrap(), before);
+}
+
+/// A folder with a workbook holding 42 in A1, and a file that isn't really a workbook.
+fn open_folder() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let good = other_workbook();
+    std::fs::copy(&good.path, dir.path().join("good.xlsx")).unwrap();
+    std::fs::write(dir.path().join("broken.xlsx"), b"not a workbook").unwrap();
+    dir
+}
+
+#[test]
+fn e_and_ctrl_o_open_the_dialog_for_choosing_a_file() {
+    let dir = open_folder();
+    let open_with_e = |app: &mut App| run(app, "e");
+    let open_with_ctrl_o = |app: &mut App| ctrl(app, KeyCode::Char('o'));
+    let openers: [&dyn Fn(&mut App); 2] = [&open_with_e, &open_with_ctrl_o];
+    for open in openers {
+        let mut app = blank_app();
+        app.set_dialog_directory(dir.path());
+        open(&mut app);
+        assert_eq!(app.mode(), Mode::FileDialog);
+        assert_eq!(app.file_dialog().unwrap().kind(), DialogKind::Open);
+    }
+}
+
+#[test]
+fn saving_still_opens_the_dialog_for_saving() {
+    let dir = open_folder();
+    let app = app_in_save_dialog(dir.path());
+    assert_eq!(app.file_dialog().unwrap().kind(), DialogKind::Save);
+}
+
+#[test]
+fn e_and_ctrl_o_refuse_while_there_are_unsaved_edits() {
+    let (_file, mut app) = app_with("");
+    enter_value(&mut app, "5");
+
+    run(&mut app, "e");
+    assert!(app.status().starts_with("E37"), "{}", app.status());
+    assert_eq!(app.mode(), Mode::Normal);
+
+    ctrl(&mut app, KeyCode::Char('o'));
+    assert!(app.status().starts_with("E37"), "{}", app.status());
+    assert_eq!(app.mode(), Mode::Normal);
+}
+
+#[test]
+fn e_bang_opens_the_dialog_and_cancelling_keeps_the_edits() {
+    let dir = open_folder();
+    let (file, mut app) = app_with("");
+    app.set_dialog_directory(dir.path());
+    enter_value(&mut app, "5");
+
+    run(&mut app, "e!");
+    assert_eq!(app.mode(), Mode::FileDialog);
+
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(app.workbook.is_dirty());
+    assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
+    assert_eq!(app.workbook.path(), Some(file.path.as_path()));
 }

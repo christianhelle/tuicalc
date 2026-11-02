@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
-use crate::file_dialog::{DialogAction, FileDialog, with_default_extension};
+use crate::file_dialog::{DialogAction, DialogKind, FileDialog, with_default_extension};
 use crate::formula::translate;
 use crate::model::{Cell, CellValue, Sheet};
 use crate::text::{edit_text, parse_input};
@@ -783,6 +783,7 @@ impl App {
             KeyCode::Char('s') if ctrl => {
                 self.save();
             }
+            KeyCode::Char('o') if ctrl => self.choose_file_to_open(),
             KeyCode::Char('z') if ctrl => self.undo(),
             KeyCode::Char('y') if ctrl => self.redo(),
             KeyCode::Delete | KeyCode::Backspace => {
@@ -883,8 +884,7 @@ impl App {
     /// Saves and reports the outcome; returns whether the file is now up to date.
     fn save(&mut self) -> bool {
         if self.workbook.path().is_none() {
-            self.file_dialog = Some(FileDialog::open(&self.dialog_directory));
-            self.mode = Mode::FileDialog;
+            self.open_file_dialog(DialogKind::Save);
             return false;
         }
         match self.workbook.save() {
@@ -897,6 +897,11 @@ impl App {
                 false
             }
         }
+    }
+
+    fn open_file_dialog(&mut self, kind: DialogKind) {
+        self.file_dialog = Some(FileDialog::new(kind, &self.dialog_directory));
+        self.mode = Mode::FileDialog;
     }
 
     fn file_dialog_key(&mut self, key: KeyEvent) {
@@ -948,6 +953,13 @@ impl App {
             self.status = "E37: No write since last change (add ! to override)".into();
         }
         dirty
+    }
+
+    /// `:e` and `Ctrl+O`.
+    fn choose_file_to_open(&mut self) {
+        if !self.refuse_if_dirty() {
+            self.open_file_dialog(DialogKind::Open);
+        }
     }
 
     fn open_named(&mut self, name: &str) {
@@ -1125,6 +1137,8 @@ impl App {
                 self.save();
             }
             "q" if self.refuse_if_dirty() => {}
+            "e" => self.choose_file_to_open(),
+            "e!" => self.open_file_dialog(DialogKind::Open),
             "q" | "q!" => self.should_quit = true,
             "wq" => self.save_and_quit(),
             "x" => self.save_if_edited_and_quit(),
