@@ -9,7 +9,7 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::address::{CellRef, column_name};
 use crate::app::{App, Mode};
-use crate::save_dialog::SaveDialog;
+use crate::file_dialog::FileDialog;
 use crate::text::{display_text, edit_text, is_right_aligned};
 
 /// The header bars and the cursor, as a nod to Lotus 1-2-3. The colors are exact because a terminal
@@ -44,21 +44,21 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         let x = status.x + 1 + text_width(&chars[..app.caret()]) as u16;
         frame.set_cursor_position((x.min(status.right().saturating_sub(1)), status.y));
     }
-    if let Some(dialog) = app.save_dialog() {
-        draw_save_dialog(frame, dialog);
+    if let Some(dialog) = app.file_dialog() {
+        draw_file_dialog(frame, dialog);
     }
 }
 
-const SAVE_DIALOG_WIDTH: u16 = 60;
-const SAVE_DIALOG_LIST_ROWS: usize = 12;
-const SAVE_DIALOG_HINT: &str = "Enter save    Esc cancel";
-const SAVE_DIALOG_NAME_LABEL: &str = "Name: ";
+const FILE_DIALOG_WIDTH: u16 = 60;
+const FILE_DIALOG_LIST_ROWS: usize = 12;
+const FILE_DIALOG_HINT: &str = "Enter save    Esc cancel";
+const FILE_DIALOG_NAME_LABEL: &str = "Name: ";
 
 /// Draws the dialog over the middle of the screen.
-fn draw_save_dialog(frame: &mut Frame, dialog: &SaveDialog) {
+fn draw_file_dialog(frame: &mut Frame, dialog: &FileDialog) {
     let area = frame.area();
-    let list_rows = dialog.entries().len().clamp(1, SAVE_DIALOG_LIST_ROWS) as u16;
-    let width = area.width.min(SAVE_DIALOG_WIDTH);
+    let list_rows = dialog.entries().len().clamp(1, FILE_DIALOG_LIST_ROWS) as u16;
+    let width = area.width.min(FILE_DIALOG_WIDTH);
     let height = area.height.min(list_rows + 5);
     let popup = Rect {
         x: area.x + (area.width - width) / 2,
@@ -90,19 +90,19 @@ fn draw_save_dialog(frame: &mut Frame, dialog: &SaveDialog) {
             Style::default(),
         );
     }
-    draw_save_dialog_list(buffer, inner, dialog, list_rows);
+    draw_file_dialog_list(buffer, inner, dialog, list_rows);
 
     let name_y = inner.y + u16::from(show_path) + list_rows;
-    let label_width = SAVE_DIALOG_NAME_LABEL.len();
+    let label_width = FILE_DIALOG_NAME_LABEL.len();
     // One cell stays free for the terminal cursor after the name.
     let name = keep_end(dialog.name(), room.saturating_sub(label_width + 1));
-    let line = format!("{SAVE_DIALOG_NAME_LABEL}{name}");
+    let line = format!("{FILE_DIALOG_NAME_LABEL}{name}");
     buffer.set_stringn(inner.x, name_y, &line, room, Style::default());
     if show_hint {
         buffer.set_stringn(
             inner.x,
             name_y + 1,
-            save_dialog_hint(dialog),
+            file_dialog_hint(dialog),
             room,
             Style::default(),
         );
@@ -115,7 +115,7 @@ fn draw_save_dialog(frame: &mut Frame, dialog: &SaveDialog) {
 }
 
 /// Draws as much of the list as fits, starting late enough to show the highlight.
-fn draw_save_dialog_list(buffer: &mut Buffer, inner: Rect, dialog: &SaveDialog, rows: u16) {
+fn draw_file_dialog_list(buffer: &mut Buffer, inner: Rect, dialog: &FileDialog, rows: u16) {
     let room = usize::from(inner.width);
     let first = dialog.highlight().map_or(0, |highlight| {
         (highlight + 1).saturating_sub(usize::from(rows))
@@ -134,7 +134,7 @@ fn draw_save_dialog_list(buffer: &mut Buffer, inner: Rect, dialog: &SaveDialog, 
     }
 }
 
-fn save_dialog_hint(dialog: &SaveDialog) -> String {
+fn file_dialog_hint(dialog: &FileDialog) -> String {
     if let Some(path) = dialog.pending_overwrite() {
         let name = path
             .file_name()
@@ -142,7 +142,7 @@ fn save_dialog_hint(dialog: &SaveDialog) -> String {
             .to_string_lossy();
         format!("{name} exists. Overwrite? [y/n]")
     } else if dialog.message().is_empty() {
-        SAVE_DIALOG_HINT.to_string()
+        FILE_DIALOG_HINT.to_string()
     } else {
         dialog.message().to_string()
     }
@@ -275,7 +275,7 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         Mode::VisualRow => ("V-LINE", VISUAL_HELP),
         Mode::ConfirmQuit => ("NORMAL", CONFIRM_QUIT),
         Mode::Command => ("COMMAND", ""),
-        Mode::SaveDialog => ("SAVE", "Choose a folder and a name"),
+        Mode::FileDialog => ("SAVE", "Choose a folder and a name"),
     };
     let message = if app.status().is_empty() || app.mode() == Mode::ConfirmQuit {
         hint

@@ -1,4 +1,4 @@
-//! The file save dialog: choosing a folder and a name for a workbook that has no file yet.
+//! The file dialog: browsing folders to choose a file to save to or open.
 
 use std::io;
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
@@ -38,7 +38,7 @@ pub enum DialogAction {
 }
 
 #[derive(Debug)]
-pub struct SaveDialog {
+pub struct FileDialog {
     directory: PathBuf,
     entries: Vec<Entry>,
     highlight: Option<usize>,
@@ -48,7 +48,7 @@ pub struct SaveDialog {
     overwrite: Option<PathBuf>,
 }
 
-impl SaveDialog {
+impl FileDialog {
     pub fn open(directory: &Path) -> Self {
         let (entries, message) = match list_entries(directory) {
             Ok(entries) => (entries, String::new()),

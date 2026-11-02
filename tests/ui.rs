@@ -448,7 +448,7 @@ fn a_blank_workbook_shows_no_name_on_the_status_line() {
 /// A blank workbook with its save dialog open in `dir`.
 fn app_in_save_dialog(dir: &std::path::Path) -> App {
     let mut app = App::new(Workbook::blank().unwrap());
-    app.set_save_directory(dir);
+    app.set_dialog_directory(dir);
     app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
     app
 }

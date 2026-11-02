@@ -1393,7 +1393,7 @@ fn w_with_a_name_is_refused_on_an_opened_workbook() {
 /// A blank workbook whose save dialog starts in `dir`, with the dialog open.
 fn app_in_save_dialog(dir: &Path) -> App {
     let mut app = blank_app();
-    app.set_save_directory(dir);
+    app.set_dialog_directory(dir);
     ctrl(&mut app, KeyCode::Char('s'));
     app
 }
@@ -1403,13 +1403,13 @@ fn saving_a_blank_workbook_without_a_name_opens_the_save_dialog() {
     let dir = tempfile::tempdir().unwrap();
 
     let app = app_in_save_dialog(dir.path());
-    assert_eq!(app.mode(), Mode::SaveDialog);
-    assert_eq!(app.save_dialog().unwrap().directory(), dir.path());
+    assert_eq!(app.mode(), Mode::FileDialog);
+    assert_eq!(app.file_dialog().unwrap().directory(), dir.path());
 
     let mut app = blank_app();
-    app.set_save_directory(dir.path());
+    app.set_dialog_directory(dir.path());
     run(&mut app, "w");
-    assert_eq!(app.mode(), Mode::SaveDialog);
+    assert_eq!(app.mode(), Mode::FileDialog);
 }
 
 #[test]
@@ -1418,7 +1418,7 @@ fn saving_an_opened_workbook_never_opens_the_save_dialog() {
     enter_value(&mut app, "5");
     ctrl(&mut app, KeyCode::Char('s'));
     assert_eq!(app.mode(), Mode::Normal);
-    assert!(app.save_dialog().is_none());
+    assert!(app.file_dialog().is_none());
 }
 
 /// A folder holding two subfolders, two workbooks and a file the dialog should hide.
@@ -1433,7 +1433,7 @@ fn save_folder() -> tempfile::TempDir {
 }
 
 fn listed(app: &App) -> Vec<String> {
-    let dialog = app.save_dialog().unwrap();
+    let dialog = app.file_dialog().unwrap();
     dialog.entries().iter().map(|entry| entry.label()).collect()
 }
 
@@ -1455,7 +1455,7 @@ fn the_save_dialog_lists_the_parent_then_folders_then_workbooks() {
 }
 
 fn highlighted(app: &App) -> Option<String> {
-    let dialog = app.save_dialog().unwrap();
+    let dialog = app.file_dialog().unwrap();
     dialog
         .highlight()
         .map(|index| dialog.entries()[index].label())
@@ -1469,7 +1469,7 @@ fn up_and_down_move_the_highlight_and_a_file_fills_in_the_name() {
 
     press(&mut app, KeyCode::Up);
     assert_eq!(highlighted(&app).as_deref(), Some("z.xlsx"), "from the end");
-    assert_eq!(app.save_dialog().unwrap().name(), "z.xlsx");
+    assert_eq!(app.file_dialog().unwrap().name(), "z.xlsx");
 
     press(&mut app, KeyCode::Down);
     assert_eq!(
@@ -1480,7 +1480,7 @@ fn up_and_down_move_the_highlight_and_a_file_fills_in_the_name() {
 
     press(&mut app, KeyCode::Up);
     assert_eq!(highlighted(&app).as_deref(), Some("Y.XLSX"));
-    assert_eq!(app.save_dialog().unwrap().name(), "Y.XLSX");
+    assert_eq!(app.file_dialog().unwrap().name(), "Y.XLSX");
 
     for _ in 0..5 {
         press(&mut app, KeyCode::Up);
@@ -1491,7 +1491,7 @@ fn up_and_down_move_the_highlight_and_a_file_fills_in_the_name() {
         "stops at the start"
     );
     assert_eq!(
-        app.save_dialog().unwrap().name(),
+        app.file_dialog().unwrap().name(),
         "Y.XLSX",
         "folders leave the name alone"
     );
@@ -1506,7 +1506,7 @@ fn enter_opens_a_highlighted_folder_or_the_parent() {
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Enter);
     assert_eq!(
-        app.save_dialog().unwrap().directory(),
+        app.file_dialog().unwrap().directory(),
         dir.path().join("A-folder")
     );
     assert_eq!(listed(&app), [".."]);
@@ -1514,7 +1514,7 @@ fn enter_opens_a_highlighted_folder_or_the_parent() {
 
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Enter);
-    assert_eq!(app.save_dialog().unwrap().directory(), dir.path());
+    assert_eq!(app.file_dialog().unwrap().directory(), dir.path());
     assert_eq!(listed(&app).len(), 5);
 }
 
@@ -1524,17 +1524,17 @@ fn typing_edits_the_name_and_removes_the_highlight() {
     let mut app = app_in_save_dialog(dir.path());
 
     type_text(&mut app, "jk");
-    assert_eq!(app.save_dialog().unwrap().name(), "jk", "letters are text");
+    assert_eq!(app.file_dialog().unwrap().name(), "jk", "letters are text");
     assert_eq!(highlighted(&app), None);
 
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Backspace);
-    assert_eq!(app.save_dialog().unwrap().name(), "j");
+    assert_eq!(app.file_dialog().unwrap().name(), "j");
     assert_eq!(highlighted(&app), None);
 
     press(&mut app, KeyCode::Down);
     type_text(&mut app, "x");
-    assert_eq!(app.save_dialog().unwrap().name(), "jx");
+    assert_eq!(app.file_dialog().unwrap().name(), "jx");
     assert_eq!(highlighted(&app), None);
 }
 
@@ -1543,14 +1543,14 @@ fn enter_saves_the_name_in_the_current_folder_and_closes_the_dialog() {
     let dir = save_folder();
     let mut app = blank_app();
     enter_value(&mut app, "5");
-    app.set_save_directory(dir.path());
+    app.set_dialog_directory(dir.path());
     ctrl(&mut app, KeyCode::Char('s'));
 
     type_text(&mut app, "budget");
     press(&mut app, KeyCode::Enter);
 
     assert_eq!(app.mode(), Mode::Normal);
-    assert!(app.save_dialog().is_none());
+    assert!(app.file_dialog().is_none());
     assert_eq!(app.status(), "Saved budget.xlsx");
     assert!(!app.workbook.is_dirty());
     assert!(!app.should_quit());
@@ -1584,12 +1584,12 @@ fn an_empty_name_is_refused_with_a_message() {
     type_text(&mut app, "  ");
     press(&mut app, KeyCode::Enter);
 
-    assert_eq!(app.mode(), Mode::SaveDialog);
-    assert_eq!(app.save_dialog().unwrap().message(), "Enter a file name");
+    assert_eq!(app.mode(), Mode::FileDialog);
+    assert_eq!(app.file_dialog().unwrap().message(), "Enter a file name");
 
     type_text(&mut app, "a");
     assert_eq!(
-        app.save_dialog().unwrap().message(),
+        app.file_dialog().unwrap().message(),
         "",
         "the next key clears it"
     );
@@ -1603,25 +1603,25 @@ fn an_existing_file_asks_before_it_is_overwritten() {
 
     press(&mut app, KeyCode::Up);
     press(&mut app, KeyCode::Enter);
-    let dialog = app.save_dialog().unwrap();
+    let dialog = app.file_dialog().unwrap();
     assert_eq!(dialog.pending_overwrite(), Some(target.as_path()));
     assert_eq!(std::fs::read(&target).unwrap(), b"z", "nothing written yet");
 
     press(&mut app, KeyCode::Char('q'));
     assert!(
-        app.save_dialog().unwrap().pending_overwrite().is_some(),
+        app.file_dialog().unwrap().pending_overwrite().is_some(),
         "other keys keep asking"
     );
-    assert_eq!(app.save_dialog().unwrap().name(), "z.xlsx");
+    assert_eq!(app.file_dialog().unwrap().name(), "z.xlsx");
 
     press(&mut app, KeyCode::Char('n'));
-    assert_eq!(app.save_dialog().unwrap().pending_overwrite(), None);
-    assert_eq!(app.mode(), Mode::SaveDialog);
+    assert_eq!(app.file_dialog().unwrap().pending_overwrite(), None);
+    assert_eq!(app.mode(), Mode::FileDialog);
 
     press(&mut app, KeyCode::Enter);
     press(&mut app, KeyCode::Esc);
-    assert_eq!(app.save_dialog().unwrap().pending_overwrite(), None);
-    assert_eq!(app.mode(), Mode::SaveDialog, "Esc goes back to the dialog");
+    assert_eq!(app.file_dialog().unwrap().pending_overwrite(), None);
+    assert_eq!(app.mode(), Mode::FileDialog, "Esc goes back to the dialog");
     assert_eq!(std::fs::read(&target).unwrap(), b"z");
 
     press(&mut app, KeyCode::Enter);
@@ -1640,14 +1640,14 @@ fn esc_and_ctrl_c_close_the_save_dialog_and_keep_the_edits() {
     ] {
         let mut app = blank_app();
         enter_value(&mut app, "5");
-        app.set_save_directory(dir.path());
+        app.set_dialog_directory(dir.path());
         ctrl(&mut app, KeyCode::Char('s'));
         type_text(&mut app, "cancelled");
 
         app.handle_key(cancel);
 
         assert_eq!(app.mode(), Mode::Normal);
-        assert!(app.save_dialog().is_none());
+        assert!(app.file_dialog().is_none());
         assert!(app.workbook.is_dirty());
         assert_eq!(
             app.current_sheet().cell(a1("A1")).value,
@@ -1667,7 +1667,7 @@ fn a_folder_that_cannot_be_read_shows_an_error_and_stays_put() {
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Enter);
 
-    let dialog = app.save_dialog().unwrap();
+    let dialog = app.file_dialog().unwrap();
     assert_eq!(dialog.directory(), dir.path());
     assert!(!dialog.message().is_empty());
 }
@@ -1677,7 +1677,7 @@ fn a_start_folder_that_cannot_be_read_shows_an_error_and_offers_the_parent() {
     let dir = tempfile::tempdir().unwrap();
     let app = app_in_save_dialog(&dir.path().join("missing"));
 
-    assert!(!app.save_dialog().unwrap().message().is_empty());
+    assert!(!app.file_dialog().unwrap().message().is_empty());
     assert_eq!(listed(&app), [".."]);
 }
 
@@ -1689,8 +1689,8 @@ fn a_failed_save_shows_the_error_and_leaves_the_dialog_open() {
     type_text(&mut app, "no-such-folder/book.xlsx");
     press(&mut app, KeyCode::Enter);
 
-    assert_eq!(app.mode(), Mode::SaveDialog);
-    let message = app.save_dialog().unwrap().message();
+    assert_eq!(app.mode(), Mode::FileDialog);
+    let message = app.file_dialog().unwrap().message();
     assert!(message.starts_with("Save failed"), "{message}");
     assert_eq!(app.file_name(), "[No Name]");
 }
@@ -1707,10 +1707,10 @@ fn wq_and_the_quit_prompt_quit_once_the_dialog_has_saved() {
     for (index, open) in openers.into_iter().enumerate() {
         let mut app = blank_app();
         enter_value(&mut app, "5");
-        app.set_save_directory(dir.path());
+        app.set_dialog_directory(dir.path());
 
         open(&mut app);
-        assert_eq!(app.mode(), Mode::SaveDialog);
+        assert_eq!(app.mode(), Mode::FileDialog);
         assert!(!app.should_quit());
 
         type_text(&mut app, &format!("quit{index}"));
@@ -1724,7 +1724,7 @@ fn cancelling_the_dialog_cancels_the_quit_too() {
     let dir = save_folder();
     let mut app = blank_app();
     enter_value(&mut app, "5");
-    app.set_save_directory(dir.path());
+    app.set_dialog_directory(dir.path());
 
     run(&mut app, "wq");
     press(&mut app, KeyCode::Esc);
@@ -1733,7 +1733,7 @@ fn cancelling_the_dialog_cancels_the_quit_too() {
     ctrl(&mut app, KeyCode::Char('s'));
     type_text(&mut app, "later");
     press(&mut app, KeyCode::Enter);
-    assert!(app.save_dialog().is_none());
+    assert!(app.file_dialog().is_none());
     assert!(!app.should_quit(), "a plain save afterwards doesn't quit");
 }
 
@@ -1741,14 +1741,14 @@ fn cancelling_the_dialog_cancels_the_quit_too() {
 fn a_failed_save_in_the_dialog_does_not_quit() {
     let dir = save_folder();
     let mut app = blank_app();
-    app.set_save_directory(dir.path());
+    app.set_dialog_directory(dir.path());
     run(&mut app, "wq");
 
     type_text(&mut app, "no-such-folder/book.xlsx");
     press(&mut app, KeyCode::Enter);
 
     assert!(!app.should_quit());
-    assert_eq!(app.mode(), Mode::SaveDialog);
+    assert_eq!(app.mode(), Mode::FileDialog);
 }
 
 #[test]
@@ -1756,12 +1756,12 @@ fn zz_and_x_quit_a_blank_workbook_with_no_edits() {
     let mut app = blank_app();
     keys(&mut app, "ZZ");
     assert!(app.should_quit());
-    assert!(app.save_dialog().is_none());
+    assert!(app.file_dialog().is_none());
 
     let mut app = blank_app();
     run(&mut app, "x");
     assert!(app.should_quit());
-    assert!(app.save_dialog().is_none());
+    assert!(app.file_dialog().is_none());
 }
 
 #[test]
@@ -1769,15 +1769,15 @@ fn zz_and_x_open_the_dialog_for_a_blank_workbook_with_edits() {
     let dir = save_folder();
     let mut app = blank_app();
     enter_value(&mut app, "5");
-    app.set_save_directory(dir.path());
+    app.set_dialog_directory(dir.path());
 
     keys(&mut app, "ZZ");
-    assert_eq!(app.mode(), Mode::SaveDialog);
+    assert_eq!(app.mode(), Mode::FileDialog);
     assert!(!app.should_quit());
     press(&mut app, KeyCode::Esc);
 
     run(&mut app, "x");
-    assert_eq!(app.mode(), Mode::SaveDialog);
+    assert_eq!(app.mode(), Mode::FileDialog);
     type_text(&mut app, "kept");
     press(&mut app, KeyCode::Enter);
     assert!(app.should_quit());
@@ -1787,9 +1787,9 @@ fn zz_and_x_open_the_dialog_for_a_blank_workbook_with_edits() {
 fn wq_opens_the_dialog_for_a_blank_workbook_with_no_edits() {
     let dir = save_folder();
     let mut app = blank_app();
-    app.set_save_directory(dir.path());
+    app.set_dialog_directory(dir.path());
 
     run(&mut app, "wq");
-    assert_eq!(app.mode(), Mode::SaveDialog);
+    assert_eq!(app.mode(), Mode::FileDialog);
     assert!(!app.should_quit());
 }

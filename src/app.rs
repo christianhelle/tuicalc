@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
+use crate::file_dialog::{DialogAction, FileDialog, with_default_extension};
 use crate::formula::translate;
 use crate::model::{Cell, CellValue, Sheet};
-use crate::save_dialog::{DialogAction, SaveDialog, with_default_extension};
 use crate::text::{edit_text, parse_input};
 use crate::xlsx::{Workbook, XlsxError};
 
@@ -25,7 +25,7 @@ pub enum Mode {
     /// Waiting for the user to decide what happens to unsaved edits.
     ConfirmQuit,
     /// Choosing where to save a workbook that has no file yet.
-    SaveDialog,
+    FileDialog,
 }
 
 /// Plain characters, plus AltGr combinations, which Windows reports as Ctrl+Alt.
@@ -90,10 +90,10 @@ pub struct App {
     /// The operator waiting for its motion, and where it started.
     operator: Option<(char, CellRef)>,
     operator_count: Option<u32>,
-    save_dialog: Option<SaveDialog>,
-    /// Where the save dialog starts.
-    save_directory: PathBuf,
-    /// Whether to quit once the save dialog has saved.
+    file_dialog: Option<FileDialog>,
+    /// Where the file dialog starts.
+    dialog_directory: PathBuf,
+    /// Whether to quit once the file dialog has saved.
     quit_after_save: bool,
 }
 
@@ -109,9 +109,9 @@ impl App {
             register: None,
             operator: None,
             operator_count: None,
-            save_dialog: None,
+            file_dialog: None,
             quit_after_save: false,
-            save_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            dialog_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             workbook,
             sheet: 0,
             cursor: CellRef { col: 0, row: 0 },
@@ -127,13 +127,13 @@ impl App {
         }
     }
 
-    pub fn set_save_directory(&mut self, directory: &Path) {
-        self.save_directory = directory.to_path_buf();
+    pub fn set_dialog_directory(&mut self, directory: &Path) {
+        self.dialog_directory = directory.to_path_buf();
     }
 
-    /// The save dialog, while it's open.
-    pub fn save_dialog(&self) -> Option<&SaveDialog> {
-        self.save_dialog.as_ref()
+    /// The file dialog, while it's open.
+    pub fn file_dialog(&self) -> Option<&FileDialog> {
+        self.file_dialog.as_ref()
     }
 
     pub fn cursor(&self) -> CellRef {
@@ -227,7 +227,7 @@ impl App {
             Mode::Visual | Mode::VisualRow => self.visual_key(key),
             Mode::Command => self.command_key(key),
             Mode::ConfirmQuit => self.confirm_quit_key(key),
-            Mode::SaveDialog => self.save_dialog_key(key),
+            Mode::FileDialog => self.file_dialog_key(key),
         }
         self.scroll_to_cursor();
     }
@@ -874,7 +874,7 @@ impl App {
         }
     }
 
-    /// Saves and quits, leaving the quit to the save dialog if the file needs a name.
+    /// Saves and quits, leaving the quit to the file dialog if the file needs a name.
     fn save_and_quit(&mut self) {
         self.quit_after_save = self.workbook.path().is_none();
         self.should_quit = self.save();
@@ -883,8 +883,8 @@ impl App {
     /// Saves and reports the outcome; returns whether the file is now up to date.
     fn save(&mut self) -> bool {
         if self.workbook.path().is_none() {
-            self.save_dialog = Some(SaveDialog::open(&self.save_directory));
-            self.mode = Mode::SaveDialog;
+            self.file_dialog = Some(FileDialog::open(&self.dialog_directory));
+            self.mode = Mode::FileDialog;
             return false;
         }
         match self.workbook.save() {
@@ -899,15 +899,15 @@ impl App {
         }
     }
 
-    fn save_dialog_key(&mut self, key: KeyEvent) {
-        let Some(dialog) = &mut self.save_dialog else {
+    fn file_dialog_key(&mut self, key: KeyEvent) {
+        let Some(dialog) = &mut self.file_dialog else {
             return;
         };
         match dialog.handle_key(key) {
             DialogAction::Stay => {}
             DialogAction::Cancel => {
                 self.quit_after_save = false;
-                self.close_save_dialog();
+                self.close_file_dialog();
             }
             DialogAction::Save(path) => {
                 let result = self.workbook.save_as(path);
@@ -924,20 +924,20 @@ impl App {
     fn finish_dialog_save(&mut self, result: Result<(), XlsxError>) {
         match result {
             Ok(()) => {
-                self.close_save_dialog();
+                self.close_file_dialog();
                 self.status = format!("Saved {}", self.file_name());
                 self.should_quit = self.quit_after_save;
             }
             Err(error) => {
-                if let Some(dialog) = &mut self.save_dialog {
+                if let Some(dialog) = &mut self.file_dialog {
                     dialog.set_message(format!("Save failed: {error}"));
                 }
             }
         }
     }
 
-    fn close_save_dialog(&mut self) {
-        self.save_dialog = None;
+    fn close_file_dialog(&mut self) {
+        self.file_dialog = None;
         self.mode = Mode::Normal;
     }
 
