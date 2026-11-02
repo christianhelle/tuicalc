@@ -1347,3 +1347,29 @@ fn w_with_a_name_refuses_an_existing_file() {
     assert_eq!(app.file_name(), "[No Name]");
     assert_eq!(std::fs::read(&file.path).unwrap(), b"precious");
 }
+
+#[test]
+fn wq_and_x_with_a_name_save_and_quit() {
+    for verb in ["wq", "x"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new.xlsx");
+        let mut app = blank_app();
+        enter_value(&mut app, "5");
+
+        run(&mut app, &format!("{verb} {}", path.display()));
+
+        assert!(app.should_quit(), "{verb}");
+        assert!(path.exists(), "{verb}");
+    }
+}
+
+#[test]
+fn wq_with_a_name_stays_open_if_the_save_fails() {
+    let file = write_temp(b"precious");
+    let mut app = blank_app();
+
+    run(&mut app, &format!("wq {}", file.path.display()));
+
+    assert!(!app.should_quit());
+    assert!(app.status().starts_with("Save failed"), "{}", app.status());
+}

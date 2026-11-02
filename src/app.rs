@@ -991,9 +991,16 @@ impl App {
     }
 
     fn run_command(&mut self, command: &str) {
-        if let Some(("w", name)) = command.split_once(' ') {
-            self.save_named(name.trim());
-            return;
+        match command.split_once(' ') {
+            Some(("w", name)) => {
+                self.save_named(name.trim());
+                return;
+            }
+            Some(("wq" | "x", name)) => {
+                self.should_quit = self.save_named(name.trim());
+                return;
+            }
+            _ => {}
         }
         match command {
             "" => {}
