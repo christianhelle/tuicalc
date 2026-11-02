@@ -105,3 +105,18 @@ fn used_extent_covers_populated_cells() {
     sheet.load_cell(a1("A5"), Cell::value(CellValue::Number(1.0)));
     assert_eq!(sheet.extent(), Some(a1("C5")));
 }
+
+#[test]
+fn a_copy_of_a_sheet_keeps_its_cells_when_the_original_changes() {
+    let mut sheet = Sheet::new("Data");
+    sheet.load_cell(a1("A1"), Cell::value(CellValue::Number(1.0)));
+    let copy = sheet.clone();
+
+    sheet.set_cell(a1("A1"), Cell::value(CellValue::Number(2.0)));
+    sheet.set_cell(a1("B1"), Cell::value(CellValue::Number(3.0)));
+
+    assert_eq!(copy.cell(a1("A1")).value, CellValue::Number(1.0));
+    assert!(!copy.has_cell(a1("B1")));
+    assert!(!copy.is_dirty());
+    assert_eq!(sheet.cell(a1("A1")).value, CellValue::Number(2.0));
+}
