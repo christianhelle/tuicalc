@@ -439,7 +439,7 @@ fn save_as_keeps_numbers_text_and_formulas() {
     let path = dir.path().join("new.xlsx");
     let mut book = Workbook::blank().unwrap();
     let text = Cell::value(CellValue::Text("hello".into()));
-    let formula = Cell::formula("A1+1".into());
+    let formula = Cell::formula("A1+1");
     book.sheets[0].set_cell(a1("A1"), number(5.0));
     book.sheets[0].set_cell(a1("B2"), text.clone());
     book.sheets[0].set_cell(a1("C3"), formula.clone());
