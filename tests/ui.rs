@@ -1179,3 +1179,52 @@ fn the_open_dialog_is_labelled_for_opening() {
         status_line(&screen)
     );
 }
+
+#[test]
+fn the_status_line_says_a_save_is_running_and_what_follows_it() {
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('s'));
+    press(&mut app, KeyCode::Char('5'));
+    press(&mut app, KeyCode::Enter);
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    let screen = render(&mut app, 80, 14);
+    assert!(
+        status_line(&screen).starts_with(" NORMAL  Saving book.xlsx…"),
+        "{}",
+        status_line(&screen)
+    );
+
+    press(&mut app, KeyCode::Char('x'));
+    let screen = render(&mut app, 80, 14);
+    assert!(
+        status_line(&screen).starts_with(" NORMAL  Still saving"),
+        "{}",
+        status_line(&screen)
+    );
+
+    press(&mut app, KeyCode::Char('q'));
+    let screen = render(&mut app, 80, 14);
+    assert!(
+        status_line(&screen).starts_with(" NORMAL  Saving book.xlsx… then quitting"),
+        "{}",
+        status_line(&screen)
+    );
+}
+
+#[test]
+fn the_save_dialog_says_it_is_saving() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app_in_save_dialog(dir.path());
+    for c in "budget".chars() {
+        press(&mut app, KeyCode::Char(c));
+    }
+
+    press(&mut app, KeyCode::Enter);
+
+    let screen = render(&mut app, 80, 24);
+    assert!(
+        screen.iter().any(|line| line.contains("Saving…")),
+        "{screen:?}"
+    );
+}

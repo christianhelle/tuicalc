@@ -487,6 +487,12 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     {
         let percent = (progress * 100.0) as u32;
         format!(" Opening {}… {percent}% · Esc cancel", app.file_name())
+    } else if app.mode() == Mode::Normal && app.status().is_empty() && app.is_saving() {
+        let then = match app.next_step() {
+            Some(NextStep::Quit) => " then quitting",
+            _ => "",
+        };
+        format!(" Saving {}…{then}", app.file_name())
     } else if app.status().is_empty() || app.mode() == Mode::GoTo {
         hint.to_string()
     } else {
