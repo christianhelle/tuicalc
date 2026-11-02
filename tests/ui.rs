@@ -60,9 +60,33 @@ fn grid_line(screen: &[String], row: usize) -> &str {
     &screen[row + 1]
 }
 
+fn formula_line(screen: &[String]) -> &str {
+    &screen[0]
+}
+
+fn header_line(screen: &[String]) -> &str {
+    &screen[1]
+}
+
+fn tabs_line(screen: &[String]) -> &str {
+    &screen[screen.len() - 2]
+}
+
+fn status_line(screen: &[String]) -> &str {
+    &screen[screen.len() - 1]
+}
+
+/// Where a cell's text starts on screen, for a visible column and row counted from zero.
+fn cell_position(col: u16, row: u16) -> (u16, u16) {
+    (8 + col * 12, 2 + row)
+}
+
 /// One cell's text as drawn in the grid, for a zero-based column.
 fn drawn_cell(line: &str, col: usize) -> String {
-    line.chars().skip(8 + col * 12).take(11).collect()
+    line.chars()
+        .skip(cell_position(col as u16, 0).0 as usize)
+        .take(11)
+        .collect()
 }
 
 #[test]
@@ -74,7 +98,7 @@ fn draws_column_and_row_headers_with_aligned_values() {
     let screen = render(&mut app, 44, 10);
 
     assert_eq!(
-        screen[1].trim_end(),
+        header_line(&screen).trim_end(),
         "             A           B           C"
     );
     assert_eq!(grid_line(&screen, 1).trim_end(), "1");
@@ -148,8 +172,8 @@ fn highlights_the_cursor_cell_and_scrolls_with_it() {
 
     let terminal = terminal_for(&mut app, 40, 10);
     let buffer = terminal.backend().buffer();
-    assert!(is_selector(&buffer[(8, 2)]));
-    assert!(!is_selector(&buffer[(20, 2)]));
+    assert!(is_selector(&buffer[cell_position(0, 0)]));
+    assert!(!is_selector(&buffer[cell_position(1, 0)]));
 
     // Six rows fit between the headers and the bottom two lines.
     for _ in 0..9 {
@@ -167,13 +191,18 @@ fn highlights_the_cursor_cell_and_scrolls_with_it() {
         grid_line(&screen, 6)
     );
     let terminal = terminal_for(&mut app, 40, 10);
-    assert!(is_selector(&terminal.backend().buffer()[(8, 7)]));
+    assert!(is_selector(
+        &terminal.backend().buffer()[cell_position(0, 5)]
+    ));
 
     for _ in 0..4 {
         press(&mut app, KeyCode::Right);
     }
     let screen = render(&mut app, 40, 10);
-    assert_eq!(screen[1].trim_end(), "             D           E");
+    assert_eq!(
+        header_line(&screen).trim_end(),
+        "             D           E"
+    );
 }
 
 #[test]
@@ -183,11 +212,14 @@ fn the_formula_bar_shows_the_address_and_full_contents() {
     );
 
     let screen = render(&mut app, 50, 10);
-    assert_eq!(screen[0].trim_end(), "A1      =SUM(B1:B9)");
+    assert_eq!(formula_line(&screen).trim_end(), "A1      =SUM(B1:B9)");
 
     press(&mut app, KeyCode::Right);
     let screen = render(&mut app, 50, 10);
-    assert_eq!(screen[0].trim_end(), "B1      far too long for the column");
+    assert_eq!(
+        formula_line(&screen).trim_end(),
+        "B1      far too long for the column"
+    );
 }
 
 #[test]
@@ -261,7 +293,11 @@ fn tabs_mark_the_current_sheet_and_keep_it_on_screen() {
     let (_file, mut app) = app_from(&many_sheets(10));
 
     let screen = render(&mut app, 30, 10);
-    assert!(screen[8].starts_with(" Sheet0  Sheet1 "), "{}", screen[8]);
+    assert!(
+        tabs_line(&screen).starts_with(" Sheet0  Sheet1 "),
+        "{}",
+        tabs_line(&screen)
+    );
 
     for _ in 0..9 {
         press(&mut app, KeyCode::F(6));
@@ -282,34 +318,34 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
 
     let screen = render(&mut app, 80, 10);
     assert!(
-        screen[9].starts_with("-- NORMAL -- book.xlsx | i insert"),
+        status_line(&screen).starts_with("-- NORMAL -- book.xlsx | i insert"),
         "{}",
-        screen[9]
+        status_line(&screen)
     );
 
     press(&mut app, KeyCode::Char('s'));
     press(&mut app, KeyCode::Char('1'));
     let screen = render(&mut app, 80, 10);
     assert!(
-        screen[9].starts_with("-- INSERT -- book.xlsx | Esc done"),
+        status_line(&screen).starts_with("-- INSERT -- book.xlsx | Esc done"),
         "{}",
-        screen[9]
+        status_line(&screen)
     );
 
     press(&mut app, KeyCode::Enter);
     let screen = render(&mut app, 80, 10);
     assert!(
-        screen[9].starts_with("-- NORMAL -- book.xlsx* |"),
+        status_line(&screen).starts_with("-- NORMAL -- book.xlsx* |"),
         "{}",
-        screen[9]
+        status_line(&screen)
     );
 
     app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
     let screen = render(&mut app, 80, 10);
     assert!(
-        screen[9].contains("book.xlsx | Saved book.xlsx"),
+        status_line(&screen).contains("book.xlsx | Saved book.xlsx"),
         "{}",
-        screen[9]
+        status_line(&screen)
     );
 
     press(&mut app, KeyCode::Up);
@@ -318,7 +354,11 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     press(&mut app, KeyCode::Enter);
     app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
     let screen = render(&mut app, 80, 10);
-    assert!(screen[9].contains("[s]ave and quit"), "{}", screen[9]);
+    assert!(
+        status_line(&screen).contains("[s]ave and quit"),
+        "{}",
+        status_line(&screen)
+    );
 }
 
 #[test]
@@ -338,14 +378,18 @@ fn the_status_line_names_the_mode() {
     press(&mut app, KeyCode::Char('v'));
     let screen = render(&mut app, 80, 10);
     assert!(
-        screen[9].starts_with("-- VISUAL -- book.xlsx | d delete"),
+        status_line(&screen).starts_with("-- VISUAL -- book.xlsx | d delete"),
         "{}",
-        screen[9]
+        status_line(&screen)
     );
 
     press(&mut app, KeyCode::Char('V'));
     let screen = render(&mut app, 80, 10);
-    assert!(screen[9].starts_with("-- V-LINE -- "), "{}", screen[9]);
+    assert!(
+        status_line(&screen).starts_with("-- V-LINE -- "),
+        "{}",
+        status_line(&screen)
+    );
 }
 
 #[test]
@@ -376,7 +420,7 @@ fn the_selection_is_highlighted_with_the_cursor_marked_inside_it() {
     let terminal = terminal_for(&mut app, 44, 12);
     let buffer = terminal.backend().buffer();
 
-    let at = |col: u16, row: u16| &buffer[(8 + col * 12, 2 + row)];
+    let at = |col: u16, row: u16| &buffer[cell_position(col, row)];
     assert!(at(0, 0).modifier.contains(Modifier::REVERSED));
     assert!(at(1, 0).modifier.contains(Modifier::REVERSED));
     assert!(at(0, 1).modifier.contains(Modifier::REVERSED));
@@ -393,15 +437,27 @@ fn unfinished_commands_show_at_the_right_of_the_status_line() {
         press(&mut app, KeyCode::Char(c));
     }
     let screen = render(&mut app, 100, 10);
-    assert!(screen[9].trim_end().ends_with(" 2d3"), "{}", screen[9]);
+    assert!(
+        status_line(&screen).trim_end().ends_with(" 2d3"),
+        "{}",
+        status_line(&screen)
+    );
 
     press(&mut app, KeyCode::Char('g'));
     let screen = render(&mut app, 100, 10);
-    assert!(screen[9].trim_end().ends_with(" 6dg"), "{}", screen[9]);
+    assert!(
+        status_line(&screen).trim_end().ends_with(" 6dg"),
+        "{}",
+        status_line(&screen)
+    );
 
     press(&mut app, KeyCode::Esc);
     let screen = render(&mut app, 100, 10);
-    assert!(!screen[9].trim_end().ends_with('g'), "{}", screen[9]);
+    assert!(
+        !status_line(&screen).trim_end().ends_with('g'),
+        "{}",
+        status_line(&screen)
+    );
 }
 
 #[test]
@@ -439,9 +495,9 @@ fn a_blank_workbook_shows_no_name_on_the_status_line() {
     let mut app = App::new(Workbook::blank().unwrap());
     let screen = render(&mut app, 60, 10);
     assert!(
-        screen[9].starts_with("-- NORMAL -- [No Name] | i insert"),
+        status_line(&screen).starts_with("-- NORMAL -- [No Name] | i insert"),
         "{}",
-        screen[9]
+        status_line(&screen)
     );
 }
 
@@ -569,7 +625,7 @@ fn column_and_row_headers_are_bold_but_the_cursor_is_not() {
     assert!(is_bold(13, 1), "a column letter");
     assert_eq!(buffer[(0, 2)].symbol(), "1");
     assert!(is_bold(0, 2), "a row number");
-    assert!(is_selector(&buffer[(8, 2)]));
+    assert!(is_selector(&buffer[cell_position(0, 0)]));
     assert!(!is_bold(8, 2), "the cursor");
     assert!(!is_bold(30, 2), "cell contents");
 }
@@ -593,5 +649,9 @@ fn the_open_dialog_is_labelled_for_opening() {
     assert!(text.contains(" Open "), "{text}");
     assert!(!text.contains("Save as"), "{text}");
     assert!(text.contains("Enter open"), "{text}");
-    assert!(screen[19].starts_with("-- OPEN --"), "{}", screen[19]);
+    assert!(
+        status_line(&screen).starts_with("-- OPEN --"),
+        "{}",
+        status_line(&screen)
+    );
 }
