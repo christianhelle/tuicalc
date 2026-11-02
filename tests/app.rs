@@ -2055,6 +2055,22 @@ fn search_finds_every_kind_of_value_ignoring_case() {
 }
 
 #[test]
+fn search_finds_the_punctuation_in_numbers_and_dates() {
+    let styles = r#"<styleSheet><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="22"/></cellXfs></styleSheet>"#;
+    let rows = r#"<row r="1"><c r="A1" s="1"><v>45000.5</v></c><c r="B1"><v>1E+20</v></c><c r="C1"><v>-2.5</v></c></row>"#;
+    let (_file, mut app) = app_from(&single_sheet(&sheet(rows), &[("xl/styles.xml", styles)]));
+
+    search(&mut app, "e");
+    assert_eq!(app.cursor(), a1("B1"), "the e of a large number");
+    search(&mut app, "-2.");
+    assert_eq!(app.cursor(), a1("C1"), "a negative decimal");
+    search(&mut app, "03-15 12:");
+    assert_eq!(app.cursor(), a1("A1"), "a date and time");
+    search(&mut app, "x");
+    assert_eq!(app.status(), "No match for x");
+}
+
+#[test]
 fn search_does_not_see_the_quote_that_editing_adds_to_text() {
     let (_file, mut app) =
         app_with(r#"<row r="1"><c r="A1" t="inlineStr"><is><t>007</t></is></c></row>"#);

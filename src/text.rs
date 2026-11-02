@@ -97,6 +97,11 @@ pub fn cell_contains(cell: &Cell, lowercase_needle: &str, date1904: bool) -> boo
             CellValue::Text(text) | CellValue::Error(text) => {
                 contains_ignoring_case(text, lowercase_needle)
             }
+            CellValue::Number(number)
+                if number.is_finite() && !could_be_in_a_number(lowercase_needle) =>
+            {
+                false
+            }
             CellValue::Number(_) => {
                 contains_ignoring_case(
                     &display_text(cell, date1904, SEARCH_WIDTH),
@@ -108,6 +113,14 @@ pub fn cell_contains(cell: &Cell, lowercase_needle: &str, date1904: bool) -> boo
                 lowercase_needle,
             ),
         }
+}
+
+/// Whether text could appear in a formatted number or date, which saves formatting millions of them
+/// to look for a word.
+fn could_be_in_a_number(lowercase_needle: &str) -> bool {
+    lowercase_needle
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || b"-+.:e #".contains(&byte))
 }
 
 fn contains_ignoring_case(text: &str, lowercase_needle: &str) -> bool {
