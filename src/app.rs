@@ -2,6 +2,8 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
@@ -11,7 +13,7 @@ use crate::formula::translate;
 use crate::help::{self, HelpTable};
 use crate::model::{Cell, CellValue, Sheet};
 use crate::text::{cell_contains, edit_text, parse_input};
-use crate::xlsx::{Workbook, XlsxError};
+use crate::xlsx::{LoadEvent, Waited, Workbook, WorkbookLoad, XlsxError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -51,6 +53,11 @@ pub enum NextStep {
     Quit,
     OpenFile,
     Reload,
+}
+
+/// A workbook on screen whose cells are still arriving.
+struct Loading {
+    load: WorkbookLoad,
 }
 
 /// One cell's part in a change.
@@ -113,6 +120,9 @@ pub struct App {
     search_query: Option<String>,
     /// The mode to go back to when the help closes.
     help_from: Mode,
+    loading: Option<Loading>,
+    /// Why the workbook the app opened with couldn't be read, once it has given up.
+    load_failure: Option<String>,
 }
 
 impl App {
@@ -131,6 +141,8 @@ impl App {
             next_step: None,
             search_query: None,
             help_from: Mode::Normal,
+            loading: None,
+            load_failure: None,
             dialog_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             workbook,
             sheet: 0,
@@ -146,6 +158,80 @@ impl App {
             redo: Vec::new(),
             should_quit: false,
         }
+    }
+
+    /// An app showing a workbook whose cells are on their way.
+    pub fn opening(workbook: Workbook, load: WorkbookLoad) -> Self {
+        let mut app = Self::new(workbook);
+        app.loading = Some(Loading { load });
+        app
+    }
+
+    pub fn is_loading(&self) -> bool {
+        self.loading.is_some()
+    }
+
+    /// How much of the workbook has been read, from 0 to 1, while it's loading.
+    pub fn loading_progress(&self) -> Option<f64> {
+        self.loading.as_ref().map(|loading| loading.load.progress())
+    }
+
+    pub fn load_failure(&self) -> Option<&str> {
+        self.load_failure.as_deref()
+    }
+
+    /// Takes in arriving cells for up to `budget`, which stops short if there are none yet.
+    pub fn absorb_loaded(&mut self, budget: Duration) {
+        let deadline = Instant::now() + budget;
+        while let Some(loading) = &self.loading {
+            let wait = deadline.saturating_duration_since(Instant::now());
+            match loading.load.next_within(wait) {
+                Waited::Event(event) => self.take_load_event(event),
+                Waited::Ended => self.finish_load(),
+                Waited::Nothing => return,
+            }
+            if Instant::now() >= deadline {
+                return;
+            }
+        }
+    }
+
+    /// Waits for the next chunk of cells, or for the load to end.
+    pub fn absorb_next_chunk(&mut self) {
+        if let Some(loading) = &self.loading {
+            match loading.load.next_blocking() {
+                Some(event) => self.take_load_event(event),
+                None => self.finish_load(),
+            }
+        }
+    }
+
+    /// Waits for the whole workbook.
+    pub fn finish_loading(&mut self) {
+        while self.loading.is_some() {
+            self.absorb_next_chunk();
+        }
+    }
+
+    fn take_load_event(&mut self, event: LoadEvent) {
+        match event {
+            LoadEvent::Cells { sheet, chunk } => chunk.apply_to(&mut self.workbook.sheets[sheet]),
+            LoadEvent::Failed(error) => {
+                self.loading = None;
+                self.load_failure = Some(error.to_string());
+                self.should_quit = true;
+            }
+        }
+    }
+
+    fn finish_load(&mut self) {
+        self.loading = None;
+    }
+
+    /// Stops loading at the user's request.
+    fn cancel_load(&mut self) {
+        self.loading = None;
+        self.should_quit = true;
     }
 
     pub fn set_dialog_directory(&mut self, directory: &Path) {
@@ -899,6 +985,7 @@ impl App {
                 self.edit_existing();
             }
             KeyCode::Char('=') if !ctrl => self.begin_edit(vec!['=']),
+            KeyCode::Esc if self.is_loading() => self.cancel_load(),
             _ => {}
         }
     }

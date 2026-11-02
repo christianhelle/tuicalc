@@ -3,9 +3,12 @@
 mod common;
 
 use std::path::Path;
+use std::time::Duration;
 
 use common::*;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tuicalc::address::CellRef;
+use tuicalc::app::{App, Mode};
 use tuicalc::model::{Cell, CellValue};
 use tuicalc::xlsx::{LoadEvent, SheetQueue, Workbook, WorkbookLoad};
 
@@ -164,4 +167,136 @@ fn opening_on_a_later_sheet_loads_it_too() {
     load_everything(&mut workbook, &load);
 
     assert!(workbook.sheets.iter().all(|sheet| sheet.extent().is_some()));
+}
+
+// The app with a workbook still arriving.
+
+fn key(app: &mut App, code: KeyCode) {
+    app.handle_key(KeyEvent::from(code));
+}
+
+fn ctrl(app: &mut App, c: char) {
+    app.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
+}
+
+fn type_keys(app: &mut App, keys: &str) {
+    for c in keys.chars() {
+        key(app, KeyCode::Char(c));
+    }
+}
+
+/// An app opening a workbook with numbers in column A, none of which have been taken in yet.
+fn app_opening(rows: u32) -> (TempXlsx, App) {
+    let file = write_temp(&single_sheet(&sheet(&numbers(rows)), &[]));
+    let (workbook, load) = Workbook::open_loading(&file.path, 0).unwrap();
+    (file, App::opening(workbook, load))
+}
+
+fn number_at(app: &App, at: &str) -> Option<f64> {
+    match app.current_sheet().cell(a1(at)).value {
+        CellValue::Number(number) => Some(number),
+        _ => None,
+    }
+}
+
+#[test]
+fn an_app_can_show_a_workbook_before_its_cells_arrive() {
+    let (_file, mut app) = app_opening(5000);
+
+    assert!(app.is_loading());
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(app.current_sheet().name, "Sheet1");
+    assert_eq!(number_at(&app, "A1"), None);
+
+    app.absorb_next_chunk();
+    assert!(app.is_loading());
+    assert_eq!(number_at(&app, "A1"), Some(1.0));
+    assert_eq!(number_at(&app, "A5000"), None);
+
+    app.finish_loading();
+    assert!(!app.is_loading());
+    assert_eq!(number_at(&app, "A5000"), Some(5000.0));
+    assert!(!app.workbook.is_dirty(), "loading isn't editing");
+}
+
+#[test]
+fn taking_in_cells_for_a_while_stops_when_they_run_out() {
+    let (_file, mut app) = app_opening(10);
+
+    app.absorb_loaded(Duration::from_secs(30));
+
+    assert!(!app.is_loading());
+    assert_eq!(number_at(&app, "A10"), Some(10.0));
+}
+
+#[test]
+fn taking_in_cells_gives_up_when_time_runs_out() {
+    let (_file, mut app) = app_opening(50_000);
+
+    app.absorb_loaded(Duration::ZERO);
+
+    assert!(app.is_loading());
+}
+
+#[test]
+fn moving_around_works_while_loading() {
+    let (_file, mut app) = app_opening(5000);
+    app.absorb_next_chunk();
+
+    type_keys(&mut app, "3jl");
+    assert_eq!(app.cursor(), a1("B4"));
+
+    type_keys(&mut app, "G");
+    assert!(app.cursor().row > 3, "the last row so far");
+
+    key(&mut app, KeyCode::Char('?'));
+    assert_eq!(app.mode(), Mode::Help);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(!app.should_quit());
+}
+
+#[test]
+fn q_quits_while_loading_without_asking() {
+    let (_file, mut app) = app_opening(5000);
+
+    key(&mut app, KeyCode::Char('q'));
+
+    assert!(app.should_quit());
+}
+
+#[test]
+fn esc_gives_up_on_opening_the_only_workbook() {
+    let (_file, mut app) = app_opening(5000);
+
+    key(&mut app, KeyCode::Esc);
+
+    assert!(app.should_quit());
+    assert_eq!(app.load_failure(), None, "giving up isn't a failure");
+}
+
+#[test]
+fn esc_finishes_with_a_half_typed_command_first() {
+    let (_file, mut app) = app_opening(5000);
+    type_keys(&mut app, "d");
+
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.should_quit());
+
+    key(&mut app, KeyCode::Esc);
+    assert!(app.should_quit());
+}
+
+#[test]
+fn a_problem_deep_in_the_only_workbook_ends_the_app_and_says_why() {
+    let broken = format!(r#"<worksheet><sheetData>{}</row>"#, numbers(2));
+    let file = write_temp(&single_sheet(&broken, &[]));
+    let (workbook, load) = Workbook::open_loading(&file.path, 0).unwrap();
+    let mut app = App::opening(workbook, load);
+
+    app.finish_loading();
+
+    assert!(app.should_quit());
+    assert!(!app.is_loading());
+    assert!(app.load_failure().unwrap().contains("malformed XML"));
 }
