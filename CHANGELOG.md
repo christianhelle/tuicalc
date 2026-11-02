@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mouse: click a cell or a sheet's tab, and use the wheel to move the cursor. Hold
   `Shift` to select text in the terminal.
 - Reloading: `F5` reads the workbook from disk again, staying on the same cell.
+- Opening large workbooks without waiting: a workbook appears straight away and
+  its cells fill in behind the scenes, the visible sheet first, with progress on
+  the status line. Moving and searching work while it loads, and `Esc` stops it,
+  returning to the last workbook if there was one.
 - New workbooks: `tcalc` with no arguments opens a blank workbook. Saving it
   opens a dialog for browsing folders and naming the file, which asks before
   overwriting one.
