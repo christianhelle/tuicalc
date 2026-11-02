@@ -1575,3 +1575,22 @@ fn a_typed_path_is_relative_to_the_current_folder() {
     assert_eq!(app.mode(), Mode::Normal);
     assert!(dir.path().join("A-folder").join("inner.xlsx").exists());
 }
+
+#[test]
+fn an_empty_name_is_refused_with_a_message() {
+    let dir = save_folder();
+    let mut app = app_in_save_dialog(dir.path());
+
+    type_text(&mut app, "  ");
+    press(&mut app, KeyCode::Enter);
+
+    assert_eq!(app.mode(), Mode::SaveDialog);
+    assert_eq!(app.save_dialog().unwrap().message(), "Enter a file name");
+
+    type_text(&mut app, "a");
+    assert_eq!(
+        app.save_dialog().unwrap().message(),
+        "",
+        "the next key clears it"
+    );
+}

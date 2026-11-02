@@ -39,6 +39,7 @@ pub struct SaveDialog {
     entries: Vec<Entry>,
     highlight: Option<usize>,
     name: String,
+    message: String,
 }
 
 impl SaveDialog {
@@ -48,6 +49,7 @@ impl SaveDialog {
             entries: list_entries(directory).unwrap_or_default(),
             highlight: None,
             name: String::new(),
+            message: String::new(),
         }
     }
 
@@ -68,7 +70,13 @@ impl SaveDialog {
         &self.name
     }
 
+    /// The latest error or hint for the user.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> DialogAction {
+        self.message.clear();
         match key.code {
             KeyCode::Down => self.move_highlight(1),
             KeyCode::Up => self.move_highlight(-1),
@@ -100,6 +108,10 @@ impl SaveDialog {
     }
 
     fn submit(&mut self) -> DialogAction {
+        if self.name.trim().is_empty() {
+            self.message = "Enter a file name".into();
+            return DialogAction::Stay;
+        }
         DialogAction::Save(
             self.directory
                 .join(with_default_extension(self.name.trim())),
