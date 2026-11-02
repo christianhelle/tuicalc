@@ -218,3 +218,108 @@ fn a_save_that_fails_forgets_the_step_waiting_on_it() {
     key(&mut app, KeyCode::F(5));
     assert_eq!(app.mode(), Mode::ConfirmDiscard, "still has its edits");
 }
+
+const STILL_SAVING: &str = "Still saving";
+
+fn value(app: &App, at: &str) -> CellValue {
+    app.current_sheet().cell(a1(at)).value
+}
+
+#[test]
+fn nothing_can_change_until_the_save_has_finished() {
+    let (file, mut app) = app_with_an_edit();
+    type_keys(&mut app, "kyy");
+    ctrl(&mut app, 's');
+
+    for keys in [
+        "s", "i", "a", "=", "o", "x", "D", "dd", "cc", "S", "C", "Vd", "Vc", "p", "P", "u",
+    ] {
+        type_keys(&mut app, keys);
+        assert_eq!(app.status(), STILL_SAVING, "{keys}");
+        assert_ne!(app.mode(), Mode::Insert, "{keys}");
+        if app.selection().is_some() {
+            key(&mut app, KeyCode::Esc);
+        }
+        assert_eq!(value(&app, "A1"), CellValue::Number(5.0), "{keys}");
+    }
+    key(&mut app, KeyCode::Delete);
+    assert_eq!(app.status(), STILL_SAVING, "delete");
+    ctrl(&mut app, 'r');
+    assert_eq!(app.status(), STILL_SAVING, "redo");
+    ctrl(&mut app, 's');
+    assert_eq!(app.status(), STILL_SAVING, "saving again");
+    ctrl(&mut app, 'o');
+    assert_eq!(app.status(), STILL_SAVING, "opening another");
+    assert_eq!(app.mode(), Mode::Normal);
+    key(&mut app, KeyCode::F(5));
+    assert_eq!(app.status(), STILL_SAVING, "reloading");
+    assert!(!app.is_loading());
+
+    app.finish_saving();
+    assert!(
+        !app.workbook.is_dirty(),
+        "nothing slipped in after the snapshot"
+    );
+    assert_eq!(number_on_disk(&file.path, "A1"), CellValue::Number(5.0));
+}
+
+#[test]
+fn a_refused_delete_leaves_what_was_yanked_alone() {
+    let (_file, mut app) = app_with_an_edit();
+    type_keys(&mut app, "kyyj");
+    ctrl(&mut app, 's');
+
+    type_keys(&mut app, "dd");
+    app.finish_saving();
+
+    type_keys(&mut app, "p");
+    assert_eq!(
+        value(&app, "A3"),
+        CellValue::Number(5.0),
+        "the row yanked before the save"
+    );
+}
+
+#[test]
+fn moving_searching_and_copying_work_while_saving() {
+    let (_file, mut app) = app_with_an_edit();
+    ctrl(&mut app, 's');
+
+    type_keys(&mut app, "jl");
+    assert_eq!(app.cursor(), a1("B3"));
+
+    type_keys(&mut app, "/5");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.cursor(), a1("A1"));
+
+    type_keys(&mut app, "yy");
+    assert_eq!(app.status(), "1 cells yanked");
+
+    key(&mut app, KeyCode::Char('?'));
+    assert_eq!(app.mode(), Mode::Help);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.mode(), Mode::Normal);
+    assert!(app.is_saving());
+}
+
+#[test]
+fn editing_works_again_once_the_save_has_finished() {
+    let (file, mut app) = app_with_an_edit();
+    ctrl(&mut app, 's');
+    app.finish_saving();
+
+    type_keys(&mut app, "s6");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(value(&app, "A2"), CellValue::Number(6.0));
+    ctrl(&mut app, 's');
+    app.finish_saving();
+
+    assert_eq!(number_on_disk(&file.path, "A1"), CellValue::Number(5.0));
+    assert_eq!(number_on_disk(&file.path, "A2"), CellValue::Number(6.0));
+    key(&mut app, KeyCode::Char('u'));
+    assert_eq!(
+        value(&app, "A2"),
+        CellValue::Number(2.0),
+        "undo survives a save"
+    );
+}

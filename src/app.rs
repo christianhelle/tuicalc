@@ -381,6 +381,17 @@ impl App {
         loading
     }
 
+    /// Says why something that changes the workbook, or needs it whole, isn't happening; returns
+    /// whether it isn't. A save is writing a snapshot, and taking in its outcome marks every cell
+    /// as saved, so a change made meanwhile would be lost.
+    fn refuse_while_busy(&mut self) -> bool {
+        if self.is_saving() {
+            self.status = "Still saving".into();
+            return true;
+        }
+        self.refuse_while_loading()
+    }
+
     /// Stops loading at the user's request.
     fn cancel_load(&mut self) {
         let Some(loading) = self.loading.take() else {
@@ -847,7 +858,12 @@ impl App {
 
     /// Runs `d`, `y` or `c` on a rectangle, leaving the cursor at `at`.
     fn operate(&mut self, operator: char, first: CellRef, last: CellRef, rows: bool, at: CellRef) {
-        if self.refuse_while_loading() {
+        let refused = if operator == 'y' {
+            self.refuse_while_loading()
+        } else {
+            self.refuse_while_busy()
+        };
+        if refused {
             return;
         }
         let yanked = self.yank(first, last, rows);
@@ -1171,7 +1187,7 @@ impl App {
     /// Starts saving, or asks where to if the workbook has no file yet. Whatever `next_step` holds
     /// happens once the save has worked.
     fn save(&mut self) {
-        if self.refuse_while_loading() {
+        if self.refuse_while_busy() {
             return;
         }
         match self.workbook.begin_save() {
@@ -1277,7 +1293,7 @@ impl App {
 
     /// Takes the step now, or asks first if it would lose unsaved edits.
     fn ask_before_losing_edits(&mut self, step: NextStep) {
-        if step != NextStep::Quit && self.refuse_while_loading() {
+        if step != NextStep::Quit && self.refuse_while_busy() {
             return;
         }
         if self.workbook.is_dirty() {
@@ -1336,6 +1352,9 @@ impl App {
     }
 
     fn undo(&mut self) {
+        if self.refuse_while_busy() {
+            return;
+        }
         let Some(change) = self.undo.pop() else {
             self.status = "Nothing to undo".into();
             return;
@@ -1350,6 +1369,9 @@ impl App {
     }
 
     fn redo(&mut self) {
+        if self.refuse_while_busy() {
+            return;
+        }
         let Some(change) = self.redo.pop() else {
             self.status = "Nothing to redo".into();
             return;
@@ -1539,7 +1561,7 @@ impl App {
     }
 
     fn begin_edit(&mut self, initial: Vec<char>) {
-        if self.refuse_while_loading() {
+        if self.refuse_while_busy() {
             return;
         }
         if self.refuse_if_locked() {
@@ -1612,7 +1634,7 @@ impl App {
 
     /// Applies edits as one undoable change, or none of them if any cell is read-only.
     fn apply_edits(&mut self, cells: Vec<(CellRef, Cell)>) -> bool {
-        if self.refuse_while_loading() {
+        if self.refuse_while_busy() {
             return false;
         }
         if let Some((at, _)) = cells
