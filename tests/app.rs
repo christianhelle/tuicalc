@@ -1517,3 +1517,23 @@ fn enter_opens_a_highlighted_folder_or_the_parent() {
     assert_eq!(app.save_dialog().unwrap().directory(), dir.path());
     assert_eq!(listed(&app).len(), 5);
 }
+
+#[test]
+fn typing_edits_the_name_and_removes_the_highlight() {
+    let dir = save_folder();
+    let mut app = app_in_save_dialog(dir.path());
+
+    type_text(&mut app, "jk");
+    assert_eq!(app.save_dialog().unwrap().name(), "jk", "letters are text");
+    assert_eq!(highlighted(&app), None);
+
+    press(&mut app, KeyCode::Down);
+    press(&mut app, KeyCode::Backspace);
+    assert_eq!(app.save_dialog().unwrap().name(), "j");
+    assert_eq!(highlighted(&app), None);
+
+    press(&mut app, KeyCode::Down);
+    type_text(&mut app, "x");
+    assert_eq!(app.save_dialog().unwrap().name(), "jx");
+    assert_eq!(highlighted(&app), None);
+}

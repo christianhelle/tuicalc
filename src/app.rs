@@ -29,7 +29,7 @@ pub enum Mode {
 }
 
 /// Plain characters, plus AltGr combinations, which Windows reports as Ctrl+Alt.
-fn is_text_input(key: KeyEvent) -> bool {
+pub(crate) fn is_text_input(key: KeyEvent) -> bool {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
     ctrl == alt
