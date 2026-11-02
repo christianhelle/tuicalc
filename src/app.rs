@@ -1041,6 +1041,11 @@ impl App {
             .into_owned()
     }
 
+    /// What's waiting on the unsaved edits being saved or discarded.
+    pub fn next_step(&self) -> Option<NextStep> {
+        self.next_step
+    }
+
     /// Takes the step now, or asks first if it would lose unsaved edits.
     fn ask_before_losing_edits(&mut self, step: NextStep) {
         if self.workbook.is_dirty() {

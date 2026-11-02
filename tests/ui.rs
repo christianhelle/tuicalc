@@ -370,12 +370,45 @@ fn the_status_line_shows_file_state_help_messages_and_prompts() {
     press(&mut app, KeyCode::Char('s'));
     press(&mut app, KeyCode::Char('2'));
     press(&mut app, KeyCode::Enter);
-    app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
+}
+
+/// A workbook with unsaved edits, with the given key pressed in normal mode.
+fn app_asking_about_edits(file: &TempXlsx, key: KeyEvent) -> App {
+    let mut app = App::new(Workbook::open(&file.path).unwrap());
+    press(&mut app, KeyCode::Char('s'));
+    press(&mut app, KeyCode::Char('2'));
+    press(&mut app, KeyCode::Enter);
+    app.handle_key(key);
+    app
+}
+
+#[test]
+fn unsaved_edits_are_asked_about_in_a_red_dialog() {
+    use ratatui::style::Color;
+
+    let file = write_temp(&single_sheet(&sheet(""), &[]));
+    let mut app = app_asking_about_edits(&file, KeyEvent::from(KeyCode::Char('q')));
+
     let screen = render(&mut app, 80, 14);
-    assert!(
-        status_line(&screen).contains("[s]ave and quit"),
-        "{}",
-        status_line(&screen)
+    let text = screen.join(
+        "
+",
+    );
+    assert!(text.contains("Unsaved changes"), "{text}");
+    assert!(text.contains("book.xlsx has unsaved changes"), "{text}");
+    assert!(text.contains("s save and quit"), "{text}");
+    assert!(text.contains("d discard and quit"), "{text}");
+    assert!(text.contains("Esc stay"), "{text}");
+
+    let top = screen
+        .iter()
+        .position(|line| line.contains("Unsaved"))
+        .unwrap();
+    let left = screen[top].chars().position(|c| c == '┌').unwrap() as u16;
+    let terminal = terminal_for(&mut app, 80, 14);
+    assert_eq!(
+        terminal.backend().buffer()[(left, top as u16)].fg,
+        Color::Red
     );
 }
 

@@ -5,11 +5,11 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Clear};
+use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 use unicode_width::UnicodeWidthChar;
 
 use crate::address::{CellRef, column_name};
-use crate::app::{App, Mode};
+use crate::app::{App, Mode, NextStep};
 use crate::file_dialog::{DialogKind, FileDialog};
 use crate::text::{display_text, edit_text, is_right_aligned};
 
@@ -70,6 +70,39 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if let Some(dialog) = app.file_dialog() {
         draw_file_dialog(frame, dialog);
     }
+    if app.mode() == Mode::ConfirmDiscard {
+        draw_discard_dialog(frame, app);
+    }
+}
+
+const DISCARD_DIALOG_WIDTH: u16 = 60;
+
+/// Asks what to do with unsaved edits, naming what happens next.
+fn draw_discard_dialog(frame: &mut Frame, app: &App) {
+    let next = match app.next_step() {
+        Some(NextStep::OpenFile) => "open",
+        _ => "quit",
+    };
+    let lines = vec![
+        Line::raw(format!("{} has unsaved changes.", app.file_name())),
+        Line::from(vec![
+            Span::styled("s", Style::new().fg(Color::Yellow)),
+            Span::raw(format!(" save and {next}   ")),
+            Span::styled("d", Style::new().fg(Color::Red)),
+            Span::raw(format!(" discard and {next}   ")),
+            Span::styled("Esc", Style::new().fg(Color::Cyan)),
+            Span::raw(" stay"),
+        ]),
+    ];
+    let area = frame.area().centered(
+        Constraint::Length(DISCARD_DIALOG_WIDTH),
+        Constraint::Length(lines.len() as u16 + 2),
+    );
+    let block = Block::bordered()
+        .border_style(Style::new().fg(Color::Red))
+        .title(" Unsaved changes ");
+    frame.render_widget(Clear, area);
+    frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 /// A pane's box: a thick border marks the one in use.
@@ -283,7 +316,6 @@ const NORMAL_HINTS: &str =
     " i edit · v select · u undo · gt sheet · : command · Ctrl-S save · Ctrl-Q quit";
 const VISUAL_HINTS: &str = " d delete · y copy · c change · o other corner · Esc back";
 const INSERT_HINTS: &str = " Esc done · Enter next · Ctrl-C cancel";
-const CONFIRM_QUIT: &str = " Unsaved changes: [s]ave and quit, [d]iscard, Esc to stay";
 
 fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     if area.width == 0 || area.height == 0 {
@@ -305,14 +337,14 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         Mode::Insert => ("INSERT", Color::Green, INSERT_HINTS),
         Mode::Visual => ("VISUAL", Color::Magenta, VISUAL_HINTS),
         Mode::VisualRow => ("V-LINE", Color::Magenta, VISUAL_HINTS),
-        Mode::ConfirmDiscard => ("NORMAL", Color::Blue, CONFIRM_QUIT),
+        Mode::ConfirmDiscard => ("NORMAL", Color::Blue, ""),
         Mode::Command => ("COMMAND", Color::Blue, ""),
         Mode::FileDialog => match app.file_dialog().map(FileDialog::kind) {
             Some(DialogKind::Open) => ("OPEN", Color::Blue, " Choose a workbook"),
             _ => ("SAVE", Color::Blue, " Choose a folder and a name"),
         },
     };
-    let message = if app.status().is_empty() || app.mode() == Mode::ConfirmDiscard {
+    let message = if app.status().is_empty() {
         hint.to_string()
     } else {
         format!(" {}", app.status())
