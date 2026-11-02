@@ -12,11 +12,12 @@ use crate::app::{App, Mode};
 use crate::file_dialog::{DialogKind, FileDialog};
 use crate::text::{display_text, edit_text, is_right_aligned};
 
-/// The header bars and the cursor, as a nod to Lotus 1-2-3. The colors are exact because a terminal
-/// theme can make its own "cyan" any shade, and can show its own black as grey when it's bold.
-const FRAME_STYLE: Style = Style::new()
-    .fg(Color::Rgb(0x00, 0x00, 0x00))
-    .bg(Color::Rgb(0x00, 0xA8, 0xA8));
+/// The cursor and highlighted dialog lines. Reversed video follows the terminal's theme.
+const SELECTED_STYLE: Style = Style::new().add_modifier(Modifier::REVERSED);
+/// The cursor inside a selection, which reversed video alone couldn't tell apart from it.
+const SELECTED_CURSOR_STYLE: Style = SELECTED_STYLE
+    .fg(Color::Yellow)
+    .add_modifier(Modifier::BOLD);
 const HEADER_STYLE: Style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
 const ROW_HEADER_WIDTH: u16 = 8;
 const COLUMN_WIDTH: u16 = 12;
@@ -129,7 +130,7 @@ fn draw_file_dialog_list(buffer: &mut Buffer, inner: Rect, dialog: &FileDialog, 
         let y = inner.y + 1 + offset as u16;
         let selected = dialog.highlight() == Some(index);
         let (marker, style) = if selected {
-            (">", FRAME_STYLE)
+            (">", SELECTED_STYLE)
         } else {
             (" ", Style::default())
         };
@@ -350,10 +351,10 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
             let selected = selection.is_some_and(|(first, last)| {
                 (first.col..=last.col).contains(&at.col) && (first.row..=last.row).contains(&at.row)
             });
-            let style = if at == app.cursor() {
-                FRAME_STYLE
-            } else if selected {
-                Style::default().add_modifier(Modifier::REVERSED)
+            let style = if at == app.cursor() && selection.is_some() {
+                SELECTED_CURSOR_STYLE
+            } else if at == app.cursor() || selected {
+                SELECTED_STYLE
             } else {
                 Style::default()
             };

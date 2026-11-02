@@ -10,10 +10,9 @@ use tuicalc::ui::draw;
 use tuicalc::xlsx::Workbook;
 use unicode_width::UnicodeWidthStr;
 
-/// The cursor cell uses the header bars' colors.
+/// The cursor and highlighted dialog lines follow the terminal's theme, as reversed video.
 fn is_selector(cell: &ratatui::buffer::Cell) -> bool {
-    use ratatui::style::Color;
-    cell.fg == Color::Rgb(0x00, 0x00, 0x00) && cell.bg == Color::Rgb(0x00, 0xA8, 0xA8)
+    cell.modifier.contains(Modifier::REVERSED)
 }
 
 fn app_with(rows: &str) -> (TempXlsx, App) {
@@ -432,8 +431,10 @@ fn the_selection_is_highlighted_with_the_cursor_marked_inside_it() {
     assert!(at(0, 0).modifier.contains(Modifier::REVERSED));
     assert!(at(1, 0).modifier.contains(Modifier::REVERSED));
     assert!(at(0, 1).modifier.contains(Modifier::REVERSED));
-    assert!(is_selector(at(1, 1)), "the cursor");
-    assert!(!is_selector(at(0, 0)));
+    assert!(at(1, 1).modifier.contains(Modifier::REVERSED), "the cursor");
+    assert!(at(1, 1).modifier.contains(Modifier::BOLD), "the cursor");
+    assert_eq!(at(1, 1).fg, ratatui::style::Color::Yellow, "the cursor");
+    assert_ne!(at(0, 0).fg, ratatui::style::Color::Yellow);
     assert!(!at(2, 0).modifier.contains(Modifier::REVERSED));
     assert!(!at(0, 2).modifier.contains(Modifier::REVERSED));
 }
