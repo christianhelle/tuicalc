@@ -1006,7 +1006,7 @@ impl App {
             },
             ('g', KeyCode::Char('T')) => self.switch_sheet(-1),
             ('Z', KeyCode::Char('Z')) => self.save_if_edited_and_quit(),
-            ('Z', KeyCode::Char('Q')) => self.should_quit = true,
+            ('Z', KeyCode::Char('Q')) => self.quit_without_asking(),
             ('z', KeyCode::Char('z')) => self.scroll.row = self.cursor.row.saturating_sub(rows / 2),
             ('z', KeyCode::Char('t')) => self.scroll.row = self.cursor.row,
             ('z', KeyCode::Char('b')) => {
@@ -1168,8 +1168,22 @@ impl App {
         }
     }
 
+    /// Quits, though a save in progress finishes first: nothing should be left half done, and the
+    /// user may want to hear if it fails.
+    fn quit_without_asking(&mut self) {
+        if self.is_saving() {
+            self.next_step = Some(NextStep::Quit);
+        } else {
+            self.should_quit = true;
+        }
+    }
+
     /// `ZZ`: saves and quits, except that a blank workbook with no edits has nothing to save.
     fn save_if_edited_and_quit(&mut self) {
+        if self.is_saving() {
+            self.quit_without_asking();
+            return;
+        }
         let unsaved_file = self.workbook.path().is_none() || self.is_loading();
         if unsaved_file && !self.workbook.is_dirty() {
             self.should_quit = true;
@@ -1293,6 +1307,10 @@ impl App {
 
     /// Takes the step now, or asks first if it would lose unsaved edits.
     fn ask_before_losing_edits(&mut self, step: NextStep) {
+        if step == NextStep::Quit && self.is_saving() {
+            self.quit_without_asking();
+            return;
+        }
         if step != NextStep::Quit && self.refuse_while_busy() {
             return;
         }

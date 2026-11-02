@@ -7,7 +7,7 @@ use std::time::Duration;
 use common::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tuicalc::address::CellRef;
-use tuicalc::app::{App, Mode};
+use tuicalc::app::{App, Mode, NextStep};
 use tuicalc::model::{Cell, CellValue};
 use tuicalc::xlsx::{Workbook, XlsxError};
 
@@ -322,4 +322,50 @@ fn editing_works_again_once_the_save_has_finished() {
         CellValue::Number(2.0),
         "undo survives a save"
     );
+}
+
+/// Every way of quitting, none of which may cut a save off.
+const QUITS: [fn(&mut App); 5] = [
+    |app| key(app, KeyCode::Char('q')),
+    |app| ctrl(app, 'q'),
+    |app| ctrl(app, 'c'),
+    |app| type_keys(app, "ZZ"),
+    |app| type_keys(app, "ZQ"),
+];
+
+#[test]
+fn quitting_during_a_save_waits_for_it_and_asks_nothing() {
+    for (index, quit) in QUITS.iter().enumerate() {
+        let (file, mut app) = app_with_an_edit();
+        ctrl(&mut app, 's');
+
+        quit(&mut app);
+        assert!(!app.should_quit(), "{index}");
+        assert_eq!(app.mode(), Mode::Normal, "{index}");
+        assert_eq!(app.next_step(), Some(NextStep::Quit), "{index}");
+
+        app.finish_saving();
+        assert!(app.should_quit(), "{index}");
+        assert_eq!(
+            number_on_disk(&file.path, "A1"),
+            CellValue::Number(5.0),
+            "{index}"
+        );
+    }
+}
+
+#[test]
+fn quitting_during_a_save_that_fails_stays_open_to_say_why() {
+    for (index, quit) in QUITS.iter().enumerate() {
+        let (file, mut app) = app_with_an_edit();
+        std::fs::write(&file.path, b"replaced by something else").unwrap();
+        ctrl(&mut app, 's');
+
+        quit(&mut app);
+        app.finish_saving();
+
+        assert!(!app.should_quit(), "{index}");
+        assert!(app.status().starts_with("Save failed:"), "{index}");
+        assert!(app.workbook.is_dirty(), "{index}");
+    }
 }
