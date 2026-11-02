@@ -1793,3 +1793,98 @@ fn wq_opens_the_dialog_for_a_blank_workbook_with_no_edits() {
     assert_eq!(app.mode(), Mode::FileDialog);
     assert!(!app.should_quit());
 }
+
+/// A workbook with 42 in A1, to open from another one.
+fn other_workbook() -> TempXlsx {
+    write_temp(&single_sheet(
+        &sheet(r#"<row r="1"><c r="A1"><v>42</v></c></row>"#),
+        &[],
+    ))
+}
+
+#[test]
+fn e_with_a_name_opens_that_file_at_the_top_of_its_first_sheet() {
+    let (_first, mut app) = app_with("");
+    let second = other_workbook();
+    keys(&mut app, "50jl");
+
+    run(&mut app, &format!("e {}", second.path.display()));
+
+    assert_eq!(app.status(), "Opened book.xlsx");
+    assert_eq!(app.workbook.path(), Some(second.path.as_path()));
+    assert_eq!(app.cursor(), a1("A1"));
+    assert_eq!(app.scroll(), a1("A1"));
+    assert_eq!(value(&app, "A1"), CellValue::Number(42.0));
+}
+
+#[test]
+fn e_adds_the_xlsx_extension_to_a_name_without_one() {
+    let (_first, mut app) = app_with("");
+    let second = other_workbook();
+    let name = second.path.with_extension("");
+
+    run(&mut app, &format!("e {}", name.display()));
+
+    assert_eq!(app.workbook.path(), Some(second.path.as_path()));
+}
+
+#[test]
+fn opening_a_file_returns_to_its_first_sheet() {
+    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
+    let book = Workbook::open(samples.join("financial-model.xlsx")).unwrap();
+    let mut app = App::new(book);
+    keys(&mut app, "gt");
+    assert_eq!(app.sheet_index(), 1);
+    let second = other_workbook();
+
+    run(&mut app, &format!("e {}", second.path.display()));
+
+    assert_eq!(app.sheet_index(), 0);
+    keys(&mut app, "gt");
+    assert_eq!(app.sheet_index(), 0, "the new file has one sheet");
+}
+
+#[test]
+fn undo_history_does_not_follow_into_another_file() {
+    let (_first, mut app) = app_with("");
+    enter_value(&mut app, "5");
+    run(&mut app, "w");
+    let second = other_workbook();
+
+    run(&mut app, &format!("e {}", second.path.display()));
+    press(&mut app, KeyCode::Char('u'));
+
+    assert_eq!(app.status(), "Nothing to undo");
+    assert_eq!(value(&app, "A1"), CellValue::Number(42.0));
+}
+
+#[test]
+fn saving_after_opening_writes_to_the_opened_file() {
+    let (first, mut app) = app_with("");
+    let before = std::fs::read(&first.path).unwrap();
+    let second = other_workbook();
+    run(&mut app, &format!("e {}", second.path.display()));
+
+    press(&mut app, KeyCode::Char('j'));
+    enter_value(&mut app, "7");
+    run(&mut app, "w");
+
+    let saved = Workbook::open(&second.path).unwrap();
+    assert_eq!(saved.sheets[0].cell(a1("A2")).value, CellValue::Number(7.0));
+    assert_eq!(std::fs::read(&first.path).unwrap(), before);
+}
+
+#[test]
+fn yanked_cells_can_be_pasted_into_another_file() {
+    let (_first, mut app) = app_with("");
+    enter_value(&mut app, "5");
+    keys(&mut app, "kyy");
+    run(&mut app, "w");
+    let second = other_workbook();
+    run(&mut app, &format!("e {}", second.path.display()));
+
+    keys(&mut app, "p");
+
+    assert_eq!(value(&app, "A2"), CellValue::Number(5.0), "the row below");
+    assert_eq!(value(&app, "A1"), CellValue::Number(42.0));
+}

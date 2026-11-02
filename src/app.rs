@@ -941,6 +941,27 @@ impl App {
         self.mode = Mode::Normal;
     }
 
+    fn open_named(&mut self, name: &str) {
+        match Workbook::open(with_default_extension(name)) {
+            Ok(workbook) => self.load_workbook(workbook),
+            Err(error) => self.status = format!("Open failed: {error}"),
+        }
+    }
+
+    /// Replaces the workbook, keeping only the register, so cells can be pasted across files.
+    fn load_workbook(&mut self, workbook: Workbook) {
+        let origin = CellRef { col: 0, row: 0 };
+        self.cursors = vec![origin; workbook.sheets.len()];
+        self.workbook = workbook;
+        self.sheet = 0;
+        self.cursor = origin;
+        self.scroll = origin;
+        self.anchor = origin;
+        self.undo.clear();
+        self.redo.clear();
+        self.status = format!("Opened {}", self.file_name());
+    }
+
     /// Saves to a new file and reports the outcome; returns whether it worked.
     fn save_named(&mut self, name: &str) -> bool {
         if self.workbook.path().is_some() {
@@ -1075,6 +1096,10 @@ impl App {
             }
             Some(("wq" | "x", name)) => {
                 self.should_quit = self.save_named(name.trim());
+                return;
+            }
+            Some(("e", name)) => {
+                self.open_named(name.trim());
                 return;
             }
             _ => {}
