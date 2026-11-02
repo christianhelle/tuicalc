@@ -13,7 +13,7 @@ use unicode_width::UnicodeWidthStr;
 /// The cursor cell uses the header bars' colors.
 fn is_selector(cell: &ratatui::buffer::Cell) -> bool {
     use ratatui::style::Color;
-    cell.fg == Color::Black && cell.bg == Color::Rgb(0x00, 0xA8, 0xA8)
+    cell.fg == Color::Rgb(0x00, 0x00, 0x00) && cell.bg == Color::Rgb(0x00, 0xA8, 0xA8)
 }
 
 fn app_with(rows: &str) -> (TempXlsx, App) {
@@ -416,10 +416,10 @@ fn column_and_row_headers_are_cyan_bars_in_homage_to_lotus_1_2_3() {
 
     assert_eq!(buffer[(13, 1)].symbol(), "A");
     assert!(is_bar(13, 1), "behind a column letter");
-    assert_eq!(buffer[(13, 1)].fg, Color::Black);
+    assert_eq!(buffer[(13, 1)].fg, Color::Rgb(0x00, 0x00, 0x00));
     assert_eq!(buffer[(0, 2)].symbol(), "1");
     assert!(is_bar(0, 2), "behind a row number");
-    assert_eq!(buffer[(0, 2)].fg, Color::Black);
+    assert_eq!(buffer[(0, 2)].fg, Color::Rgb(0x00, 0x00, 0x00));
 
     assert!(is_bar(0, 1), "the corner");
     assert!(is_bar(19, 1), "between column letters");

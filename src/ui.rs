@@ -12,13 +12,12 @@ use crate::app::{App, Mode};
 use crate::save_dialog::SaveDialog;
 use crate::text::{display_text, edit_text, is_right_aligned};
 
-/// The header bars and the cursor, as a nod to Lotus 1-2-3. The color is exact because a terminal
-/// theme can make its own "cyan" any shade.
+/// The header bars and the cursor, as a nod to Lotus 1-2-3. The colors are exact because a terminal
+/// theme can make its own "cyan" any shade, and can show its own black as grey when it's bold.
 const FRAME_STYLE: Style = Style::new()
-    .fg(Color::Black)
+    .fg(Color::Rgb(0x00, 0x00, 0x00))
     .bg(Color::Rgb(0x00, 0xA8, 0xA8));
-/// Bold keeps the column letters and row numbers readable, though some terminals show bold black
-/// as grey.
+/// Bold keeps the column letters and row numbers readable.
 const HEADER_STYLE: Style = FRAME_STYLE.add_modifier(Modifier::BOLD);
 const ROW_HEADER_WIDTH: u16 = 8;
 const COLUMN_WIDTH: u16 = 12;
