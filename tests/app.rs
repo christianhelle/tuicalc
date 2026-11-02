@@ -1208,15 +1208,11 @@ fn run(app: &mut App, command: &str) {
 }
 
 #[test]
-fn w_saves_and_q_refuses_while_there_are_unsaved_edits() {
+fn ctrl_s_saves_and_then_q_quits_without_asking() {
     let (file, mut app) = app_with("");
     enter_value(&mut app, "5");
 
-    run(&mut app, "q");
-    assert!(!app.should_quit());
-    assert!(app.status().starts_with("E37"), "{}", app.status());
-
-    run(&mut app, "w");
+    ctrl(&mut app, KeyCode::Char('s'));
     assert_eq!(app.status(), "Saved book.xlsx");
     assert_eq!(app.mode(), Mode::Normal);
     let reloaded = Workbook::open(&file.path).unwrap();
@@ -1225,31 +1221,8 @@ fn w_saves_and_q_refuses_while_there_are_unsaved_edits() {
         CellValue::Number(5.0)
     );
 
-    run(&mut app, "q");
+    press(&mut app, KeyCode::Char('q'));
     assert!(app.should_quit());
-}
-
-#[test]
-fn q_bang_discards_and_wq_saves_then_quits() {
-    let (file, mut app) = app_with("");
-    enter_value(&mut app, "5");
-    run(&mut app, "q!");
-    assert!(app.should_quit());
-    let unchanged = Workbook::open(&file.path).unwrap();
-    assert_eq!(unchanged.sheets[0].cell(a1("A1")), Cell::default());
-
-    for command in ["wq", "x"] {
-        let (file, mut app) = app_with("");
-        enter_value(&mut app, "5");
-        run(&mut app, command);
-        assert!(app.should_quit(), "{command}");
-        let saved = Workbook::open(&file.path).unwrap();
-        assert_eq!(
-            saved.sheets[0].cell(a1("A1")).value,
-            CellValue::Number(5.0),
-            "{command}"
-        );
-    }
 }
 
 #[test]
@@ -1270,43 +1243,13 @@ fn zz_saves_and_quits_and_zq_quits_without_saving() {
 }
 
 #[test]
-fn a_failed_wq_stays_open() {
+fn a_failed_zz_stays_open() {
     let (file, mut app) = app_with("");
     enter_value(&mut app, "5");
     std::fs::write(&file.path, b"changed").unwrap();
-    run(&mut app, "wq");
+    keys(&mut app, "ZZ");
     assert!(!app.should_quit());
     assert!(app.status().starts_with("Save failed:"), "{}", app.status());
-}
-
-#[test]
-fn numbers_and_addresses_jump_and_anything_else_is_an_error() {
-    let (_file, mut app) = app_with("");
-    run(&mut app, "25");
-    assert_eq!(app.cursor(), a1("A25"));
-    run(&mut app, "C7");
-    assert_eq!(app.cursor(), a1("C7"));
-    run(&mut app, "nonsense");
-    assert_eq!(app.status(), "E492: Not an editor command: nonsense");
-    assert_eq!(app.cursor(), a1("C7"));
-}
-
-#[test]
-fn esc_and_backspace_leave_the_command_line() {
-    let (_file, mut app) = app_with("");
-    keys(&mut app, ":q");
-    assert_eq!(app.mode(), Mode::Command);
-    assert_eq!(app.buffer(), "q");
-    press(&mut app, KeyCode::Esc);
-    assert_eq!(app.mode(), Mode::Normal);
-    assert!(!app.should_quit());
-
-    keys(&mut app, ":q");
-    press(&mut app, KeyCode::Backspace);
-    assert_eq!(app.buffer(), "");
-    assert_eq!(app.mode(), Mode::Command);
-    press(&mut app, KeyCode::Backspace);
-    assert_eq!(app.mode(), Mode::Normal);
 }
 
 #[test]
@@ -1349,89 +1292,15 @@ fn blank_app() -> App {
 }
 
 #[test]
-fn w_with_a_name_saves_a_blank_workbook_to_that_file() {
+fn saving_adds_the_xlsx_extension_to_a_name_without_one() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("new.xlsx");
-    let mut app = blank_app();
-    enter_value(&mut app, "5");
+    let mut app = app_in_save_dialog(dir.path());
 
-    run(&mut app, &format!("w {}", path.display()));
-
-    assert_eq!(app.status(), "Saved new.xlsx");
-    assert_eq!(app.file_name(), "new.xlsx");
-    assert!(!app.workbook.is_dirty());
-    assert_eq!(
-        Workbook::open(&path).unwrap().sheets[0]
-            .cell(a1("A1"))
-            .value,
-        CellValue::Number(5.0)
-    );
-}
-
-#[test]
-fn w_adds_the_xlsx_extension_to_a_name_without_one() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut app = blank_app();
-
-    run(
-        &mut app,
-        &format!("w {}", dir.path().join("my book").display()),
-    );
+    type_text(&mut app, "my book");
+    press(&mut app, KeyCode::Enter);
 
     assert_eq!(app.file_name(), "my book.xlsx");
     assert!(dir.path().join("my book.xlsx").exists());
-}
-
-#[test]
-fn w_with_a_name_refuses_an_existing_file() {
-    let file = write_temp(b"precious");
-    let mut app = blank_app();
-
-    run(&mut app, &format!("w {}", file.path.display()));
-
-    assert!(app.status().starts_with("Save failed"), "{}", app.status());
-    assert_eq!(app.file_name(), "[No Name]");
-    assert_eq!(std::fs::read(&file.path).unwrap(), b"precious");
-}
-
-#[test]
-fn wq_and_x_with_a_name_save_and_quit() {
-    for verb in ["wq", "x"] {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("new.xlsx");
-        let mut app = blank_app();
-        enter_value(&mut app, "5");
-
-        run(&mut app, &format!("{verb} {}", path.display()));
-
-        assert!(app.should_quit(), "{verb}");
-        assert!(path.exists(), "{verb}");
-    }
-}
-
-#[test]
-fn wq_with_a_name_stays_open_if_the_save_fails() {
-    let file = write_temp(b"precious");
-    let mut app = blank_app();
-
-    run(&mut app, &format!("wq {}", file.path.display()));
-
-    assert!(!app.should_quit());
-    assert!(app.status().starts_with("Save failed"), "{}", app.status());
-}
-
-#[test]
-fn w_with_a_name_is_refused_on_an_opened_workbook() {
-    let (file, mut app) = app_with("");
-    enter_value(&mut app, "5");
-    let other = file.path.with_file_name("other.xlsx");
-
-    run(&mut app, &format!("w {}", other.display()));
-
-    assert_eq!(app.status(), "Save As isn't supported yet");
-    assert!(!other.exists());
-    assert_eq!(app.file_name(), "book.xlsx");
-    assert!(app.workbook.is_dirty());
 }
 
 /// A blank workbook whose save dialog starts in `dir`, with the dialog open.
@@ -1452,7 +1321,7 @@ fn saving_a_blank_workbook_without_a_name_opens_the_save_dialog() {
 
     let mut app = blank_app();
     app.set_dialog_directory(dir.path());
-    run(&mut app, "w");
+    ctrl(&mut app, KeyCode::Char('s'));
     assert_eq!(app.mode(), Mode::FileDialog);
 }
 
@@ -1770,7 +1639,7 @@ fn cancelling_the_dialog_cancels_the_quit_too() {
     enter_value(&mut app, "5");
     app.set_dialog_directory(dir.path());
 
-    run(&mut app, "wq");
+    keys(&mut app, "ZZ");
     press(&mut app, KeyCode::Esc);
     assert!(!app.should_quit());
 
@@ -1786,7 +1655,8 @@ fn a_failed_save_in_the_dialog_does_not_quit() {
     let dir = save_folder();
     let mut app = blank_app();
     app.set_dialog_directory(dir.path());
-    run(&mut app, "wq");
+    enter_value(&mut app, "5");
+    keys(&mut app, "ZZ");
 
     type_text(&mut app, "no-such-folder/book.xlsx");
     press(&mut app, KeyCode::Enter);
@@ -1796,20 +1666,15 @@ fn a_failed_save_in_the_dialog_does_not_quit() {
 }
 
 #[test]
-fn zz_and_x_quit_a_blank_workbook_with_no_edits() {
+fn zz_quits_a_blank_workbook_with_no_edits() {
     let mut app = blank_app();
     keys(&mut app, "ZZ");
-    assert!(app.should_quit());
-    assert!(app.file_dialog().is_none());
-
-    let mut app = blank_app();
-    run(&mut app, "x");
     assert!(app.should_quit());
     assert!(app.file_dialog().is_none());
 }
 
 #[test]
-fn zz_and_x_open_the_dialog_for_a_blank_workbook_with_edits() {
+fn zz_opens_the_dialog_for_a_blank_workbook_with_edits() {
     let dir = save_folder();
     let mut app = blank_app();
     enter_value(&mut app, "5");
@@ -1820,22 +1685,11 @@ fn zz_and_x_open_the_dialog_for_a_blank_workbook_with_edits() {
     assert!(!app.should_quit());
     press(&mut app, KeyCode::Esc);
 
-    run(&mut app, "x");
+    keys(&mut app, "ZZ");
     assert_eq!(app.mode(), Mode::FileDialog);
     type_text(&mut app, "kept");
     press(&mut app, KeyCode::Enter);
     assert!(app.should_quit());
-}
-
-#[test]
-fn wq_opens_the_dialog_for_a_blank_workbook_with_no_edits() {
-    let dir = save_folder();
-    let mut app = blank_app();
-    app.set_dialog_directory(dir.path());
-
-    run(&mut app, "wq");
-    assert_eq!(app.mode(), Mode::FileDialog);
-    assert!(!app.should_quit());
 }
 
 /// A workbook with 42 in A1, to open from another one.
@@ -1892,7 +1746,7 @@ fn opening_a_file_returns_to_its_first_sheet() {
 fn undo_history_does_not_follow_into_another_file() {
     let (_first, mut app) = app_with("");
     enter_value(&mut app, "5");
-    run(&mut app, "w");
+    ctrl(&mut app, KeyCode::Char('s'));
     let second = other_workbook();
 
     run(&mut app, &format!("e {}", second.path.display()));
@@ -1911,7 +1765,7 @@ fn saving_after_opening_writes_to_the_opened_file() {
 
     press(&mut app, KeyCode::Char('j'));
     enter_value(&mut app, "7");
-    run(&mut app, "w");
+    ctrl(&mut app, KeyCode::Char('s'));
 
     let saved = Workbook::open(&second.path).unwrap();
     assert_eq!(saved.sheets[0].cell(a1("A2")).value, CellValue::Number(7.0));
@@ -1923,7 +1777,7 @@ fn yanked_cells_can_be_pasted_into_another_file() {
     let (_first, mut app) = app_with("");
     enter_value(&mut app, "5");
     keys(&mut app, "kyy");
-    run(&mut app, "w");
+    ctrl(&mut app, KeyCode::Char('s'));
     let second = other_workbook();
     run(&mut app, &format!("e {}", second.path.display()));
 
