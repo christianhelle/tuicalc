@@ -754,6 +754,21 @@ fn go_to_shows_its_complaint_in_red_in_the_dialog() {
 }
 
 #[test]
+fn the_search_prompt_takes_over_the_status_line_with_the_caret_after_the_text() {
+    let (_file, mut app) = app_with("");
+    press(&mut app, KeyCode::Char('/'));
+    press(&mut app, KeyCode::Char('a'));
+    press(&mut app, KeyCode::Char('b'));
+
+    let screen = render(&mut app, 80, 14);
+    assert_eq!(status_line(&screen).trim_end(), " NORMAL  /ab");
+
+    let mut terminal = terminal_for(&mut app, 80, 14);
+    let caret = terminal.get_cursor_position().unwrap();
+    assert_eq!((caret.x, caret.y), (" NORMAL  /ab".len() as u16, 13));
+}
+
+#[test]
 fn the_save_dialog_marks_the_highlighted_line() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("old.xlsx"), b"x").unwrap();

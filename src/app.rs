@@ -9,7 +9,7 @@ use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
 use crate::file_dialog::{DialogAction, DialogKind, FileDialog, with_default_extension};
 use crate::formula::translate;
 use crate::model::{Cell, CellValue, Sheet};
-use crate::text::{edit_text, parse_input};
+use crate::text::{display_text, edit_text, parse_input};
 use crate::xlsx::{Workbook, XlsxError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +24,8 @@ pub enum Mode {
     Command,
     /// Typing the cell or row to jump to.
     GoTo,
+    /// Typing the text to look for.
+    Search,
     /// Waiting for the user to decide what happens to unsaved edits.
     ConfirmDiscard,
     /// Choosing where to save a workbook that has no file yet.
@@ -41,6 +43,9 @@ pub(crate) fn is_text_input(key: KeyEvent) -> bool {
 pub(crate) fn is_ctrl(key: KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT)
 }
+
+/// Room for a cell's whole text when searching, unlike the narrow columns on screen.
+const SEARCH_WIDTH: usize = 64;
 
 /// What to do once unsaved edits have been saved or discarded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,6 +111,8 @@ pub struct App {
     dialog_directory: PathBuf,
     /// What's waiting on the unsaved edits being saved or discarded.
     next_step: Option<NextStep>,
+    /// The latest search, which `n` and `N` repeat.
+    search_query: Option<String>,
 }
 
 impl App {
@@ -122,6 +129,7 @@ impl App {
             operator_count: None,
             file_dialog: None,
             next_step: None,
+            search_query: None,
             dialog_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             workbook,
             sheet: 0,
@@ -250,6 +258,7 @@ impl App {
             Mode::Visual | Mode::VisualRow => self.visual_key(key),
             Mode::Command => self.command_key(key),
             Mode::GoTo => self.go_to_key(key),
+            Mode::Search => self.search_key(key),
             Mode::ConfirmDiscard => self.confirm_discard_key(key),
             Mode::FileDialog => self.file_dialog_key(key),
         }
@@ -810,6 +819,9 @@ impl App {
             }
             KeyCode::Char('o') if ctrl => self.ask_before_losing_edits(NextStep::OpenFile),
             KeyCode::Char('g') if ctrl => self.begin_prompt(Mode::GoTo),
+            KeyCode::Char('/') if !ctrl => self.begin_prompt(Mode::Search),
+            KeyCode::Char('n') if !ctrl => self.find_match(true),
+            KeyCode::Char('N') if !ctrl => self.find_match(false),
             KeyCode::Char('z') if ctrl => self.undo(),
             KeyCode::Char('y') if ctrl => self.redo(),
             KeyCode::Delete | KeyCode::Backspace => {
@@ -1225,6 +1237,60 @@ impl App {
                 }
             }
             _ => self.prompt_text_key(key),
+        }
+    }
+
+    fn search_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.mode = Mode::Normal,
+            KeyCode::Char('c') if is_ctrl(key) => self.mode = Mode::Normal,
+            KeyCode::Enter => {
+                self.mode = Mode::Normal;
+                if !self.buffer.is_empty() {
+                    self.search_query = Some(self.buffer());
+                }
+                if self.search_query.is_some() {
+                    self.find_match(true);
+                }
+            }
+            _ => self.prompt_text_key(key),
+        }
+    }
+
+    /// Moves to the next or previous cell holding the latest search, wrapping around the sheet.
+    fn find_match(&mut self, forward: bool) {
+        let Some(query) = self.search_query.clone() else {
+            self.status = "Nothing to search for".into();
+            return;
+        };
+        let needle = query.to_lowercase();
+        let date1904 = self.workbook.date1904;
+        // Cells come in reading order, so the first one past the cursor is the next match.
+        let matches: Vec<CellRef> = self
+            .current_sheet()
+            .cells()
+            .filter(|(_, cell)| {
+                let shown = display_text(cell, date1904, SEARCH_WIDTH);
+                let edited = edit_text(cell, date1904);
+                shown.to_lowercase().contains(&needle) || edited.to_lowercase().contains(&needle)
+            })
+            .map(|(at, _)| *at)
+            .collect();
+        let next = if forward {
+            matches
+                .iter()
+                .find(|at| **at > self.cursor)
+                .or(matches.first())
+        } else {
+            matches
+                .iter()
+                .rev()
+                .find(|at| **at < self.cursor)
+                .or(matches.last())
+        };
+        match next {
+            Some(at) => self.cursor = *at,
+            None => self.report_error(format!("No match for {query}")),
         }
     }
 

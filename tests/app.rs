@@ -2152,6 +2152,122 @@ fn esc_ctrl_c_and_an_empty_enter_leave_go_to_where_you_were() {
     assert_eq!(app.status(), "");
 }
 
+fn searchable() -> (TempXlsx, App) {
+    app_with(
+        r#"<row r="1"><c r="A1" t="inlineStr"><is><t>Apples</t></is></c><c r="B1"><v>1.5</v></c></row><row r="2"><c r="B2" t="inlineStr"><is><t>pears and APPLES</t></is></c></row><row r="3"><c r="A3"><f>SUM(B1:B2)</f><v>1.5</v></c></row>"#,
+    )
+}
+
+fn search(app: &mut App, query: &str) {
+    press(app, KeyCode::Char('/'));
+    type_text(app, query);
+    press(app, KeyCode::Enter);
+}
+
+#[test]
+fn slash_finds_the_next_match_ignoring_case_and_wraps_around() {
+    let (_file, mut app) = searchable();
+
+    press(&mut app, KeyCode::Char('/'));
+    assert_eq!(app.mode(), Mode::Search);
+    assert_eq!(app.cursor(), a1("A1"), "nothing moves until Enter");
+    type_text(&mut app, "apples");
+    press(&mut app, KeyCode::Enter);
+
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(app.cursor(), a1("B2"), "skips the cell it started on");
+
+    press(&mut app, KeyCode::Char('n'));
+    assert_eq!(app.cursor(), a1("A1"), "wraps to the top");
+}
+
+#[test]
+fn capital_n_finds_the_previous_match_and_wraps_around() {
+    let (_file, mut app) = searchable();
+    search(&mut app, "apples");
+    assert_eq!(app.cursor(), a1("B2"));
+
+    press(&mut app, KeyCode::Char('N'));
+    assert_eq!(app.cursor(), a1("A1"));
+    press(&mut app, KeyCode::Char('N'));
+    assert_eq!(app.cursor(), a1("B2"), "wraps to the bottom");
+}
+
+#[test]
+fn search_looks_at_numbers_and_formula_text() {
+    let (_file, mut app) = searchable();
+
+    search(&mut app, "1.5");
+    assert_eq!(app.cursor(), a1("B1"));
+
+    search(&mut app, "sum(");
+    assert_eq!(app.cursor(), a1("A3"));
+}
+
+#[test]
+fn search_stays_on_the_current_sheet() {
+    let (_file, mut app) = app_from(&two_sheets());
+    let name = app.current_sheet().name.clone();
+
+    search(&mut app, "no such text anywhere");
+
+    assert_eq!(app.current_sheet().name, name);
+    assert_eq!(app.sheet_index(), 0);
+}
+
+#[test]
+fn a_search_with_no_match_says_so_in_red_and_stays_put() {
+    let (_file, mut app) = searchable();
+    press(&mut app, KeyCode::Char('j'));
+
+    search(&mut app, "plums");
+
+    assert_eq!(app.cursor(), a1("A2"));
+    assert_eq!(app.status(), "No match for plums");
+    assert!(app.status_is_error());
+}
+
+#[test]
+fn n_without_a_search_says_so() {
+    let (_file, mut app) = searchable();
+
+    press(&mut app, KeyCode::Char('n'));
+    assert_eq!(app.status(), "Nothing to search for");
+    press(&mut app, KeyCode::Char('N'));
+    assert_eq!(app.status(), "Nothing to search for");
+    assert_eq!(app.cursor(), a1("A1"));
+}
+
+#[test]
+fn leaving_the_search_prompt_changes_nothing() {
+    let (_file, mut app) = searchable();
+    search(&mut app, "apples");
+
+    press(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "pears");
+    press(&mut app, KeyCode::Esc);
+    assert_eq!(app.mode(), Mode::Normal);
+    assert_eq!(app.cursor(), a1("B2"));
+
+    press(&mut app, KeyCode::Char('/'));
+    ctrl(&mut app, KeyCode::Char('c'));
+    assert_eq!(app.mode(), Mode::Normal);
+
+    press(&mut app, KeyCode::Char('n'));
+    assert_eq!(app.cursor(), a1("A1"), "the last real search still applies");
+}
+
+#[test]
+fn an_empty_search_repeats_the_last_one() {
+    let (_file, mut app) = searchable();
+    search(&mut app, "apples");
+    assert_eq!(app.cursor(), a1("B2"));
+
+    search(&mut app, "");
+
+    assert_eq!(app.cursor(), a1("A1"));
+}
+
 #[test]
 fn e_refuses_while_there_are_unsaved_edits() {
     let (_file, mut app) = app_with("");

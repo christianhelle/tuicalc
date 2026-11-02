@@ -76,8 +76,15 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if app.mode() == Mode::GoTo {
         draw_go_to_dialog(frame, app);
     }
+    if app.mode() == Mode::Search && status.width > 0 && status.height > 0 {
+        let chars: Vec<char> = app.buffer().chars().collect();
+        let x = status.x + SEARCH_PROMPT_WIDTH + text_width(&chars[..app.caret()]) as u16;
+        frame.set_cursor_position((x.min(status.right().saturating_sub(1)), status.y));
+    }
 }
 
+/// The width of the badge and the ` /` before the typed text.
+const SEARCH_PROMPT_WIDTH: u16 = " NORMAL  /".len() as u16;
 const GO_TO_DIALOG_WIDTH: u16 = 52;
 const GO_TO_LABEL: &str = "Cell or row: ";
 
@@ -379,14 +386,16 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         Mode::VisualRow => ("V-LINE", Color::Magenta, VISUAL_HINTS),
         Mode::ConfirmDiscard => ("NORMAL", Color::Blue, ""),
         Mode::Command => ("COMMAND", Color::Blue, ""),
-        Mode::GoTo => ("NORMAL", Color::Blue, ""),
+        Mode::GoTo | Mode::Search => ("NORMAL", Color::Blue, ""),
         Mode::FileDialog => match app.file_dialog().map(FileDialog::kind) {
             Some(DialogKind::Open) => ("OPEN", Color::Blue, " Choose a workbook"),
             _ => ("SAVE", Color::Blue, " Choose a folder and a name"),
         },
     };
     // The go-to dialog shows its own complaints.
-    let message = if app.status().is_empty() || app.mode() == Mode::GoTo {
+    let message = if app.mode() == Mode::Search {
+        format!(" /{}", app.buffer())
+    } else if app.status().is_empty() || app.mode() == Mode::GoTo {
         hint.to_string()
     } else {
         format!(" {}", app.status())
