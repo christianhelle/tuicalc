@@ -10,7 +10,7 @@ homepage = "https://github.com/christianhelle/tuicalc"
 repository = "https://github.com/christianhelle/tuicalc"
 keywords = ["spreadsheet", "excel", "xlsx", "tui", "terminal"]
 categories = ["command-line-utilities"]
-exclude = [".github/", ".gitattributes", "docs/"]
+exclude = [".github/", ".gitattributes", "docs/", "images/"]
 
 [[bin]]
 name = "tcalc"
