@@ -11,6 +11,7 @@ use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
 use crate::file_dialog::{DialogAction, DialogKind, FileDialog};
 use crate::formula::translate;
 use crate::help::{self, HelpTable};
+use crate::keys::{is_ctrl, is_text_input};
 use crate::model::{Cell, CellValue, Sheet};
 use crate::text::{cell_contains, edit_text, parse_input};
 use crate::xlsx::{
@@ -35,18 +36,6 @@ pub enum Mode {
     ConfirmDiscard,
     /// Choosing where to save a workbook that has no file yet.
     FileDialog,
-}
-
-/// Plain characters, plus AltGr combinations, which Windows reports as Ctrl+Alt.
-pub(crate) fn is_text_input(key: KeyEvent) -> bool {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    let alt = key.modifiers.contains(KeyModifiers::ALT);
-    ctrl == alt
-}
-
-/// Ctrl alone, not the Ctrl+Alt that Windows reports for AltGr.
-pub(crate) fn is_ctrl(key: KeyEvent) -> bool {
-    key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT)
 }
 
 /// What to do once unsaved edits have been saved or discarded.

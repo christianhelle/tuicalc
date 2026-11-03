@@ -5,7 +5,7 @@ use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::app::{is_ctrl, is_text_input};
+use crate::keys::{is_ctrl, is_text_input};
 
 /// One line of the dialog's list.
 #[derive(Debug, Clone, PartialEq, Eq)]
