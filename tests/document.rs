@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use common::*;
 use tuicalc::address::CellRef;
-use tuicalc::document::{Document, Outcome, Refusal, SaveError};
+use tuicalc::document::{Document, LoadKind, Outcome, Refusal, SaveError};
 use tuicalc::model::{Cell, CellValue};
 use tuicalc::xlsx::{Workbook, XlsxError};
 
@@ -209,4 +209,195 @@ fn news_of_a_save_arrives_through_absorbing_too() {
 
     assert!(matches!(outcome, Some(Outcome::Saved)));
     assert!(document.absorb(Duration::ZERO).is_none(), "nothing more");
+}
+
+fn numbers(rows: u32) -> String {
+    (1..=rows)
+        .map(|row| format!(r#"<row r="{row}"><c r="A{row}"><v>{row}</v></c></row>"#))
+        .collect()
+}
+
+fn broken_workbook() -> TempXlsx {
+    let broken = format!(r#"<worksheet><sheetData>{}</row>"#, numbers(2));
+    write_temp(&single_sheet(&broken, &[]))
+}
+
+#[test]
+fn nothing_changes_and_nothing_saves_until_the_whole_workbook_has_arrived() {
+    let (_file, mut document) = document(&two_sheets());
+    let other = write_temp(&single_sheet(&sheet(&numbers(3)), &[]));
+
+    document.open(&other.path).unwrap();
+
+    assert!(document.is_loading());
+    let refused = Err(Refusal::StillOpening);
+    assert_eq!(document.edit(vec![(a1("Z9"), number(1.0))]), refused);
+    assert_eq!(document.undo(), Err(Refusal::StillOpening));
+    assert_eq!(
+        Refusal::StillOpening.to_string(),
+        "Still opening: Esc cancels"
+    );
+    assert!(matches!(
+        document.save(),
+        Err(SaveError::Refused(Refusal::StillOpening))
+    ));
+    assert!(matches!(
+        document.finish_loading(),
+        Some(Outcome::Loaded {
+            kind: LoadKind::Open,
+            replaced: true
+        })
+    ));
+    assert!(!document.is_loading());
+    assert_eq!(
+        document.current_sheet().cell(a1("A3")).value,
+        CellValue::Number(3.0)
+    );
+    assert_eq!(document.edit(vec![(a1("Z9"), number(1.0))]), Ok(()));
+}
+
+#[test]
+fn a_document_opened_from_nothing_says_there_was_nothing_to_replace() {
+    let file = write_temp(&single_sheet(&sheet(&numbers(3)), &[]));
+    let (workbook, load) = Workbook::open_loading(&file.path, 0).unwrap();
+    let mut document = Document::opening(workbook, load);
+
+    assert!(matches!(
+        document.finish_loading(),
+        Some(Outcome::Loaded {
+            kind: LoadKind::Open,
+            replaced: false
+        })
+    ));
+}
+
+#[test]
+fn a_new_workbook_starts_at_the_top_with_nothing_to_undo() {
+    let (_file, mut document) = document(&two_sheets());
+    document.edit(vec![(a1("A1"), number(5.0))]).unwrap();
+    document.place.cursor = a1("C3");
+    let other = write_temp(&single_sheet(&sheet(&numbers(3)), &[]));
+
+    document.open(&other.path).unwrap();
+    assert_eq!(document.place.cursor, a1("A1"));
+    document.finish_loading();
+
+    assert_eq!(document.undo(), Ok(false));
+}
+
+#[test]
+fn a_workbook_that_fails_partway_gives_back_the_last_one_as_it_was() {
+    let (first, mut document) = document(&two_sheets());
+    document.switch_sheet(1);
+    document.place.cursor = a1("C3");
+    document.place.scroll = a1("B2");
+    document.place.anchor = a1("A2");
+    document.edit(vec![(a1("A1"), number(5.0))]).unwrap();
+    let broken = broken_workbook();
+
+    document.open(&broken.path).unwrap();
+    let outcome = document.finish_loading();
+
+    assert!(matches!(
+        outcome,
+        Some(Outcome::LoadFailed {
+            kind: LoadKind::Open,
+            went_back: true,
+            ..
+        })
+    ));
+    assert!(!document.is_loading());
+    assert_eq!(document.workbook().path(), Some(first.path.as_path()));
+    assert_eq!(document.sheet_index(), 1);
+    assert_eq!(document.place.cursor, a1("C3"));
+    assert_eq!(document.place.scroll, a1("B2"));
+    assert_eq!(document.place.anchor, a1("A2"));
+    assert_eq!(document.current_sheet().cell(a1("A1")), number(5.0));
+    assert_eq!(document.undo(), Ok(true), "its history came back with it");
+}
+
+#[test]
+fn a_first_workbook_that_fails_has_nothing_to_go_back_to() {
+    let broken = broken_workbook();
+    let (workbook, load) = Workbook::open_loading(&broken.path, 0).unwrap();
+    let mut document = Document::opening(workbook, load);
+
+    assert!(matches!(
+        document.finish_loading(),
+        Some(Outcome::LoadFailed {
+            went_back: false,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn stopping_a_load_goes_back_to_the_last_workbook_if_there_is_one() {
+    let (first, mut document) = document(&two_sheets());
+    document.place.cursor = a1("C3");
+    let other = write_temp(&single_sheet(&sheet(&numbers(3)), &[]));
+    document.open(&other.path).unwrap();
+
+    assert!(document.cancel_load());
+
+    assert!(!document.is_loading());
+    assert_eq!(document.workbook().path(), Some(first.path.as_path()));
+    assert_eq!(document.place.cursor, a1("C3"));
+
+    let (workbook, load) = Workbook::open_loading(&other.path, 0).unwrap();
+    let mut opening = Document::opening(workbook, load);
+    assert!(!opening.cancel_load());
+}
+
+#[test]
+fn reloading_stays_on_the_same_sheet_and_cell() {
+    let (file, mut document) = document(&two_sheets());
+    document.switch_sheet(1);
+    document.place.cursor = a1("C3");
+    document.place.scroll = a1("B2");
+    document.edit(vec![(a1("A1"), number(5.0))]).unwrap();
+
+    document.reload().unwrap();
+    assert!(matches!(
+        document.finish_loading(),
+        Some(Outcome::Loaded {
+            kind: LoadKind::Reload,
+            replaced: true
+        })
+    ));
+
+    assert_eq!(document.workbook().path(), Some(file.path.as_path()));
+    assert_eq!(document.sheet_index(), 1);
+    assert_eq!(document.place.cursor, a1("C3"));
+    assert_eq!(document.place.scroll, a1("B2"));
+    assert_eq!(
+        document.current_sheet().cell(a1("A1")).value,
+        CellValue::Number(2.0),
+        "the edit is gone"
+    );
+}
+
+#[test]
+fn reloading_a_file_that_lost_the_sheet_starts_at_the_top() {
+    let (file, mut document) = document(&two_sheets());
+    document.switch_sheet(1);
+    document.place.cursor = a1("C3");
+    std::fs::write(&file.path, single_sheet(&sheet(&numbers(1)), &[])).unwrap();
+
+    document.reload().unwrap();
+    document.finish_loading();
+
+    assert_eq!(document.sheet_index(), 0);
+    assert_eq!(document.place.cursor, a1("A1"));
+}
+
+#[test]
+fn a_file_that_is_no_workbook_is_refused_at_once_and_changes_nothing() {
+    let (first, mut document) = document(&two_sheets());
+    let broken = write_temp(b"not a workbook");
+
+    assert!(document.open(&broken.path).is_err());
+
+    assert!(!document.is_loading());
+    assert_eq!(document.workbook().path(), Some(first.path.as_path()));
 }
