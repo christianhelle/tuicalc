@@ -3,16 +3,18 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 
 use crate::address::{CellRange, CellRef, MAX_COLS, MAX_ROWS};
 use crate::changes::Register;
+use crate::command::{Command, Grammar, Operator};
 use crate::document::{Document, LoadKind, Outcome, Refusal, SaveError};
 use crate::file_dialog::{DialogAction, DialogKind, FileDialog};
 use crate::help::{self, HelpTable};
 use crate::keys::is_ctrl;
 use crate::line_edit::LineEdit;
 use crate::model::{Cell, Sheet};
+use crate::motion::{Motion, Spot, last_filled_column, moved};
 use crate::text::{cell_contains, edit_text, parse_input};
 use crate::xlsx::{Workbook, WorkbookLoad};
 
@@ -63,14 +65,9 @@ pub struct App {
     status: String,
     status_is_error: bool,
     should_quit: bool,
-    /// The count typed so far, as in `5j`.
-    count: Option<u32>,
-    /// The first key of a two-key command, as in `gg`.
-    pending: Option<char>,
+    /// The part of a command typed so far.
+    grammar: Grammar,
     register: Option<Register>,
-    /// The operator waiting for its motion, and where it started.
-    operator: Option<(char, CellRef)>,
-    operator_count: Option<u32>,
     file_dialog: Option<FileDialog>,
     /// Where the file dialog starts.
     dialog_directory: PathBuf,
@@ -101,11 +98,8 @@ impl App {
     fn showing(doc: Document) -> Self {
         Self {
             doc,
-            count: None,
-            pending: None,
+            grammar: Grammar::default(),
             register: None,
-            operator: None,
-            operator_count: None,
             file_dialog: None,
             next_step: None,
             next_step_due: false,
@@ -308,21 +302,7 @@ impl App {
 
     /// The keys of a command still being typed, as vim's `showcmd` shows them.
     pub fn pending_keys(&self) -> String {
-        let count = self
-            .operator_count
-            .or(self.count)
-            .map_or(String::new(), |n| n.to_string());
-        let operator = self
-            .operator
-            .map_or(String::new(), |(operator, _)| operator.to_string());
-        let inner = match (self.operator_count, self.count) {
-            (Some(_), Some(n)) => n.to_string(),
-            _ => String::new(),
-        };
-        let prefix = self
-            .pending
-            .map_or(String::new(), |prefix| prefix.to_string());
-        format!("{count}{operator}{inner}{prefix}")
+        self.grammar.pending_keys()
     }
 
     /// The latest message for the user.
@@ -381,9 +361,17 @@ impl App {
         self.status.clear();
         self.status_is_error = false;
         match self.mode {
-            Mode::Normal => self.normal_key(key),
+            Mode::Normal => {
+                if let Some(command) = self.grammar.normal(key) {
+                    self.run(command);
+                }
+            }
             Mode::Insert => self.insert_key(key),
-            Mode::Visual | Mode::VisualRow => self.visual_key(key),
+            Mode::Visual | Mode::VisualRow => {
+                if let Some(command) = self.grammar.visual(key, self.mode == Mode::VisualRow) {
+                    self.run(command);
+                }
+            }
             Mode::GoTo => self.go_to_key(key),
             Mode::Search => self.search_key(key),
             Mode::Help => self.mode = self.help_from,
@@ -394,250 +382,141 @@ impl App {
         self.scroll_to_cursor();
     }
 
-    /// The populated columns of the cursor's row, from left to right.
-    fn filled_columns(&self) -> impl Iterator<Item = u32> + '_ {
-        let row = self.doc.place.cursor.row;
-        let last = self.current_sheet().extent().map_or(0, |extent| extent.col);
-        (0..=last).filter(move |&col| self.is_filled(CellRef { col, row }))
-    }
-
-    fn first_filled_column(&self) -> Option<u32> {
-        self.filled_columns().next()
-    }
-
-    fn last_filled_column(&self) -> Option<u32> {
-        self.filled_columns().last()
-    }
-
-    fn is_filled(&self, at: CellRef) -> bool {
-        self.current_sheet().has_cell(at)
-    }
-
-    fn repeat_motion(&mut self, times: i64, step: fn(&Self) -> Option<CellRef>) {
-        for _ in 0..times {
-            match step(self) {
-                Some(next) => self.doc.place.cursor = next,
-                None => break,
-            }
-        }
-    }
-
-    /// The last column worth searching on this sheet.
-    fn last_column(&self) -> u32 {
-        self.current_sheet().extent().map_or(0, |extent| extent.col)
-    }
-
-    fn filled_in_row(&self, col: u32) -> bool {
-        self.is_filled(CellRef {
-            col,
-            row: self.doc.place.cursor.row,
-        })
-    }
-
-    /// `w`: the first cell of the next run of filled cells in this row.
-    fn next_run_start(&self) -> Option<CellRef> {
-        let last = self.last_column();
-        let mut col = self.doc.place.cursor.col;
-        while col <= last && self.filled_in_row(col) {
-            col += 1;
-        }
-        while col <= last && !self.filled_in_row(col) {
-            col += 1;
-        }
-        (col <= last).then_some(CellRef {
-            col,
-            row: self.doc.place.cursor.row,
-        })
-    }
-
-    /// `e`: the last cell of this run, or of the next one when already at the end.
-    fn next_run_end(&self) -> Option<CellRef> {
-        let last = self.last_column();
-        let mut col = self.doc.place.cursor.col + 1;
-        while col <= last && !self.filled_in_row(col) {
-            col += 1;
-        }
-        if col > last {
-            return None;
-        }
-        while col < last && self.filled_in_row(col + 1) {
-            col += 1;
-        }
-        Some(CellRef {
-            col,
-            row: self.doc.place.cursor.row,
-        })
-    }
-
-    /// `b`: the first cell of this run, or of the previous one when already at the start.
-    fn previous_run_start(&self) -> Option<CellRef> {
-        let mut col = self.doc.place.cursor.col;
-        while col > 0 && !self.filled_in_row(col - 1) {
-            col -= 1;
-        }
-        if col == 0 {
-            return None;
-        }
-        col -= 1;
-        while col > 0 && self.filled_in_row(col - 1) {
-            col -= 1;
-        }
-        Some(CellRef {
-            col,
-            row: self.doc.place.cursor.row,
-        })
-    }
-
-    fn filled_in_column(&self, row: u32) -> bool {
-        self.is_filled(CellRef {
-            col: self.doc.place.cursor.col,
-            row,
-        })
-    }
-
-    /// `}`: the empty cell below the next run of filled cells in this column.
-    fn next_gap(&self) -> Option<CellRef> {
-        let last = self.current_sheet().extent()?.row;
-        let mut row = self.doc.place.cursor.row;
-        while row <= last && !self.filled_in_column(row) {
-            row += 1;
-        }
-        if row > last {
-            return None;
-        }
-        while row <= last && self.filled_in_column(row) {
-            row += 1;
-        }
-        Some(CellRef {
-            col: self.doc.place.cursor.col,
-            row,
-        })
-    }
-
-    /// `{`: the empty cell above the previous run of filled cells, or the top of the sheet.
-    fn previous_gap(&self) -> Option<CellRef> {
-        let mut row = self.doc.place.cursor.row;
-        if row == 0 {
-            return None;
-        }
-        while row > 0 && !self.filled_in_column(row) {
-            row -= 1;
-        }
-        while row > 0 && self.filled_in_column(row) {
-            row -= 1;
-        }
-        Some(CellRef {
-            col: self.doc.place.cursor.col,
-            row,
-        })
-    }
-
-    /// Moves the view and the cursor by the same number of rows.
-    fn scroll_with_cursor(&mut self, rows: i64) {
-        self.move_by(0, rows);
-        let top = i64::from(self.doc.place.scroll.row) + rows;
-        self.doc.place.scroll.row = top.clamp(0, i64::from(MAX_ROWS) - 1) as u32;
-    }
-
-    /// Moves the cursor if the key is a motion, and says whether it was.
-    fn motion(&mut self, key: KeyEvent, count: Option<u32>) -> bool {
-        let ctrl = is_ctrl(key);
-        let n = i64::from(count.unwrap_or(1));
-        match key.code {
-            KeyCode::Char('0') if !ctrl => self.doc.place.cursor.col = 0,
-            KeyCode::Char('|') if !ctrl => {
-                self.doc.place.cursor.col = count.unwrap_or(1).saturating_sub(1).min(MAX_COLS - 1);
-            }
-            KeyCode::Char('^') if !ctrl => {
-                self.doc.place.cursor.col = self.first_filled_column().unwrap_or(0);
-            }
-            KeyCode::Char('$') if !ctrl => {
-                if let Some(col) = self.last_filled_column() {
-                    self.doc.place.cursor.col = col;
+    /// Carries out a command typed in normal or visual mode.
+    fn run(&mut self, command: Command) {
+        match command {
+            Command::Move { motion, count } => self.run_motion(motion, count),
+            Command::OperateOnMotion {
+                operator,
+                motion,
+                count,
+            } => {
+                let origin = self.doc.place.cursor;
+                self.run_motion(motion, count);
+                if !(motion.is_backward() && origin == self.doc.place.cursor) {
+                    self.finish_operator(operator, origin, motion.is_exclusive());
                 }
             }
-            KeyCode::Char('G') if !ctrl => {
-                let last = self.current_sheet().extent().map_or(0, |extent| extent.row);
-                self.doc.place.cursor.row = count.map_or(last, |row| row.saturating_sub(1));
+            Command::OperateOnRows { operator, count } => self.operate_on_rows(operator, count),
+            Command::OperateOnSelection(operator) => self.operate_on_selection(operator),
+            Command::SwitchSheet(offset) => self.switch_sheet(offset),
+            Command::GoToSheet(number) => self.go_to_sheet(number),
+            Command::SaveIfEditedAndQuit => self.save_if_edited_and_quit(),
+            Command::QuitWithoutAsking => self.quit_without_asking(),
+            Command::ScrollCursorToMiddle => {
+                self.doc.place.scroll.row = self
+                    .doc
+                    .place
+                    .cursor
+                    .row
+                    .saturating_sub(self.viewport.1 / 2);
             }
-            KeyCode::Char('w') if !ctrl => self.repeat_motion(n, Self::next_run_start),
-            KeyCode::Char('e') if !ctrl => self.repeat_motion(n, Self::next_run_end),
-            KeyCode::Char('b') if !ctrl => self.repeat_motion(n, Self::previous_run_start),
-            KeyCode::Char('}') if !ctrl => self.repeat_motion(n, Self::next_gap),
-            KeyCode::Char('{') if !ctrl => self.repeat_motion(n, Self::previous_gap),
-            KeyCode::Char('H') if !ctrl => {
-                let offset = count
-                    .unwrap_or(1)
-                    .saturating_sub(1)
-                    .min(self.viewport.1 - 1);
-                self.doc.place.cursor.row = self.doc.place.scroll.row + offset;
+            Command::ScrollCursorToTop => self.doc.place.scroll.row = self.doc.place.cursor.row,
+            Command::ScrollCursorToBottom => {
+                self.doc.place.scroll.row =
+                    (self.doc.place.cursor.row + 1).saturating_sub(self.viewport.1);
             }
-            KeyCode::Char('M') if !ctrl => {
-                self.doc.place.cursor.row = self.doc.place.scroll.row + (self.viewport.1 - 1) / 2
+            Command::Reload if self.doc.workbook().path().is_none() => {
+                self.status = "Nothing to reload".into();
             }
-            KeyCode::Char('L') if !ctrl => {
-                let offset = count
-                    .unwrap_or(1)
-                    .saturating_sub(1)
-                    .min(self.viewport.1 - 1);
-                self.doc.place.cursor.row =
-                    self.doc.place.scroll.row + self.viewport.1 - 1 - offset;
+            Command::Reload => self.ask_before_losing_edits(NextStep::Reload),
+            Command::Quit => self.ask_before_losing_edits(NextStep::Quit),
+            Command::Save => self.save(),
+            Command::OpenFile => self.ask_before_losing_edits(NextStep::OpenFile),
+            Command::BeginGoTo => self.begin_prompt(Mode::GoTo),
+            Command::BeginSearch => self.begin_prompt(Mode::Search),
+            Command::OpenHelp => self.open_help(),
+            Command::FindNext => self.find_match(true),
+            Command::FindPrevious => self.find_match(false),
+            Command::Undo => self.undo(),
+            Command::Redo => self.redo(),
+            Command::ClearHere => self.apply_edit(self.doc.place.cursor, Cell::default()),
+            Command::Paste { before } => self.paste(before),
+            Command::ClearRight { count } => {
+                let cursor = self.doc.place.cursor;
+                let last = CellRef {
+                    col: (cursor.col + (count - 1)).min(MAX_COLS - 1),
+                    ..cursor
+                };
+                self.clear_cells(cursor, last);
             }
-            KeyCode::Char('d') if ctrl => {
-                self.scroll_with_cursor(n * i64::from(self.viewport.1 / 2))
-            }
-            KeyCode::Char('u') if ctrl => {
-                self.scroll_with_cursor(-n * i64::from(self.viewport.1 / 2))
-            }
-            KeyCode::Char('f') if ctrl => self.scroll_with_cursor(n * i64::from(self.viewport.1)),
-            KeyCode::Char('b') if ctrl => self.scroll_with_cursor(-n * i64::from(self.viewport.1)),
-            KeyCode::Char('h') if !ctrl => self.move_by(-n, 0),
-            KeyCode::Char('l') if !ctrl => self.move_by(n, 0),
-            KeyCode::Char('k') if !ctrl => self.move_by(0, -n),
-            KeyCode::Char('j') if !ctrl => self.move_by(0, n),
-            KeyCode::Left => self.move_by(-n, 0),
-            KeyCode::Right => self.move_by(n, 0),
-            KeyCode::Up => self.move_by(0, -n),
-            KeyCode::Down => self.move_by(0, n),
-            KeyCode::Tab => self.move_by(n, 0),
-            KeyCode::BackTab => self.move_by(-n, 0),
-            KeyCode::Enter => self.move_by(0, n),
-            KeyCode::PageDown if !ctrl => self.move_by(0, n * i64::from(self.viewport.1)),
-            KeyCode::PageUp if !ctrl => self.move_by(0, -n * i64::from(self.viewport.1)),
-            KeyCode::Home if ctrl => self.doc.place.cursor = CellRef { col: 0, row: 0 },
-            KeyCode::Home => self.doc.place.cursor.col = 0,
-            KeyCode::End if ctrl => {
-                if let Some(extent) = self.current_sheet().extent() {
-                    self.doc.place.cursor = extent;
+            Command::ClearLeft { count } => {
+                let cursor = self.doc.place.cursor;
+                if cursor.col > 0 {
+                    let first = CellRef {
+                        col: cursor.col.saturating_sub(count),
+                        ..cursor
+                    };
+                    let last = CellRef {
+                        col: cursor.col - 1,
+                        ..cursor
+                    };
+                    if self.clear_cells(first, last) {
+                        self.doc.place.cursor = first;
+                    }
                 }
             }
-            KeyCode::End => {
-                if let Some(extent) = self.current_sheet().extent() {
-                    self.doc.place.cursor.col = extent.col;
+            Command::ClearToRowEnd => {
+                if let Some(last) = self.last_filled_ahead() {
+                    self.clear_cells(self.doc.place.cursor, last);
                 }
             }
-            _ => return false,
+            Command::SelectCells if self.selection().is_some() => self.mode = Mode::Visual,
+            Command::SelectRows if self.selection().is_some() => self.mode = Mode::VisualRow,
+            Command::SelectCells => self.begin_visual(Mode::Visual),
+            Command::SelectRows => self.begin_visual(Mode::VisualRow),
+            Command::StopSelecting => self.mode = Mode::Normal,
+            Command::SwapSelectionCorners => {
+                let place = &mut self.doc.place;
+                std::mem::swap(&mut place.anchor, &mut place.cursor);
+            }
+            Command::EditAtEnd => self.edit_existing(),
+            Command::EditAtStart => {
+                self.edit_existing();
+                self.line.go_home();
+            }
+            Command::Replace => self.begin_edit(""),
+            Command::ChangeToRowEnd => match self.last_filled_ahead() {
+                Some(last) => {
+                    let cursor = self.doc.place.cursor;
+                    self.operate(Operator::Change, cursor, last, false, cursor);
+                }
+                None => self.begin_edit(""),
+            },
+            Command::EditBelow => {
+                self.move_by(0, 1);
+                self.edit_existing();
+            }
+            Command::EditAbove => {
+                self.move_by(0, -1);
+                self.edit_existing();
+            }
+            Command::BeginFormula => self.begin_edit("="),
+            Command::CancelLoad => {
+                if self.doc.is_loading() {
+                    self.cancel_load();
+                }
+            }
         }
-        true
     }
 
-    /// Collects count digits, and says whether the key was one.
-    fn count_digit(&mut self, key: KeyEvent) -> bool {
-        let KeyCode::Char(c @ '0'..='9') = key.code else {
-            return false;
+    /// Moves the cursor, and the view for the motions that take it along.
+    fn run_motion(&mut self, motion: Motion, count: Option<u32>) {
+        let spot = Spot {
+            cursor: self.doc.place.cursor,
+            scroll: self.doc.place.scroll,
         };
-        // A leading zero is the motion to the first column, not a count.
-        if c == '0' && self.count.is_none() {
-            return false;
-        }
-        let digit = c.to_digit(10).unwrap_or(0);
-        let count = self
-            .count
-            .unwrap_or(0)
-            .saturating_mul(10)
-            .saturating_add(digit);
-        self.count = Some(count.min(MAX_ROWS));
-        true
+        let landed = motion.land(count, self.doc.current_sheet(), spot, self.viewport.1);
+        self.doc.place.cursor = landed.cursor;
+        self.doc.place.scroll = landed.scroll;
+    }
+
+    /// The last filled cell of the cursor's row, if it's not behind the cursor.
+    fn last_filled_ahead(&self) -> Option<CellRef> {
+        let cursor = self.doc.place.cursor;
+        last_filled_column(self.doc.current_sheet(), cursor.row)
+            .filter(|col| *col >= cursor.col)
+            .map(|col| CellRef { col, ..cursor })
     }
 
     fn begin_visual(&mut self, mode: Mode) {
@@ -664,23 +543,12 @@ impl App {
         }
     }
 
-    /// Completes `d`, `y` or `c` with the motion that just moved the cursor. Exclusive motions
-    /// stop short of where they landed, so `dw` keeps the next run and `dl` takes one cell.
-    fn finish_operator(&mut self, exclusive: bool) {
-        let Some((operator, origin)) = self.operator.take() else {
-            return;
-        };
+    /// Completes `d`, `y` or `c` with the motion that just moved the cursor from `origin`.
+    /// Exclusive motions stop short of where they landed, so `dw` keeps the next run and `dl` takes
+    /// one cell.
+    fn finish_operator(&mut self, operator: Operator, origin: CellRef, exclusive: bool) {
         let target = self.doc.place.cursor;
-        let (first, mut last) = (
-            CellRef {
-                col: origin.col.min(target.col),
-                row: origin.row.min(target.row),
-            },
-            CellRef {
-                col: origin.col.max(target.col),
-                row: origin.row.max(target.row),
-            },
-        );
+        let CellRange { first, mut last } = CellRange::between(origin, target);
         if exclusive && target.col != origin.col {
             last.col -= 1;
         }
@@ -689,7 +557,7 @@ impl App {
     }
 
     /// `dd`, `yy` and `cc`: the operator on whole rows, starting at the cursor's.
-    fn operate_on_rows(&mut self, operator: char, count: u32) {
+    fn operate_on_rows(&mut self, operator: Operator, count: u32) {
         let row = self.doc.place.cursor.row;
         let bottom = row.saturating_add(count - 1).min(MAX_ROWS - 1);
         let first = CellRef { col: 0, row };
@@ -700,7 +568,7 @@ impl App {
         self.operate(operator, first, last, true, self.doc.place.cursor);
     }
 
-    fn operate_on_selection(&mut self, operator: char) {
+    fn operate_on_selection(&mut self, operator: Operator) {
         let Some(CellRange { first, last }) = self.selection() else {
             return;
         };
@@ -718,8 +586,15 @@ impl App {
     }
 
     /// Runs `d`, `y` or `c` on a rectangle, leaving the cursor at `at`.
-    fn operate(&mut self, operator: char, first: CellRef, last: CellRef, rows: bool, at: CellRef) {
-        let check = if operator == 'y' {
+    fn operate(
+        &mut self,
+        operator: Operator,
+        first: CellRef,
+        last: CellRef,
+        rows: bool,
+        at: CellRef,
+    ) {
+        let check = if operator == Operator::Yank {
             self.doc.ensure_complete()
         } else {
             self.doc.ensure_changeable()
@@ -730,15 +605,15 @@ impl App {
         let range = CellRange { first, last };
         let register = Register::yank(self.current_sheet(), range, rows);
         let yanked = register.len();
-        if operator != 'y' && !self.clear_cells(first, last) {
+        if operator != Operator::Yank && !self.clear_cells(first, last) {
             return;
         }
         self.register = Some(register);
         self.doc.place.cursor = at;
         match operator {
-            'y' => self.status = format!("{yanked} cells yanked"),
-            'c' => self.begin_edit(""),
-            _ => {}
+            Operator::Yank => self.status = format!("{yanked} cells yanked"),
+            Operator::Change => self.begin_edit(""),
+            Operator::Delete => {}
         }
     }
 
@@ -751,237 +626,6 @@ impl App {
         let paste = register.paste(self.current_sheet(), self.doc.place.cursor, before);
         if self.apply_edits(paste.cells) {
             self.doc.place.cursor = paste.cursor;
-        }
-    }
-
-    fn visual_key(&mut self, key: KeyEvent) {
-        if self.count_digit(key) {
-            return;
-        }
-        let count = self.count.take();
-        if let Some(prefix) = self.pending.take() {
-            self.prefixed_key(prefix, key, count);
-            return;
-        }
-        if let (KeyCode::Char(prefix @ ('g' | 'z')), false) = (key.code, is_ctrl(key)) {
-            self.pending = Some(prefix);
-            self.count = count;
-            return;
-        }
-        if self.motion(key, count) {
-            return;
-        }
-        match (key.code, self.mode) {
-            (KeyCode::Esc, _)
-            | (KeyCode::Char('v'), Mode::Visual)
-            | (KeyCode::Char('V'), Mode::VisualRow) => {
-                self.mode = Mode::Normal;
-            }
-            (KeyCode::Char('c'), _) if is_ctrl(key) => self.mode = Mode::Normal,
-            (KeyCode::Char('?') | KeyCode::F(1), _) => self.open_help(),
-            (KeyCode::Char('v'), _) => self.mode = Mode::Visual,
-            (KeyCode::Char('V'), _) => self.mode = Mode::VisualRow,
-            (KeyCode::Char('o' | 'O'), _) => {
-                std::mem::swap(&mut self.doc.place.anchor, &mut self.doc.place.cursor)
-            }
-            (KeyCode::Char('d' | 'x') | KeyCode::Delete, _) => self.operate_on_selection('d'),
-            (KeyCode::Char('y'), _) => self.operate_on_selection('y'),
-            (KeyCode::Char('c' | 's'), _) => self.operate_on_selection('c'),
-            _ => {}
-        }
-    }
-
-    /// Finishes a two-key command.
-    fn prefixed_key(&mut self, prefix: char, key: KeyEvent, count: Option<u32>) -> bool {
-        let is_motion = prefix == 'g' && key.code == KeyCode::Char('g');
-        let rows = self.viewport.1;
-        match (prefix, key.code) {
-            ('g', KeyCode::Char('g')) => {
-                self.doc.place.cursor.row = count.unwrap_or(1).saturating_sub(1).min(MAX_ROWS - 1);
-            }
-            ('g', KeyCode::Char('t' | 'T')) if self.selection().is_some() => {}
-            ('g', KeyCode::Char('t')) => match count {
-                Some(number) => self.go_to_sheet(number),
-                None => self.switch_sheet(1),
-            },
-            ('g', KeyCode::Char('T')) => self.switch_sheet(-1),
-            ('Z', KeyCode::Char('Z')) => self.save_if_edited_and_quit(),
-            ('Z', KeyCode::Char('Q')) => self.quit_without_asking(),
-            ('z', KeyCode::Char('z')) => {
-                self.doc.place.scroll.row = self.doc.place.cursor.row.saturating_sub(rows / 2)
-            }
-            ('z', KeyCode::Char('t')) => self.doc.place.scroll.row = self.doc.place.cursor.row,
-            ('z', KeyCode::Char('b')) => {
-                self.doc.place.scroll.row = (self.doc.place.cursor.row + 1).saturating_sub(rows)
-            }
-            _ => {}
-        }
-        is_motion
-    }
-
-    fn normal_key(&mut self, key: KeyEvent) {
-        if self.count_digit(key) {
-            return;
-        }
-        let count = self.count.take();
-        let count = match (count, self.operator_count.take()) {
-            (Some(a), Some(b)) => Some(a.saturating_mul(b).min(MAX_ROWS)),
-            (a, b) => a.or(b),
-        };
-        if let Some(prefix) = self.pending.take() {
-            if self.prefixed_key(prefix, key, count) {
-                self.finish_operator(false);
-            } else {
-                self.operator = None;
-            }
-            return;
-        }
-        if let (KeyCode::Char(prefix @ ('g' | 'z' | 'Z')), false) = (key.code, is_ctrl(key)) {
-            self.pending = Some(prefix);
-            self.count = count;
-            return;
-        }
-        if self.motion(key, count) {
-            let exclusive = matches!(
-                key.code,
-                KeyCode::Char('h' | 'l' | 'w' | 'b') | KeyCode::Left | KeyCode::Right
-            );
-            let backward = matches!(key.code, KeyCode::Char('h' | 'b') | KeyCode::Left);
-            if backward
-                && self
-                    .operator
-                    .is_some_and(|(_, origin)| origin == self.doc.place.cursor)
-            {
-                self.operator = None;
-                return;
-            }
-            self.finish_operator(exclusive);
-            return;
-        }
-        if let Some((operator, _)) = self.operator.take() {
-            if key.code == KeyCode::Char(operator) {
-                self.operate_on_rows(operator, count.unwrap_or(1));
-            }
-            return;
-        }
-        if let (KeyCode::Char(operator @ ('d' | 'y' | 'c')), false) = (key.code, is_ctrl(key)) {
-            self.operator = Some((operator, self.doc.place.cursor));
-            self.operator_count = count;
-            return;
-        }
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
-        match key.code {
-            KeyCode::PageDown if ctrl => self.switch_sheet(1),
-            KeyCode::PageUp if ctrl => self.switch_sheet(-1),
-            KeyCode::F(5) if self.doc.workbook().path().is_none() => {
-                self.status = "Nothing to reload".into();
-            }
-            KeyCode::F(5) => self.ask_before_losing_edits(NextStep::Reload),
-            KeyCode::F(6) if shift => self.switch_sheet(-1),
-            KeyCode::F(6) => self.switch_sheet(1),
-            KeyCode::Char('q' | 'c') if ctrl => {
-                self.ask_before_losing_edits(NextStep::Quit);
-            }
-            KeyCode::Char('q') => self.ask_before_losing_edits(NextStep::Quit),
-            KeyCode::Char('s') if ctrl => self.save(),
-            KeyCode::Char('o') if ctrl => self.ask_before_losing_edits(NextStep::OpenFile),
-            KeyCode::Char('g') if ctrl => self.begin_prompt(Mode::GoTo),
-            KeyCode::Char('/') if !ctrl => self.begin_prompt(Mode::Search),
-            KeyCode::Char('?') if !ctrl => self.open_help(),
-            KeyCode::F(1) => self.open_help(),
-            KeyCode::Char('n') if !ctrl => self.find_match(true),
-            KeyCode::Char('N') if !ctrl => self.find_match(false),
-            KeyCode::Char('z') if ctrl => self.undo(),
-            KeyCode::Char('y') if ctrl => self.redo(),
-            KeyCode::Delete | KeyCode::Backspace => {
-                self.apply_edit(self.doc.place.cursor, Cell::default());
-            }
-            KeyCode::Char('p') if !ctrl => self.paste(false),
-            KeyCode::Char('P') if !ctrl => self.paste(true),
-            KeyCode::Char('u') if !ctrl => self.undo(),
-            KeyCode::Char('r') if ctrl => self.redo(),
-            KeyCode::Char('x') if !ctrl => {
-                let n = count.unwrap_or(1) - 1;
-                let last = CellRef {
-                    col: (self.doc.place.cursor.col + n).min(MAX_COLS - 1),
-                    ..self.doc.place.cursor
-                };
-                self.clear_cells(self.doc.place.cursor, last);
-            }
-            KeyCode::Char('X') if !ctrl => {
-                let n = count.unwrap_or(1);
-                if self.doc.place.cursor.col > 0 {
-                    let first = CellRef {
-                        col: self.doc.place.cursor.col.saturating_sub(n),
-                        ..self.doc.place.cursor
-                    };
-                    let last = CellRef {
-                        col: self.doc.place.cursor.col - 1,
-                        ..self.doc.place.cursor
-                    };
-                    if self.clear_cells(first, last) {
-                        self.doc.place.cursor = first;
-                    }
-                }
-            }
-            KeyCode::Char('D') if !ctrl => {
-                if let Some(col) = self
-                    .last_filled_column()
-                    .filter(|col| *col >= self.doc.place.cursor.col)
-                {
-                    self.clear_cells(
-                        self.doc.place.cursor,
-                        CellRef {
-                            col,
-                            ..self.doc.place.cursor
-                        },
-                    );
-                }
-            }
-            KeyCode::Char('v') if is_ctrl(key) => self.begin_visual(Mode::Visual),
-            KeyCode::Char('v') if !ctrl => self.begin_visual(Mode::Visual),
-            KeyCode::Char('V') if !ctrl => self.begin_visual(Mode::VisualRow),
-            KeyCode::F(2) => self.edit_existing(),
-            KeyCode::Char('a' | 'A') if !ctrl => self.edit_existing(),
-            KeyCode::Char('i' | 'I') if !ctrl => {
-                self.edit_existing();
-                self.line.go_home();
-            }
-            KeyCode::Char('s') if !ctrl => self.begin_edit(""),
-            KeyCode::Char('S') if !ctrl => self.operate_on_rows('c', count.unwrap_or(1)),
-            KeyCode::Char('C') if !ctrl => {
-                match self
-                    .last_filled_column()
-                    .filter(|col| *col >= self.doc.place.cursor.col)
-                {
-                    Some(col) => {
-                        let last = CellRef {
-                            col,
-                            ..self.doc.place.cursor
-                        };
-                        self.operate(
-                            'c',
-                            self.doc.place.cursor,
-                            last,
-                            false,
-                            self.doc.place.cursor,
-                        );
-                    }
-                    None => self.begin_edit(""),
-                }
-            }
-            KeyCode::Char('o') if !ctrl => {
-                self.move_by(0, 1);
-                self.edit_existing();
-            }
-            KeyCode::Char('O') if !ctrl => {
-                self.move_by(0, -1);
-                self.edit_existing();
-            }
-            KeyCode::Char('=') if !ctrl => self.begin_edit("="),
-            KeyCode::Esc if self.doc.is_loading() => self.cancel_load(),
-            _ => {}
         }
     }
 
@@ -1219,10 +863,7 @@ impl App {
     }
 
     fn forget_pending_keys(&mut self) {
-        self.count = None;
-        self.pending = None;
-        self.operator = None;
-        self.operator_count = None;
+        self.grammar.forget();
     }
 
     fn open_help(&mut self) {
@@ -1377,12 +1018,7 @@ impl App {
     }
 
     fn move_by(&mut self, cols: i64, rows: i64) {
-        let col = i64::from(self.doc.place.cursor.col) + cols;
-        let row = i64::from(self.doc.place.cursor.row) + rows;
-        self.doc.place.cursor = CellRef {
-            col: col.clamp(0, i64::from(MAX_COLS) - 1) as u32,
-            row: row.clamp(0, i64::from(MAX_ROWS) - 1) as u32,
-        };
+        self.doc.place.cursor = moved(self.doc.place.cursor, cols, rows);
     }
 }
 
