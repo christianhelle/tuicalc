@@ -1,6 +1,5 @@
 //! Application state: everything the keyboard can change.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -8,13 +7,12 @@ use std::time::{Duration, Instant};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::address::{CellRange, CellRef, MAX_COLS, MAX_ROWS};
-use crate::changes::{History, Locked, Restored};
+use crate::changes::{History, Locked, Register, Restored};
 use crate::file_dialog::{DialogAction, DialogKind, FileDialog};
-use crate::formula::translate;
 use crate::help::{self, HelpTable};
 use crate::keys::is_ctrl;
 use crate::line_edit::LineEdit;
-use crate::model::{Cell, CellValue, Sheet};
+use crate::model::{Cell, Sheet};
 use crate::text::{cell_contains, edit_text, parse_input};
 use crate::xlsx::{
     LoadEvent, SavedPackage, Waited, Workbook, WorkbookLoad, WorkbookSave, XlsxError,
@@ -76,15 +74,6 @@ struct PreviousBook {
 /// Freeing a large workbook takes a noticeable moment, so it's done out of the user's way.
 fn free_later<T: Send + 'static>(value: T) {
     thread::spawn(move || drop(value));
-}
-
-/// Cells kept by a yank or a delete, for pasting.
-struct Register {
-    first: CellRef,
-    last: CellRef,
-    /// Whether whole rows were taken.
-    rows: bool,
-    cells: Vec<(CellRef, Cell)>,
 }
 
 pub struct App {
@@ -830,7 +819,10 @@ impl App {
         if refused {
             return;
         }
-        let yanked = self.yank(first, last, rows);
+        let range = CellRange { first, last };
+        let register = Register::yank(self.current_sheet(), range, rows);
+        let yanked = register.len();
+        self.register = Some(register);
         if operator != 'y' && !self.clear_cells(first, last) {
             return;
         }
@@ -842,82 +834,16 @@ impl App {
         }
     }
 
-    /// Copies a rectangle into the register, and says how many cells had contents.
-    fn yank(&mut self, first: CellRef, last: CellRef, rows: bool) -> usize {
-        let cells: Vec<(CellRef, Cell)> = self
-            .filled_cells(first, last)
-            .into_iter()
-            .map(|at| (at, self.current_sheet().cell(at)))
-            .collect();
-        let count = cells.len();
-        self.register = Some(Register {
-            first,
-            last,
-            rows,
-            cells,
-        });
-        count
-    }
-
     /// `p`: writes the register at the cursor, or below it for whole rows. `P` puts rows here.
     fn paste(&mut self, before: bool) {
-        let Some(register) = self.register.take() else {
+        let Some(register) = &self.register else {
             self.status = "Nothing to paste".into();
             return;
         };
-        let target = match (register.rows, before) {
-            (true, true) => CellRef {
-                col: 0,
-                row: self.cursor.row,
-            },
-            (true, false) => CellRef {
-                col: 0,
-                row: (self.cursor.row + 1).min(MAX_ROWS - 1),
-            },
-            (false, _) => self.cursor,
-        };
-        let cols = i64::from(target.col) - i64::from(register.first.col);
-        let rows = i64::from(target.row) - i64::from(register.first.row);
-        let shifted = |at: CellRef| {
-            let col = i64::from(at.col) + cols;
-            let row = i64::from(at.row) + rows;
-            (col < i64::from(MAX_COLS) && row < i64::from(MAX_ROWS)).then_some(CellRef {
-                col: col as u32,
-                row: row as u32,
-            })
-        };
-        let bottom_right = CellRef {
-            col: (i64::from(register.last.col) + cols).min(i64::from(MAX_COLS) - 1) as u32,
-            row: (i64::from(register.last.row) + rows).min(i64::from(MAX_ROWS) - 1) as u32,
-        };
-        // Everything the block lands on is replaced, including by its empty cells.
-        let mut edits: BTreeMap<CellRef, Cell> = self
-            .filled_cells(target, bottom_right)
-            .into_iter()
-            .map(|at| (at, Cell::default()))
-            .collect();
-        for (at, cell) in &register.cells {
-            let Some(to) = shifted(*at) else { continue };
-            let is_date = self.current_sheet().cell(to).is_date;
-            let pasted = match &cell.formula {
-                Some(formula) => Cell::formula(translate(formula, cols, rows)),
-                None => Cell {
-                    is_date: is_date && matches!(cell.value, CellValue::Number(_)),
-                    ..cell.clone()
-                },
-            };
-            edits.insert(to, pasted);
+        let paste = register.paste(self.current_sheet(), self.cursor, before);
+        if self.apply_edits(paste.cells) {
+            self.cursor = paste.cursor;
         }
-        if self.apply_edits(edits.into_iter().collect()) {
-            self.cursor = CellRef {
-                col: self.cursor.col,
-                row: target.row,
-            };
-            if !register.rows {
-                self.cursor = target;
-            }
-        }
-        self.register = Some(register);
     }
 
     fn visual_key(&mut self, key: KeyEvent) {

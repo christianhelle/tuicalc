@@ -1,9 +1,11 @@
 //! Changes to cells: applying them as a unit, taking them back, and moving cells with a register.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::address::CellRef;
-use crate::model::{Cell, Sheet};
+use crate::address::{CellRange, CellRef, MAX_COLS, MAX_ROWS};
+use crate::formula::translate;
+use crate::model::{Cell, CellValue, Sheet};
 
 /// A change refused because it touches a cell that can't be edited on its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,5 +103,105 @@ fn restore(sheets: &mut [Sheet], change: &Change, side: fn(&CellEdit) -> &Cell) 
     Restored {
         sheet: change.sheet,
         first: change.edits.first().map(|edit| edit.at),
+    }
+}
+
+/// Cells kept by a yank or a delete, for pasting.
+#[derive(Debug)]
+pub struct Register {
+    range: CellRange,
+    /// Whether whole rows were taken.
+    rows: bool,
+    cells: Vec<(CellRef, Cell)>,
+}
+
+/// What a paste would write, and where the cursor goes if it's allowed.
+#[derive(Debug, PartialEq)]
+pub struct Paste {
+    pub cells: Vec<(CellRef, Cell)>,
+    pub cursor: CellRef,
+}
+
+impl Register {
+    /// Copies a rectangle of a sheet.
+    pub fn yank(sheet: &Sheet, range: CellRange, rows: bool) -> Self {
+        Self {
+            range,
+            rows,
+            cells: sheet
+                .cells_in(range)
+                .map(|(at, cell)| (*at, cell.clone()))
+                .collect(),
+        }
+    }
+
+    /// How many cells with contents were taken.
+    pub fn len(&self) -> usize {
+        self.cells.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cells.is_empty()
+    }
+
+    /// Works out a paste at the cursor. Whole rows go below its row, or onto it with `before`.
+    pub fn paste(&self, sheet: &Sheet, cursor: CellRef, before: bool) -> Paste {
+        let target = match (self.rows, before) {
+            (true, true) => CellRef {
+                col: 0,
+                row: cursor.row,
+            },
+            (true, false) => CellRef {
+                col: 0,
+                row: (cursor.row + 1).min(MAX_ROWS - 1),
+            },
+            (false, _) => cursor,
+        };
+        let cols = i64::from(target.col) - i64::from(self.range.first.col);
+        let rows = i64::from(target.row) - i64::from(self.range.first.row);
+        let shifted = |at: CellRef| {
+            let col = i64::from(at.col) + cols;
+            let row = i64::from(at.row) + rows;
+            (col < i64::from(MAX_COLS) && row < i64::from(MAX_ROWS)).then_some(CellRef {
+                col: col as u32,
+                row: row as u32,
+            })
+        };
+        let bottom_right = CellRef {
+            col: (i64::from(self.range.last.col) + cols).min(i64::from(MAX_COLS) - 1) as u32,
+            row: (i64::from(self.range.last.row) + rows).min(i64::from(MAX_ROWS) - 1) as u32,
+        };
+        // Everything the block lands on is replaced, including by its empty cells.
+        let landing = CellRange {
+            first: target,
+            last: bottom_right,
+        };
+        let mut edits: BTreeMap<CellRef, Cell> = sheet
+            .cells_in(landing)
+            .map(|(at, _)| (*at, Cell::default()))
+            .collect();
+        for (at, cell) in &self.cells {
+            let Some(to) = shifted(*at) else { continue };
+            let is_date = sheet.cell(to).is_date;
+            let pasted = match &cell.formula {
+                Some(formula) => Cell::formula(translate(formula, cols, rows)),
+                None => Cell {
+                    is_date: is_date && matches!(cell.value, CellValue::Number(_)),
+                    ..cell.clone()
+                },
+            };
+            edits.insert(to, pasted);
+        }
+        Paste {
+            cells: edits.into_iter().collect(),
+            cursor: if self.rows {
+                CellRef {
+                    col: cursor.col,
+                    row: target.row,
+                }
+            } else {
+                target
+            },
+        }
     }
 }
