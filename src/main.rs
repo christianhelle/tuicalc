@@ -24,6 +24,10 @@ fn main() -> ExitCode {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
         }
+        [flag] if flag == "--version" || flag == "-V" => {
+            println!("tcalc {}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
         [] => Workbook::blank().map(App::new),
         [path] => Workbook::open_loading(path, 0).map(|(book, load)| App::opening(book, load)),
         _ => {
