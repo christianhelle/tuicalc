@@ -462,3 +462,98 @@ fn zz_through_the_dialog_quits_once_the_save_has_finished() {
     app.finish_saving();
     assert!(app.should_quit());
 }
+
+#[test]
+fn a_step_waiting_on_a_save_does_not_break_into_a_prompt() {
+    let (file, mut app) = app_with_an_edit();
+    app.set_dialog_directory(file.path.parent().unwrap());
+    ctrl(&mut app, 'o');
+    key(&mut app, KeyCode::Char('s'));
+    key(&mut app, KeyCode::Char('/'));
+    type_keys(&mut app, "ab");
+
+    app.finish_saving();
+
+    assert_eq!(app.mode(), Mode::Search);
+    assert_eq!(app.line().text(), "ab");
+
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.mode(), Mode::FileDialog, "its turn comes afterwards");
+}
+
+#[test]
+fn a_reload_waiting_on_a_save_does_not_cut_a_selection_short() {
+    let (_file, mut app) = app_with_an_edit();
+    key(&mut app, KeyCode::F(5));
+    key(&mut app, KeyCode::Char('s'));
+    key(&mut app, KeyCode::Char('v'));
+    let start = app.cursor();
+    key(&mut app, KeyCode::Char('j'));
+
+    app.finish_saving();
+
+    assert_eq!(app.mode(), Mode::Visual);
+    assert!(!app.document().is_loading());
+    assert_eq!(
+        app.selection().unwrap().first,
+        start,
+        "the selection is intact"
+    );
+
+    key(&mut app, KeyCode::Esc);
+    assert!(app.document().is_loading(), "its turn comes afterwards");
+}
+
+#[test]
+fn quitting_after_a_save_happens_whatever_is_on_screen() {
+    let (_file, mut app) = app_with_an_edit();
+    type_keys(&mut app, "ZZ");
+    key(&mut app, KeyCode::Char('/'));
+
+    app.finish_saving();
+
+    assert!(app.should_quit());
+}
+
+#[test]
+fn a_failed_save_during_a_search_is_reported_when_the_search_ends() {
+    let (file, mut app) = app_with_an_edit();
+    std::fs::write(&file.path, b"someone else's file").unwrap();
+    ctrl(&mut app, 's');
+    key(&mut app, KeyCode::Char('/'));
+
+    app.finish_saving();
+    key(&mut app, KeyCode::Char('x'));
+    assert_eq!(app.status(), "");
+
+    key(&mut app, KeyCode::Esc);
+    assert!(app.status().starts_with("Save failed:"), "{}", app.status());
+    assert!(app.status_is_error());
+}
+
+#[test]
+fn a_failed_save_during_a_go_to_is_not_taken_for_its_own_complaint() {
+    let (file, mut app) = app_with_an_edit();
+    std::fs::write(&file.path, b"someone else's file").unwrap();
+    ctrl(&mut app, 's');
+    ctrl(&mut app, 'g');
+
+    app.finish_saving();
+    assert_eq!(app.status(), "");
+    assert!(!app.status_is_error());
+
+    key(&mut app, KeyCode::Esc);
+    assert!(app.status().starts_with("Save failed:"), "{}", app.status());
+}
+
+#[test]
+fn a_finished_save_under_the_help_is_reported_when_the_help_closes() {
+    let (_file, mut app) = app_with_an_edit();
+    ctrl(&mut app, 's');
+    key(&mut app, KeyCode::F(1));
+
+    app.finish_saving();
+
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.status(), "Saved book.xlsx");
+}

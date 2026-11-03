@@ -44,6 +44,12 @@ pub enum NextStep {
     Reload,
 }
 
+/// A message for the user about background work.
+struct News {
+    message: String,
+    is_error: bool,
+}
+
 pub struct App {
     /// The workbook on show, and where the user is in it.
     doc: Document,
@@ -70,6 +76,10 @@ pub struct App {
     dialog_directory: PathBuf,
     /// What's waiting on the unsaved edits being saved or discarded.
     next_step: Option<NextStep>,
+    /// Whether `next_step` has only been waiting for the user to finish what they're doing.
+    next_step_due: bool,
+    /// A message about background work, kept until the user is back where it can be read.
+    news: Option<News>,
     /// The latest search, which `n` and `N` repeat.
     search_query: Option<String>,
     /// The mode to go back to when the help closes.
@@ -98,6 +108,8 @@ impl App {
             operator_count: None,
             file_dialog: None,
             next_step: None,
+            next_step_due: false,
+            news: None,
             search_query: None,
             help_from: Mode::Normal,
             load_failure: None,
@@ -152,10 +164,15 @@ impl App {
                 if self.file_dialog.is_some() {
                     self.close_file_dialog();
                 }
-                self.status = format!("Saved {}", self.file_name());
-                self.status_is_error = false;
-                if let Some(step) = self.next_step.take() {
-                    self.take_step(step);
+                self.announce(News {
+                    message: format!("Saved {}", self.file_name()),
+                    is_error: false,
+                });
+                if self.next_step == Some(NextStep::Quit) {
+                    self.should_quit = true;
+                } else {
+                    self.next_step_due = self.next_step.is_some();
+                    self.take_due_step();
                 }
             }
             // The dialog stays up to try another name, with the step still waiting.
@@ -163,7 +180,10 @@ impl App {
                 Some(dialog) => dialog.set_message(format!("Save failed: {error}")),
                 None => {
                     self.next_step = None;
-                    self.report_error(format!("Save failed: {error}"));
+                    self.announce(News {
+                        message: format!("Save failed: {error}"),
+                        is_error: true,
+                    });
                 }
             },
             Outcome::Loaded {
@@ -174,7 +194,10 @@ impl App {
                     LoadKind::Open => "Opened",
                     LoadKind::Reload => "Reloaded",
                 };
-                self.status = format!("{verb} {}", self.file_name());
+                self.announce(News {
+                    message: format!("{verb} {}", self.file_name()),
+                    is_error: false,
+                });
             }
             Outcome::LoadFailed {
                 kind,
@@ -194,6 +217,37 @@ impl App {
                 self.should_quit = true;
             }
         }
+    }
+
+    /// Tells the user about background work now, or once they're back from a prompt or the help,
+    /// whose own messages it would be taken for or hidden by.
+    fn announce(&mut self, news: News) {
+        if self.mode == Mode::Normal {
+            self.status = news.message;
+            self.status_is_error = news.is_error;
+        } else {
+            self.news = Some(news);
+        }
+    }
+
+    /// Takes the waiting step if it's due and the user isn't in the middle of something.
+    fn take_due_step(&mut self) {
+        if self.next_step_due && self.mode == Mode::Normal {
+            self.next_step_due = false;
+            if let Some(step) = self.next_step.take() {
+                self.take_step(step);
+            }
+        }
+    }
+
+    /// Catches up on what has been waiting for the user to finish what they were doing.
+    fn catch_up(&mut self) {
+        if self.mode == Mode::Normal && self.status.is_empty() {
+            if let Some(news) = self.news.take() {
+                self.announce(news);
+            }
+        }
+        self.take_due_step();
     }
 
     pub fn load_failure(&self) -> Option<&str> {
@@ -336,6 +390,7 @@ impl App {
             Mode::ConfirmDiscard => self.confirm_discard_key(key),
             Mode::FileDialog => self.file_dialog_key(key),
         }
+        self.catch_up();
         self.scroll_to_cursor();
     }
 
@@ -1159,6 +1214,7 @@ impl App {
     pub fn close_help(&mut self) {
         if self.mode == Mode::Help {
             self.mode = self.help_from;
+            self.catch_up();
         }
     }
 

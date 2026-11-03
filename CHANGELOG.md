@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A delete refused because of an array formula no longer replaces what was
   yanked before it.
+- A save finishing during a search, a go-to, the help or a selection no longer
+  replaces it with the waiting file dialog or reload: the step, and any message
+  about the save, wait until it's over.
 
 ## [0.1.0] - 2026-11-03
 
