@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use super::XlsxError;
 use super::reader::{self, Plan, SheetChunk};
+use super::{Workbook, XlsxError};
 
 /// More than this adds little, since one sheet is read by one thread and cells merge on another.
 const MAX_WORKERS: usize = 4;
@@ -16,6 +16,18 @@ const QUEUED_CHUNKS: usize = 16;
 
 pub enum LoadEvent {
     Cells { sheet: usize, chunk: SheetChunk },
+    Failed(XlsxError),
+}
+
+/// What came of waiting on a load.
+pub enum Arrival {
+    /// More of the workbook's cells are in it.
+    Cells,
+    /// Nothing happened in the time given.
+    Nothing,
+    /// The load is over.
+    Ended,
+    /// Something went wrong further in. The load won't get any further.
     Failed(XlsxError),
 }
 
@@ -103,6 +115,23 @@ impl WorkbookLoad {
         }
     }
 
+    /// Waits for the next cells, or for the load to end, and puts them in the workbook.
+    pub fn receive(&self, workbook: &mut Workbook) -> Arrival {
+        match self.events.recv() {
+            Ok(event) => arrive(event, workbook),
+            Err(_) => Arrival::Ended,
+        }
+    }
+
+    /// Waits up to `wait` for the next cells, and puts them in the workbook.
+    pub fn receive_within(&self, workbook: &mut Workbook, wait: Duration) -> Arrival {
+        match self.events.recv_timeout(wait) {
+            Ok(event) => arrive(event, workbook),
+            Err(RecvTimeoutError::Timeout) => Arrival::Nothing,
+            Err(RecvTimeoutError::Disconnected) => Arrival::Ended,
+        }
+    }
+
     /// Reads this sheet next, if it hasn't been started.
     pub fn prefer(&self, sheet: usize) {
         self.queue.prefer(sheet);
@@ -115,6 +144,16 @@ impl WorkbookLoad {
         }
         let read = self.read_bytes.load(Ordering::Relaxed);
         (read as f64 / self.total_bytes as f64).min(1.0)
+    }
+}
+
+fn arrive(event: LoadEvent, workbook: &mut Workbook) -> Arrival {
+    match event {
+        LoadEvent::Cells { sheet, chunk } => {
+            chunk.apply_to(&mut workbook.sheets[sheet]);
+            Arrival::Cells
+        }
+        LoadEvent::Failed(error) => Arrival::Failed(error),
     }
 }
 

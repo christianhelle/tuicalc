@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use crate::model::Sheet;
 
-pub use loading::{LoadEvent, SheetQueue, Waited, WorkbookLoad};
+pub use loading::{Arrival, LoadEvent, SheetQueue, Waited, WorkbookLoad};
 pub use reader::SheetChunk;
 use saving::{SaveJob, Target};
 pub use saving::{SavedPackage, WorkbookSave};

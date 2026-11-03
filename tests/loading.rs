@@ -10,7 +10,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tuicalc::address::CellRef;
 use tuicalc::app::{App, Mode};
 use tuicalc::model::{Cell, CellValue};
-use tuicalc::xlsx::{LoadEvent, SheetQueue, Workbook, WorkbookLoad};
+use tuicalc::xlsx::{Arrival, Workbook, WorkbookLoad};
 
 const STILL_OPENING: &str = "Still opening: Esc cancels";
 
@@ -19,10 +19,11 @@ fn a1(text: &str) -> CellRef {
 }
 
 fn load_everything(workbook: &mut Workbook, load: &WorkbookLoad) {
-    while let Some(event) = load.next_blocking() {
-        match event {
-            LoadEvent::Cells { sheet, chunk } => chunk.apply_to(&mut workbook.sheets[sheet]),
-            LoadEvent::Failed(error) => panic!("{error}"),
+    loop {
+        match load.receive(workbook) {
+            Arrival::Cells | Arrival::Nothing => {}
+            Arrival::Ended => return,
+            Arrival::Failed(error) => panic!("{error}"),
         }
     }
 }
@@ -80,19 +81,15 @@ fn loading_produces_the_same_workbook_as_opening_it_outright() {
 fn the_first_chunk_of_a_large_sheet_is_about_a_screenful() {
     let file = write_temp(&single_sheet(&sheet(&numbers(5000)), &[]));
 
-    let (_workbook, load) = Workbook::open_loading(&file.path, 0).unwrap();
+    let (mut workbook, load) = Workbook::open_loading(&file.path, 0).unwrap();
 
-    let Some(LoadEvent::Cells { chunk, .. }) = load.next_blocking() else {
-        panic!("no cells");
-    };
-    assert!(
-        (1..=500).contains(&chunk.cells.len()),
-        "{}",
-        chunk.cells.len()
-    );
+    assert!(matches!(load.receive(&mut workbook), Arrival::Cells));
+
+    let arrived = workbook.sheets[0].cells().count();
+    assert!((1..=500).contains(&arrived), "{arrived}");
     assert_eq!(
-        chunk.cells[0],
-        (a1("A1"), Cell::value(CellValue::Number(1.0)))
+        workbook.sheets[0].cell(a1("A1")),
+        Cell::value(CellValue::Number(1.0))
     );
 }
 
@@ -109,13 +106,17 @@ fn a_problem_deep_in_a_sheet_arrives_after_the_cells_before_it() {
     let broken = format!(r#"<worksheet><sheetData>{}</row>"#, numbers(2));
     let file = write_temp(&single_sheet(&broken, &[]));
 
-    let (_workbook, load) = Workbook::open_loading(&file.path, 0).unwrap();
+    let (mut workbook, load) = Workbook::open_loading(&file.path, 0).unwrap();
 
     let mut failed = false;
-    while let Some(event) = load.next_blocking() {
-        if let LoadEvent::Failed(error) = event {
-            assert!(error.to_string().contains("malformed XML"), "{error}");
-            failed = true;
+    loop {
+        match load.receive(&mut workbook) {
+            Arrival::Failed(error) => {
+                assert!(error.to_string().contains("malformed XML"), "{error}");
+                failed = true;
+            }
+            Arrival::Ended => break,
+            Arrival::Cells | Arrival::Nothing => {}
         }
     }
     assert!(failed);
@@ -144,20 +145,6 @@ fn dropping_the_load_stops_it() {
     drop(load);
 
     // Nothing to assert beyond not hanging: its workers fail to send, and stop.
-}
-
-#[test]
-fn the_queue_starts_the_preferred_sheet_first_then_the_rest_in_order() {
-    let queue = SheetQueue::new(4, 2);
-    assert_eq!(queue.next(), Some(2));
-    assert_eq!(queue.next(), Some(0));
-
-    queue.prefer(3);
-    assert_eq!(queue.next(), Some(3));
-
-    queue.prefer(0);
-    assert_eq!(queue.next(), Some(1), "the preferred sheet already started");
-    assert_eq!(queue.next(), None);
 }
 
 #[test]
