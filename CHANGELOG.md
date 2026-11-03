@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Long searches and go-to text scroll to keep the caret in view, and accept
+  `Ctrl-U` and `Ctrl-W` as cell editing does.
+- The file dialog's name has a caret, moved with the arrows, `Home` and `End`,
+  and `Delete` works in it. A long name now scrolls with the caret instead of
+  showing an ellipsis.
+
 ### Fixed
 
 - A delete refused because of an array formula no longer replaces what was
