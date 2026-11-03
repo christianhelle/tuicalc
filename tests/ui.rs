@@ -651,7 +651,9 @@ fn the_save_dialog_shows_the_folder_list_and_name() {
     let text = render(&mut app, 100, 20).join("\n");
 
     assert!(text.contains("Save as"), "{text}");
-    assert!(text.contains(&dir.path().display().to_string()), "{text}");
+    // A long path keeps only its end, as it does in the macOS temporary folder.
+    let folder = dir.path().file_name().unwrap().to_string_lossy();
+    assert!(text.contains(folder.as_ref()), "{text}");
     assert!(text.contains("  .."), "{text}");
     assert!(text.contains("  reports"), "{text}");
     assert!(text.contains("  old.xlsx"), "{text}");
