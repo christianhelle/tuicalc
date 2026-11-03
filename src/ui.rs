@@ -13,6 +13,7 @@ use crate::address::{CellRef, column_name};
 use crate::app::{App, Mode, NextStep};
 use crate::file_dialog::{DialogKind, FileDialog};
 use crate::help::{HELP_KEYS, HELP_WIDTH};
+use crate::line_edit::{LineEdit, Window};
 use crate::text::{display_text, edit_text, is_right_aligned};
 
 /// The cursor and highlighted dialog lines. Reversed video follows the terminal's theme.
@@ -129,8 +130,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         draw_help(frame, app);
     }
     if app.mode() == Mode::Search && status.width > 0 && status.height > 0 {
-        let chars: Vec<char> = app.line().text().chars().collect();
-        let x = status.x + SEARCH_PROMPT_WIDTH + text_width(&chars[..app.line().caret()]) as u16;
+        let x = status.x + SEARCH_PROMPT_WIDTH + search_window(status, app).caret_x;
         frame.set_cursor_position((x.min(status.right().saturating_sub(1)), status.y));
     }
 }
@@ -162,6 +162,13 @@ fn draw_help(frame: &mut Frame, app: &App) {
 
 /// The width of the badge and the ` /` before the typed text.
 const SEARCH_PROMPT_WIDTH: u16 = " NORMAL  /".len() as u16;
+
+/// The part of the search that fits on the status line, with a cell free for the terminal cursor.
+fn search_window(status: Rect, app: &App) -> Window {
+    let room = status.width.saturating_sub(SEARCH_PROMPT_WIDTH + 1);
+    app.line().window(usize::from(room))
+}
+
 const GO_TO_DIALOG_WIDTH: u16 = 52;
 const GO_TO_LABEL: &str = "Cell or row: ";
 
@@ -177,23 +184,25 @@ fn draw_go_to_dialog(frame: &mut Frame, app: &App) {
             Span::raw(" cancel"),
         ])
     };
-    let lines = vec![
-        Line::raw(format!("{GO_TO_LABEL}{}", app.line().text())),
-        last_line,
-    ];
     let area = frame.area().centered(
         Constraint::Length(GO_TO_DIALOG_WIDTH),
-        Constraint::Length(lines.len() as u16 + 2),
+        Constraint::Length(4),
     );
     let block = Block::bordered()
         .border_style(Style::new().fg(Color::Yellow))
         .title(" Go to ");
     let inner = block.inner(area);
+    // One cell stays free for the terminal cursor after the text.
+    let room = inner.width.saturating_sub(GO_TO_LABEL.len() as u16 + 1);
+    let window = app.line().window(usize::from(room));
+    let lines = vec![
+        Line::raw(format!("{GO_TO_LABEL}{}", window.text)),
+        last_line,
+    ];
     frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(lines).block(block), area);
     if inner.width > 0 && inner.height > 0 {
-        let chars: Vec<char> = app.line().text().chars().collect();
-        let x = inner.x + (GO_TO_LABEL.len() + text_width(&chars[..app.line().caret()])) as u16;
+        let x = inner.x + GO_TO_LABEL.len() as u16 + window.caret_x;
         frame.set_cursor_position((x.min(inner.right().saturating_sub(1)), inner.y));
     }
 }
@@ -365,35 +374,25 @@ fn draw_formula_bar(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
     let editing = app.mode() == Mode::Insert;
-    let content = if editing {
-        app.line().text()
+    let mut showing;
+    let line = if editing {
+        app.line()
     } else {
-        edit_text(
-            &app.current_sheet().cell(app.cursor()),
-            app.workbook.date1904,
-        )
+        let cell = app.current_sheet().cell(app.cursor());
+        showing = LineEdit::new(&edit_text(&cell, app.workbook.date1904));
+        showing.go_home();
+        &showing
     };
-    let content: Vec<char> = content
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
     // One cell stays free for the terminal cursor after the text.
     let room = usize::from(area.width.saturating_sub(1));
-    let caret = if editing { app.line().caret() } else { 0 };
-
-    // Drop leading characters until the caret fits in the visible room.
-    let mut start = 0;
-    while text_width(&content[start..caret]) > room && start < caret {
-        start += 1;
-    }
-    let visible: String = content[start..].iter().collect();
+    let window = line.window(room);
     if room > 0 {
         frame
             .buffer_mut()
-            .set_stringn(area.x, area.y, visible, room, Style::default());
+            .set_stringn(area.x, area.y, window.text, room, Style::default());
     }
     if editing {
-        let x = area.x + text_width(&content[start..caret]) as u16;
+        let x = area.x + window.caret_x;
         frame.set_cursor_position((x.min(area.right().saturating_sub(1)), area.y));
     }
 }
@@ -482,7 +481,7 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     };
     // The go-to dialog shows its own complaints.
     let message = if app.mode() == Mode::Search {
-        format!(" /{}", app.line().text())
+        format!(" /{}", search_window(area, app).text)
     } else if let (Mode::Normal, true, Some(progress)) =
         (app.mode(), app.status().is_empty(), app.loading_progress())
     {

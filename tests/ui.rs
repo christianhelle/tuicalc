@@ -1230,3 +1230,51 @@ fn the_save_dialog_says_it_is_saving() {
         "{screen:?}"
     );
 }
+
+#[test]
+fn a_long_search_keeps_the_caret_on_the_status_line() {
+    let (_file, mut app) = app_with("");
+    let text: String = ('a'..='z').cycle().take(60).collect();
+    press(&mut app, KeyCode::Char('/'));
+    for c in text.chars() {
+        press(&mut app, KeyCode::Char(c));
+    }
+
+    let mut terminal = terminal_for(&mut app, 40, 10);
+
+    let position = terminal.get_cursor_position().unwrap();
+    assert!(position.x < 40, "caret stays on screen, at {}", position.x);
+    let buffer = terminal.backend().buffer();
+    assert_eq!(buffer[(position.x - 1, position.y)].symbol(), "h");
+}
+
+#[test]
+fn a_long_go_to_keeps_the_caret_in_the_dialog() {
+    let (_file, mut app) = app_with("");
+    let text: String = ('a'..='z').cycle().take(60).collect();
+    app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL));
+    for c in text.chars() {
+        press(&mut app, KeyCode::Char(c));
+    }
+
+    let mut terminal = terminal_for(&mut app, 80, 24);
+
+    let position = terminal.get_cursor_position().unwrap();
+    let buffer = terminal.backend().buffer();
+    assert_eq!(buffer[(position.x - 1, position.y)].symbol(), "h");
+}
+
+#[test]
+fn the_save_dialog_draws_the_terminal_cursor_at_the_names_caret() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app_in_save_dialog(dir.path());
+    press(&mut app, KeyCode::Char('a'));
+    press(&mut app, KeyCode::Char('b'));
+    press(&mut app, KeyCode::Left);
+
+    let mut terminal = terminal_for(&mut app, 80, 24);
+
+    let position = terminal.get_cursor_position().unwrap();
+    let buffer = terminal.backend().buffer();
+    assert_eq!(buffer[(position.x, position.y)].symbol(), "b");
+}
