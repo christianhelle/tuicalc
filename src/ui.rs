@@ -288,15 +288,16 @@ fn draw_file_dialog(frame: &mut Frame, dialog: &FileDialog) {
     let name_y = inner.y + u16::from(show_path) + list_rows;
     let label_width = FILE_DIALOG_NAME_LABEL.len();
     // One cell stays free for the terminal cursor after the name.
-    let name = keep_end(dialog.name(), room.saturating_sub(label_width + 1));
-    let line = format!("{FILE_DIALOG_NAME_LABEL}{name}");
+    let name = dialog
+        .name_line()
+        .window(room.saturating_sub(label_width + 1));
+    let line = format!("{FILE_DIALOG_NAME_LABEL}{}", name.text);
     buffer.set_stringn(inner.x, name_y, &line, room, Style::default());
     if show_hint {
         buffer.set_line(inner.x, name_y + 1, &file_dialog_hint(dialog), inner.width);
     }
     if dialog.pending_overwrite().is_none() {
-        let chars: Vec<char> = line.chars().collect();
-        let x = inner.x + text_width(&chars) as u16;
+        let x = inner.x + label_width as u16 + name.caret_x;
         frame.set_cursor_position((x.min(inner.right().saturating_sub(1)), name_y));
     }
 }

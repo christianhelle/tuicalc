@@ -2410,3 +2410,18 @@ fn a_file_that_cannot_be_opened_leaves_the_dialog_open_with_the_error() {
         }
     }
 }
+
+#[test]
+fn the_file_dialog_name_can_be_edited_anywhere() {
+    let (_file, mut app) = app_with("");
+    let dir = tempfile::tempdir().unwrap();
+    app.set_dialog_directory(dir.path());
+    ctrl(&mut app, KeyCode::Char('o'));
+    type_text(&mut app, "bc");
+
+    press(&mut app, KeyCode::Home);
+    press(&mut app, KeyCode::Char('a'));
+    press(&mut app, KeyCode::Delete);
+
+    assert_eq!(app.file_dialog().unwrap().name(), "ac");
+}

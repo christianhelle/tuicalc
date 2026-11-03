@@ -5,7 +5,8 @@ use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::keys::{is_ctrl, is_text_input};
+use crate::keys::is_ctrl;
+use crate::line_edit::LineEdit;
 
 /// One line of the dialog's list.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +53,7 @@ pub struct FileDialog {
     directory: PathBuf,
     entries: Vec<Entry>,
     highlight: Option<usize>,
-    name: String,
+    name: LineEdit,
     message: String,
     /// The existing file waiting for the user to allow overwriting it.
     overwrite: Option<PathBuf>,
@@ -76,7 +77,7 @@ impl FileDialog {
             directory: directory.to_path_buf(),
             entries,
             highlight: None,
-            name: String::new(),
+            name: LineEdit::default(),
             message,
             overwrite: None,
         }
@@ -99,7 +100,12 @@ impl FileDialog {
         self.highlight
     }
 
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> String {
+        self.name.text()
+    }
+
+    /// The name being typed, with its caret.
+    pub fn name_line(&self) -> &LineEdit {
         &self.name
     }
 
@@ -128,15 +134,13 @@ impl FileDialog {
             KeyCode::Enter => return self.confirm(),
             KeyCode::Esc => return DialogAction::Cancel,
             KeyCode::Char('c') if is_ctrl(key) => return DialogAction::Cancel,
-            KeyCode::Backspace => {
-                self.name.pop();
-                self.highlight = None;
+            _ => {
+                let before = self.name.text();
+                self.name.handle_key(key);
+                if self.name.text() != before {
+                    self.highlight = None;
+                }
             }
-            KeyCode::Char(c) if is_text_input(key) => {
-                self.name.push(c);
-                self.highlight = None;
-            }
-            _ => {}
         }
         DialogAction::Stay
     }
@@ -168,13 +172,13 @@ impl FileDialog {
     }
 
     fn submit(&mut self) -> DialogAction {
-        if self.name.trim().is_empty() {
+        let name = self.name.text();
+        let name = name.trim();
+        if name.is_empty() {
             self.message = "Enter a file name".into();
             return DialogAction::Stay;
         }
-        let path = self
-            .directory
-            .join(with_default_extension(self.name.trim()));
+        let path = self.directory.join(with_default_extension(name));
         if self.kind == DialogKind::Open {
             return DialogAction::Open(path);
         }
@@ -207,7 +211,7 @@ impl FileDialog {
         };
         self.highlight = Some(next);
         if let Entry::File(name) = &self.entries[next] {
-            self.name = name.clone();
+            self.name = LineEdit::new(name);
         }
     }
 }
