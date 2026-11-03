@@ -3,6 +3,7 @@ pub mod address;
 pub mod app;
 pub mod changes;
 pub mod date;
+pub mod document;
 pub mod file_dialog;
 pub mod formula;
 pub mod help;
