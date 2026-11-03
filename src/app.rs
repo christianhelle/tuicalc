@@ -1596,9 +1596,8 @@ impl App {
     /// The populated cells of a rectangle.
     fn filled_cells(&self, first: CellRef, last: CellRef) -> Vec<CellRef> {
         self.current_sheet()
-            .cells()
+            .cells_in(CellRange { first, last })
             .map(|(at, _)| *at)
-            .filter(|at| CellRange { first, last }.contains(*at))
             .collect()
     }
 

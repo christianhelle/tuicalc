@@ -1,4 +1,4 @@
-use tuicalc::address::CellRef;
+use tuicalc::address::{CellRange, CellRef};
 use tuicalc::model::{Cell, CellValue, Sheet};
 
 fn a1(text: &str) -> CellRef {
@@ -119,4 +119,19 @@ fn a_copy_of_a_sheet_keeps_its_cells_when_the_original_changes() {
     assert!(!copy.has_cell(a1("B1")));
     assert!(!copy.is_dirty());
     assert_eq!(sheet.cell(a1("A1")).value, CellValue::Number(2.0));
+}
+
+#[test]
+fn cells_in_a_range_are_the_populated_ones_inside_it() {
+    let mut sheet = Sheet::new("Sheet1");
+    for at in ["A1", "B1", "C1", "A2", "C2", "B3", "B4"] {
+        sheet.load_cell(a1(at), Cell::value(CellValue::Number(1.0)));
+    }
+
+    let inside: Vec<CellRef> = sheet
+        .cells_in(CellRange::between(a1("B1"), a1("C3")))
+        .map(|(at, _)| *at)
+        .collect();
+
+    assert_eq!(inside, vec![a1("B1"), a1("C1"), a1("C2"), a1("B3")]);
 }

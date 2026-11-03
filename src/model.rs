@@ -80,6 +80,13 @@ impl Sheet {
         self.cells.contains_key(&at)
     }
 
+    /// The populated cells of a rectangle, in order, without looking at the rows outside it.
+    pub fn cells_in(&self, range: CellRange) -> impl Iterator<Item = (&CellRef, &Cell)> {
+        self.cells
+            .range(range.first..=range.last)
+            .filter(move |(at, _)| range.contains(**at))
+    }
+
     /// Stores a cell read from a file, without marking it as edited.
     pub fn load_cell(&mut self, at: CellRef, cell: Cell) {
         if cell.is_blank() {
