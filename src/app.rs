@@ -1,22 +1,20 @@
 //! Application state: everything the keyboard can change.
 
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::address::{CellRange, CellRef, MAX_COLS, MAX_ROWS};
-use crate::changes::{History, Locked, Register, Restored};
+use crate::changes::Register;
+use crate::document::{Document, LoadKind, Outcome, Refusal, SaveError};
 use crate::file_dialog::{DialogAction, DialogKind, FileDialog};
 use crate::help::{self, HelpTable};
 use crate::keys::is_ctrl;
 use crate::line_edit::LineEdit;
 use crate::model::{Cell, Sheet};
 use crate::text::{cell_contains, edit_text, parse_input};
-use crate::xlsx::{
-    LoadEvent, SavedPackage, Waited, Workbook, WorkbookLoad, WorkbookSave, XlsxError,
-};
+use crate::xlsx::{Workbook, WorkbookLoad};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -46,40 +44,9 @@ pub enum NextStep {
     Reload,
 }
 
-/// A workbook on screen whose cells are still arriving.
-struct Loading {
-    load: WorkbookLoad,
-    kind: LoadKind,
-    /// What to go back to if the load doesn't work out. The first workbook has nothing to go to.
-    previous: Option<Box<PreviousBook>>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum LoadKind {
-    Open,
-    Reload,
-}
-
-/// A workbook put aside while another loads, and the place the user was in it.
-struct PreviousBook {
-    workbook: Workbook,
-    sheet: usize,
-    cursor: CellRef,
-    scroll: CellRef,
-    anchor: CellRef,
-    cursors: Vec<CellRef>,
-    history: History,
-}
-
-/// Freeing a large workbook takes a noticeable moment, so it's done out of the user's way.
-fn free_later<T: Send + 'static>(value: T) {
-    thread::spawn(move || drop(value));
-}
-
 pub struct App {
-    pub workbook: Workbook,
-    sheet: usize,
-    cursor: CellRef,
+    /// The workbook on show, and where the user is in it.
+    doc: Document,
     /// The visible grid size, in columns and rows.
     viewport: (u32, u32),
     mode: Mode,
@@ -89,17 +56,11 @@ pub struct App {
     original: Cell,
     status: String,
     status_is_error: bool,
-    history: History,
     should_quit: bool,
-    /// The cursor position left behind on each sheet.
-    cursors: Vec<CellRef>,
-    scroll: CellRef,
     /// The count typed so far, as in `5j`.
     count: Option<u32>,
     /// The first key of a two-key command, as in `gg`.
     pending: Option<char>,
-    /// Where the visual selection started.
-    anchor: CellRef,
     register: Option<Register>,
     /// The operator waiting for its motion, and where it started.
     operator: Option<(char, CellRef)>,
@@ -113,22 +74,25 @@ pub struct App {
     search_query: Option<String>,
     /// The mode to go back to when the help closes.
     help_from: Mode,
-    loading: Option<Loading>,
-    /// The save on its way to the disk.
-    saving: Option<WorkbookSave>,
     /// Why the workbook the app opened with couldn't be read, once it has given up.
     load_failure: Option<String>,
 }
 
 impl App {
     pub fn new(workbook: Workbook) -> Self {
-        let origin = CellRef { col: 0, row: 0 };
+        Self::showing(Document::new(workbook))
+    }
+
+    /// An app showing a workbook whose cells are on their way.
+    pub fn opening(workbook: Workbook, load: WorkbookLoad) -> Self {
+        Self::showing(Document::opening(workbook, load))
+    }
+
+    fn showing(doc: Document) -> Self {
         Self {
-            cursors: vec![origin; workbook.sheets.len()],
-            scroll: origin,
+            doc,
             count: None,
             pending: None,
-            anchor: origin,
             register: None,
             operator: None,
             operator_count: None,
@@ -136,78 +100,55 @@ impl App {
             next_step: None,
             search_query: None,
             help_from: Mode::Normal,
-            loading: None,
-            saving: None,
             load_failure: None,
             dialog_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-            workbook,
-            sheet: 0,
-            cursor: CellRef { col: 0, row: 0 },
             viewport: (10, 20),
             mode: Mode::Normal,
             line: LineEdit::default(),
             original: Cell::default(),
             status: String::new(),
             status_is_error: false,
-            history: History::default(),
             should_quit: false,
         }
     }
 
-    /// An app showing a workbook whose cells are on their way.
-    pub fn opening(workbook: Workbook, load: WorkbookLoad) -> Self {
-        let mut app = Self::new(workbook);
-        app.loading = Some(Loading {
-            load,
-            kind: LoadKind::Open,
-            previous: None,
-        });
-        app
-    }
-
-    pub fn is_loading(&self) -> bool {
-        self.loading.is_some()
-    }
-
-    /// How much of the workbook has been read, from 0 to 1, while it's loading.
-    pub fn loading_progress(&self) -> Option<f64> {
-        self.loading.as_ref().map(|loading| loading.load.progress())
-    }
-
-    pub fn is_saving(&self) -> bool {
-        self.saving.is_some()
-    }
-
-    /// Whether something is happening that the screen should keep up with without a key press.
-    pub fn is_busy(&self) -> bool {
-        self.is_loading() || self.is_saving()
+    /// The workbook on show, and what's going on with it.
+    pub fn document(&self) -> &Document {
+        &self.doc
     }
 
     /// Spends up to `budget` on the save or load in progress, stopping short if there's no news.
     pub fn absorb_background(&mut self, budget: Duration) {
-        if let Some(save) = &self.saving {
-            if let Some(result) = save.result_within(budget) {
-                self.end_save(result);
-            }
-        } else {
-            self.absorb_loaded(budget);
+        if let Some(outcome) = self.doc.absorb(budget) {
+            self.take_outcome(outcome);
         }
     }
 
     /// Waits for the save in progress.
     pub fn finish_saving(&mut self) {
-        if let Some(save) = &self.saving {
-            let result = save.wait();
-            self.end_save(result);
+        if let Some(outcome) = self.doc.finish_saving() {
+            self.take_outcome(outcome);
         }
     }
 
-    /// Takes in the outcome of a save, and takes whatever step was waiting on it.
-    fn end_save(&mut self, result: Result<SavedPackage, XlsxError>) {
-        self.saving = None;
-        match result {
-            Ok(saved) => {
-                self.workbook.finish_save(saved);
+    /// Waits for the next chunk of cells, or for the load to end.
+    pub fn absorb_next_chunk(&mut self) {
+        if let Some(outcome) = self.doc.absorb_next_chunk() {
+            self.take_outcome(outcome);
+        }
+    }
+
+    /// Waits for the whole workbook.
+    pub fn finish_loading(&mut self) {
+        if let Some(outcome) = self.doc.finish_loading() {
+            self.take_outcome(outcome);
+        }
+    }
+
+    /// Takes in how some background work ended, and takes whatever step was waiting on it.
+    fn take_outcome(&mut self, outcome: Outcome) {
+        match outcome {
+            Outcome::Saved => {
                 if self.file_dialog.is_some() {
                     self.close_file_dialog();
                 }
@@ -218,13 +159,40 @@ impl App {
                 }
             }
             // The dialog stays up to try another name, with the step still waiting.
-            Err(error) => match &mut self.file_dialog {
+            Outcome::SaveFailed(error) => match &mut self.file_dialog {
                 Some(dialog) => dialog.set_message(format!("Save failed: {error}")),
                 None => {
                     self.next_step = None;
                     self.report_error(format!("Save failed: {error}"));
                 }
             },
+            Outcome::Loaded {
+                replaced: false, ..
+            } => {}
+            Outcome::Loaded { kind, .. } => {
+                let verb = match kind {
+                    LoadKind::Open => "Opened",
+                    LoadKind::Reload => "Reloaded",
+                };
+                self.status = format!("{verb} {}", self.file_name());
+            }
+            Outcome::LoadFailed {
+                kind,
+                went_back: true,
+                error,
+            } => {
+                self.mode = Mode::Normal;
+                self.help_from = Mode::Normal;
+                let verb = match kind {
+                    LoadKind::Open => "Open",
+                    LoadKind::Reload => "Reload",
+                };
+                self.report_error(format!("{verb} failed: {error}"));
+            }
+            Outcome::LoadFailed { error, .. } => {
+                self.load_failure = Some(error.to_string());
+                self.should_quit = true;
+            }
         }
     }
 
@@ -232,145 +200,29 @@ impl App {
         self.load_failure.as_deref()
     }
 
-    /// Takes in arriving cells for up to `budget`, which stops short if there are none yet.
-    pub fn absorb_loaded(&mut self, budget: Duration) {
-        let deadline = Instant::now() + budget;
-        while let Some(loading) = &self.loading {
-            let wait = deadline.saturating_duration_since(Instant::now());
-            match loading.load.next_within(wait) {
-                Waited::Event(event) => self.take_load_event(event),
-                Waited::Ended => self.finish_load(),
-                Waited::Nothing => return,
+    /// Says why something isn't happening if the document refused it; returns whether it did.
+    fn refuse(&mut self, check: Result<(), Refusal>) -> bool {
+        match check {
+            Ok(()) => false,
+            Err(refusal @ Refusal::Locked(_)) => {
+                self.report_error(refusal.to_string());
+                true
             }
-            if Instant::now() >= deadline {
-                return;
-            }
-        }
-    }
-
-    /// Waits for the next chunk of cells, or for the load to end.
-    pub fn absorb_next_chunk(&mut self) {
-        if let Some(loading) = &self.loading {
-            match loading.load.next_blocking() {
-                Some(event) => self.take_load_event(event),
-                None => self.finish_load(),
+            Err(refusal) => {
+                self.status = refusal.to_string();
+                true
             }
         }
-    }
-
-    /// Waits for the whole workbook.
-    pub fn finish_loading(&mut self) {
-        while self.loading.is_some() {
-            self.absorb_next_chunk();
-        }
-    }
-
-    fn take_load_event(&mut self, event: LoadEvent) {
-        match event {
-            LoadEvent::Cells { sheet, chunk } => chunk.apply_to(&mut self.workbook.sheets[sheet]),
-            LoadEvent::Failed(error) => {
-                let Some(loading) = self.loading.take() else {
-                    return;
-                };
-                let verb = match loading.kind {
-                    LoadKind::Open => "Open",
-                    LoadKind::Reload => "Reload",
-                };
-                match loading.previous {
-                    Some(previous) => {
-                        self.go_back_to(*previous);
-                        self.report_error(format!("{verb} failed: {error}"));
-                    }
-                    None => {
-                        self.load_failure = Some(error.to_string());
-                        self.should_quit = true;
-                    }
-                }
-            }
-        }
-    }
-
-    fn finish_load(&mut self) {
-        let Some(loading) = self.loading.take() else {
-            return;
-        };
-        if let Some(previous) = loading.previous {
-            free_later(previous);
-            let verb = match loading.kind {
-                LoadKind::Open => "Opened",
-                LoadKind::Reload => "Reloaded",
-            };
-            self.status = format!("{verb} {}", self.file_name());
-        }
-    }
-
-    /// Puts another workbook on screen with its cells on their way, keeping this one until they
-    /// have all arrived.
-    fn begin_load(&mut self, workbook: Workbook, load: WorkbookLoad, kind: LoadKind) {
-        let origin = CellRef { col: 0, row: 0 };
-        let previous = PreviousBook {
-            sheet: self.sheet,
-            cursor: self.cursor,
-            scroll: self.scroll,
-            anchor: self.anchor,
-            cursors: std::mem::replace(&mut self.cursors, vec![origin; workbook.sheets.len()]),
-            history: std::mem::take(&mut self.history),
-            workbook: std::mem::replace(&mut self.workbook, workbook),
-        };
-        self.sheet = 0;
-        self.cursor = origin;
-        self.scroll = origin;
-        self.anchor = origin;
-        self.loading = Some(Loading {
-            load,
-            kind,
-            previous: Some(Box::new(previous)),
-        });
-    }
-
-    fn go_back_to(&mut self, previous: PreviousBook) {
-        free_later(std::mem::replace(&mut self.workbook, previous.workbook));
-        self.sheet = previous.sheet;
-        self.cursor = previous.cursor;
-        self.scroll = previous.scroll;
-        self.anchor = previous.anchor;
-        self.cursors = previous.cursors;
-        self.history = previous.history;
-        self.mode = Mode::Normal;
-        self.help_from = Mode::Normal;
-    }
-
-    /// Says why something that needs the whole workbook isn't happening; returns whether it isn't.
-    fn refuse_while_loading(&mut self) -> bool {
-        let loading = self.is_loading();
-        if loading {
-            self.status = "Still opening: Esc cancels".into();
-        }
-        loading
-    }
-
-    /// Says why something that changes the workbook, or needs it whole, isn't happening; returns
-    /// whether it isn't. A save is writing a snapshot, and taking in its outcome marks every cell
-    /// as saved, so a change made meanwhile would be lost.
-    fn refuse_while_busy(&mut self) -> bool {
-        if self.is_saving() {
-            self.status = "Still saving".into();
-            return true;
-        }
-        self.refuse_while_loading()
     }
 
     /// Stops loading at the user's request.
     fn cancel_load(&mut self) {
-        let Some(loading) = self.loading.take() else {
-            return;
-        };
-        match loading.previous {
-            Some(previous) => {
-                self.go_back_to(*previous);
-                self.status = "Stopped opening".into();
-            }
-            None => self.should_quit = true,
+        if self.doc.cancel_load() {
+            self.mode = Mode::Normal;
+            self.help_from = Mode::Normal;
+            self.status = "Stopped opening".into();
+        } else {
+            self.should_quit = true;
         }
     }
 
@@ -384,15 +236,15 @@ impl App {
     }
 
     pub fn cursor(&self) -> CellRef {
-        self.cursor
+        self.doc.place.cursor
     }
 
     pub fn sheet_index(&self) -> usize {
-        self.sheet
+        self.doc.sheet_index()
     }
 
     pub fn current_sheet(&self) -> &Sheet {
-        &self.workbook.sheets[self.sheet]
+        self.doc.current_sheet()
     }
 
     pub fn set_viewport(&mut self, cols: u32, rows: u32) {
@@ -449,21 +301,21 @@ impl App {
 
     /// The cell shown in the grid's top-left corner.
     pub fn scroll(&self) -> CellRef {
-        self.scroll
+        self.doc.place.scroll
     }
 
     /// Adjusts the scroll position just enough to show the cursor.
     fn scroll_to_cursor(&mut self) {
         let (cols, rows) = self.viewport;
-        if self.cursor.col < self.scroll.col {
-            self.scroll.col = self.cursor.col;
-        } else if self.cursor.col >= self.scroll.col + cols {
-            self.scroll.col = self.cursor.col + 1 - cols;
+        if self.doc.place.cursor.col < self.doc.place.scroll.col {
+            self.doc.place.scroll.col = self.doc.place.cursor.col;
+        } else if self.doc.place.cursor.col >= self.doc.place.scroll.col + cols {
+            self.doc.place.scroll.col = self.doc.place.cursor.col + 1 - cols;
         }
-        if self.cursor.row < self.scroll.row {
-            self.scroll.row = self.cursor.row;
-        } else if self.cursor.row >= self.scroll.row + rows {
-            self.scroll.row = self.cursor.row + 1 - rows;
+        if self.doc.place.cursor.row < self.doc.place.scroll.row {
+            self.doc.place.scroll.row = self.doc.place.cursor.row;
+        } else if self.doc.place.cursor.row >= self.doc.place.scroll.row + rows {
+            self.doc.place.scroll.row = self.doc.place.cursor.row + 1 - rows;
         }
     }
 
@@ -489,7 +341,7 @@ impl App {
 
     /// The populated columns of the cursor's row, from left to right.
     fn filled_columns(&self) -> impl Iterator<Item = u32> + '_ {
-        let row = self.cursor.row;
+        let row = self.doc.place.cursor.row;
         let last = self.current_sheet().extent().map_or(0, |extent| extent.col);
         (0..=last).filter(move |&col| self.is_filled(CellRef { col, row }))
     }
@@ -509,7 +361,7 @@ impl App {
     fn repeat_motion(&mut self, times: i64, step: fn(&Self) -> Option<CellRef>) {
         for _ in 0..times {
             match step(self) {
-                Some(next) => self.cursor = next,
+                Some(next) => self.doc.place.cursor = next,
                 None => break,
             }
         }
@@ -523,14 +375,14 @@ impl App {
     fn filled_in_row(&self, col: u32) -> bool {
         self.is_filled(CellRef {
             col,
-            row: self.cursor.row,
+            row: self.doc.place.cursor.row,
         })
     }
 
     /// `w`: the first cell of the next run of filled cells in this row.
     fn next_run_start(&self) -> Option<CellRef> {
         let last = self.last_column();
-        let mut col = self.cursor.col;
+        let mut col = self.doc.place.cursor.col;
         while col <= last && self.filled_in_row(col) {
             col += 1;
         }
@@ -539,14 +391,14 @@ impl App {
         }
         (col <= last).then_some(CellRef {
             col,
-            row: self.cursor.row,
+            row: self.doc.place.cursor.row,
         })
     }
 
     /// `e`: the last cell of this run, or of the next one when already at the end.
     fn next_run_end(&self) -> Option<CellRef> {
         let last = self.last_column();
-        let mut col = self.cursor.col + 1;
+        let mut col = self.doc.place.cursor.col + 1;
         while col <= last && !self.filled_in_row(col) {
             col += 1;
         }
@@ -558,13 +410,13 @@ impl App {
         }
         Some(CellRef {
             col,
-            row: self.cursor.row,
+            row: self.doc.place.cursor.row,
         })
     }
 
     /// `b`: the first cell of this run, or of the previous one when already at the start.
     fn previous_run_start(&self) -> Option<CellRef> {
-        let mut col = self.cursor.col;
+        let mut col = self.doc.place.cursor.col;
         while col > 0 && !self.filled_in_row(col - 1) {
             col -= 1;
         }
@@ -577,13 +429,13 @@ impl App {
         }
         Some(CellRef {
             col,
-            row: self.cursor.row,
+            row: self.doc.place.cursor.row,
         })
     }
 
     fn filled_in_column(&self, row: u32) -> bool {
         self.is_filled(CellRef {
-            col: self.cursor.col,
+            col: self.doc.place.cursor.col,
             row,
         })
     }
@@ -591,7 +443,7 @@ impl App {
     /// `}`: the empty cell below the next run of filled cells in this column.
     fn next_gap(&self) -> Option<CellRef> {
         let last = self.current_sheet().extent()?.row;
-        let mut row = self.cursor.row;
+        let mut row = self.doc.place.cursor.row;
         while row <= last && !self.filled_in_column(row) {
             row += 1;
         }
@@ -602,14 +454,14 @@ impl App {
             row += 1;
         }
         Some(CellRef {
-            col: self.cursor.col,
+            col: self.doc.place.cursor.col,
             row,
         })
     }
 
     /// `{`: the empty cell above the previous run of filled cells, or the top of the sheet.
     fn previous_gap(&self) -> Option<CellRef> {
-        let mut row = self.cursor.row;
+        let mut row = self.doc.place.cursor.row;
         if row == 0 {
             return None;
         }
@@ -620,7 +472,7 @@ impl App {
             row -= 1;
         }
         Some(CellRef {
-            col: self.cursor.col,
+            col: self.doc.place.cursor.col,
             row,
         })
     }
@@ -628,8 +480,8 @@ impl App {
     /// Moves the view and the cursor by the same number of rows.
     fn scroll_with_cursor(&mut self, rows: i64) {
         self.move_by(0, rows);
-        let top = i64::from(self.scroll.row) + rows;
-        self.scroll.row = top.clamp(0, i64::from(MAX_ROWS) - 1) as u32;
+        let top = i64::from(self.doc.place.scroll.row) + rows;
+        self.doc.place.scroll.row = top.clamp(0, i64::from(MAX_ROWS) - 1) as u32;
     }
 
     /// Moves the cursor if the key is a motion, and says whether it was.
@@ -637,21 +489,21 @@ impl App {
         let ctrl = is_ctrl(key);
         let n = i64::from(count.unwrap_or(1));
         match key.code {
-            KeyCode::Char('0') if !ctrl => self.cursor.col = 0,
+            KeyCode::Char('0') if !ctrl => self.doc.place.cursor.col = 0,
             KeyCode::Char('|') if !ctrl => {
-                self.cursor.col = count.unwrap_or(1).saturating_sub(1).min(MAX_COLS - 1);
+                self.doc.place.cursor.col = count.unwrap_or(1).saturating_sub(1).min(MAX_COLS - 1);
             }
             KeyCode::Char('^') if !ctrl => {
-                self.cursor.col = self.first_filled_column().unwrap_or(0);
+                self.doc.place.cursor.col = self.first_filled_column().unwrap_or(0);
             }
             KeyCode::Char('$') if !ctrl => {
                 if let Some(col) = self.last_filled_column() {
-                    self.cursor.col = col;
+                    self.doc.place.cursor.col = col;
                 }
             }
             KeyCode::Char('G') if !ctrl => {
                 let last = self.current_sheet().extent().map_or(0, |extent| extent.row);
-                self.cursor.row = count.map_or(last, |row| row.saturating_sub(1));
+                self.doc.place.cursor.row = count.map_or(last, |row| row.saturating_sub(1));
             }
             KeyCode::Char('w') if !ctrl => self.repeat_motion(n, Self::next_run_start),
             KeyCode::Char('e') if !ctrl => self.repeat_motion(n, Self::next_run_end),
@@ -663,17 +515,18 @@ impl App {
                     .unwrap_or(1)
                     .saturating_sub(1)
                     .min(self.viewport.1 - 1);
-                self.cursor.row = self.scroll.row + offset;
+                self.doc.place.cursor.row = self.doc.place.scroll.row + offset;
             }
             KeyCode::Char('M') if !ctrl => {
-                self.cursor.row = self.scroll.row + (self.viewport.1 - 1) / 2
+                self.doc.place.cursor.row = self.doc.place.scroll.row + (self.viewport.1 - 1) / 2
             }
             KeyCode::Char('L') if !ctrl => {
                 let offset = count
                     .unwrap_or(1)
                     .saturating_sub(1)
                     .min(self.viewport.1 - 1);
-                self.cursor.row = self.scroll.row + self.viewport.1 - 1 - offset;
+                self.doc.place.cursor.row =
+                    self.doc.place.scroll.row + self.viewport.1 - 1 - offset;
             }
             KeyCode::Char('d') if ctrl => {
                 self.scroll_with_cursor(n * i64::from(self.viewport.1 / 2))
@@ -696,16 +549,16 @@ impl App {
             KeyCode::Enter => self.move_by(0, n),
             KeyCode::PageDown if !ctrl => self.move_by(0, n * i64::from(self.viewport.1)),
             KeyCode::PageUp if !ctrl => self.move_by(0, -n * i64::from(self.viewport.1)),
-            KeyCode::Home if ctrl => self.cursor = CellRef { col: 0, row: 0 },
-            KeyCode::Home => self.cursor.col = 0,
+            KeyCode::Home if ctrl => self.doc.place.cursor = CellRef { col: 0, row: 0 },
+            KeyCode::Home => self.doc.place.cursor.col = 0,
             KeyCode::End if ctrl => {
                 if let Some(extent) = self.current_sheet().extent() {
-                    self.cursor = extent;
+                    self.doc.place.cursor = extent;
                 }
             }
             KeyCode::End => {
                 if let Some(extent) = self.current_sheet().extent() {
-                    self.cursor.col = extent.col;
+                    self.doc.place.cursor.col = extent.col;
                 }
             }
             _ => return false,
@@ -733,13 +586,13 @@ impl App {
     }
 
     fn begin_visual(&mut self, mode: Mode) {
-        self.anchor = self.cursor;
+        self.doc.place.anchor = self.doc.place.cursor;
         self.mode = mode;
     }
 
     /// The selected rectangle, as its top-left and bottom-right cells.
     pub fn selection(&self) -> Option<CellRange> {
-        let corners = CellRange::between(self.anchor, self.cursor);
+        let corners = CellRange::between(self.doc.place.anchor, self.doc.place.cursor);
         match self.mode {
             Mode::Visual => Some(corners),
             Mode::VisualRow => Some(CellRange {
@@ -762,7 +615,7 @@ impl App {
         let Some((operator, origin)) = self.operator.take() else {
             return;
         };
-        let target = self.cursor;
+        let target = self.doc.place.cursor;
         let (first, mut last) = (
             CellRef {
                 col: origin.col.min(target.col),
@@ -776,20 +629,20 @@ impl App {
         if exclusive && target.col != origin.col {
             last.col -= 1;
         }
-        self.cursor = origin;
+        self.doc.place.cursor = origin;
         self.operate(operator, first, last, false, first);
     }
 
     /// `dd`, `yy` and `cc`: the operator on whole rows, starting at the cursor's.
     fn operate_on_rows(&mut self, operator: char, count: u32) {
-        let row = self.cursor.row;
+        let row = self.doc.place.cursor.row;
         let bottom = row.saturating_add(count - 1).min(MAX_ROWS - 1);
         let first = CellRef { col: 0, row };
         let last = CellRef {
             col: MAX_COLS - 1,
             row: bottom,
         };
-        self.operate(operator, first, last, true, self.cursor);
+        self.operate(operator, first, last, true, self.doc.place.cursor);
     }
 
     fn operate_on_selection(&mut self, operator: char) {
@@ -800,7 +653,7 @@ impl App {
         self.mode = Mode::Normal;
         let at = if rows {
             CellRef {
-                col: self.cursor.col,
+                col: self.doc.place.cursor.col,
                 row: first.row,
             }
         } else {
@@ -811,12 +664,12 @@ impl App {
 
     /// Runs `d`, `y` or `c` on a rectangle, leaving the cursor at `at`.
     fn operate(&mut self, operator: char, first: CellRef, last: CellRef, rows: bool, at: CellRef) {
-        let refused = if operator == 'y' {
-            self.refuse_while_loading()
+        let check = if operator == 'y' {
+            self.doc.ensure_complete()
         } else {
-            self.refuse_while_busy()
+            self.doc.ensure_changeable()
         };
-        if refused {
+        if self.refuse(check) {
             return;
         }
         let range = CellRange { first, last };
@@ -826,7 +679,7 @@ impl App {
             return;
         }
         self.register = Some(register);
-        self.cursor = at;
+        self.doc.place.cursor = at;
         match operator {
             'y' => self.status = format!("{yanked} cells yanked"),
             'c' => self.begin_edit(""),
@@ -840,9 +693,9 @@ impl App {
             self.status = "Nothing to paste".into();
             return;
         };
-        let paste = register.paste(self.current_sheet(), self.cursor, before);
+        let paste = register.paste(self.current_sheet(), self.doc.place.cursor, before);
         if self.apply_edits(paste.cells) {
-            self.cursor = paste.cursor;
+            self.doc.place.cursor = paste.cursor;
         }
     }
 
@@ -873,7 +726,9 @@ impl App {
             (KeyCode::Char('?') | KeyCode::F(1), _) => self.open_help(),
             (KeyCode::Char('v'), _) => self.mode = Mode::Visual,
             (KeyCode::Char('V'), _) => self.mode = Mode::VisualRow,
-            (KeyCode::Char('o' | 'O'), _) => std::mem::swap(&mut self.anchor, &mut self.cursor),
+            (KeyCode::Char('o' | 'O'), _) => {
+                std::mem::swap(&mut self.doc.place.anchor, &mut self.doc.place.cursor)
+            }
             (KeyCode::Char('d' | 'x') | KeyCode::Delete, _) => self.operate_on_selection('d'),
             (KeyCode::Char('y'), _) => self.operate_on_selection('y'),
             (KeyCode::Char('c' | 's'), _) => self.operate_on_selection('c'),
@@ -887,7 +742,7 @@ impl App {
         let rows = self.viewport.1;
         match (prefix, key.code) {
             ('g', KeyCode::Char('g')) => {
-                self.cursor.row = count.unwrap_or(1).saturating_sub(1).min(MAX_ROWS - 1);
+                self.doc.place.cursor.row = count.unwrap_or(1).saturating_sub(1).min(MAX_ROWS - 1);
             }
             ('g', KeyCode::Char('t' | 'T')) if self.selection().is_some() => {}
             ('g', KeyCode::Char('t')) => match count {
@@ -897,10 +752,12 @@ impl App {
             ('g', KeyCode::Char('T')) => self.switch_sheet(-1),
             ('Z', KeyCode::Char('Z')) => self.save_if_edited_and_quit(),
             ('Z', KeyCode::Char('Q')) => self.quit_without_asking(),
-            ('z', KeyCode::Char('z')) => self.scroll.row = self.cursor.row.saturating_sub(rows / 2),
-            ('z', KeyCode::Char('t')) => self.scroll.row = self.cursor.row,
+            ('z', KeyCode::Char('z')) => {
+                self.doc.place.scroll.row = self.doc.place.cursor.row.saturating_sub(rows / 2)
+            }
+            ('z', KeyCode::Char('t')) => self.doc.place.scroll.row = self.doc.place.cursor.row,
             ('z', KeyCode::Char('b')) => {
-                self.scroll.row = (self.cursor.row + 1).saturating_sub(rows)
+                self.doc.place.scroll.row = (self.doc.place.cursor.row + 1).saturating_sub(rows)
             }
             _ => {}
         }
@@ -938,7 +795,7 @@ impl App {
             if backward
                 && self
                     .operator
-                    .is_some_and(|(_, origin)| origin == self.cursor)
+                    .is_some_and(|(_, origin)| origin == self.doc.place.cursor)
             {
                 self.operator = None;
                 return;
@@ -953,7 +810,7 @@ impl App {
             return;
         }
         if let (KeyCode::Char(operator @ ('d' | 'y' | 'c')), false) = (key.code, is_ctrl(key)) {
-            self.operator = Some((operator, self.cursor));
+            self.operator = Some((operator, self.doc.place.cursor));
             self.operator_count = count;
             return;
         }
@@ -962,7 +819,7 @@ impl App {
         match key.code {
             KeyCode::PageDown if ctrl => self.switch_sheet(1),
             KeyCode::PageUp if ctrl => self.switch_sheet(-1),
-            KeyCode::F(5) if self.workbook.path().is_none() => {
+            KeyCode::F(5) if self.doc.workbook().path().is_none() => {
                 self.status = "Nothing to reload".into();
             }
             KeyCode::F(5) => self.ask_before_losing_edits(NextStep::Reload),
@@ -983,7 +840,7 @@ impl App {
             KeyCode::Char('z') if ctrl => self.undo(),
             KeyCode::Char('y') if ctrl => self.redo(),
             KeyCode::Delete | KeyCode::Backspace => {
-                self.apply_edit(self.cursor, Cell::default());
+                self.apply_edit(self.doc.place.cursor, Cell::default());
             }
             KeyCode::Char('p') if !ctrl => self.paste(false),
             KeyCode::Char('P') if !ctrl => self.paste(true),
@@ -992,33 +849,39 @@ impl App {
             KeyCode::Char('x') if !ctrl => {
                 let n = count.unwrap_or(1) - 1;
                 let last = CellRef {
-                    col: (self.cursor.col + n).min(MAX_COLS - 1),
-                    ..self.cursor
+                    col: (self.doc.place.cursor.col + n).min(MAX_COLS - 1),
+                    ..self.doc.place.cursor
                 };
-                self.clear_cells(self.cursor, last);
+                self.clear_cells(self.doc.place.cursor, last);
             }
             KeyCode::Char('X') if !ctrl => {
                 let n = count.unwrap_or(1);
-                if self.cursor.col > 0 {
+                if self.doc.place.cursor.col > 0 {
                     let first = CellRef {
-                        col: self.cursor.col.saturating_sub(n),
-                        ..self.cursor
+                        col: self.doc.place.cursor.col.saturating_sub(n),
+                        ..self.doc.place.cursor
                     };
                     let last = CellRef {
-                        col: self.cursor.col - 1,
-                        ..self.cursor
+                        col: self.doc.place.cursor.col - 1,
+                        ..self.doc.place.cursor
                     };
                     if self.clear_cells(first, last) {
-                        self.cursor = first;
+                        self.doc.place.cursor = first;
                     }
                 }
             }
             KeyCode::Char('D') if !ctrl => {
                 if let Some(col) = self
                     .last_filled_column()
-                    .filter(|col| *col >= self.cursor.col)
+                    .filter(|col| *col >= self.doc.place.cursor.col)
                 {
-                    self.clear_cells(self.cursor, CellRef { col, ..self.cursor });
+                    self.clear_cells(
+                        self.doc.place.cursor,
+                        CellRef {
+                            col,
+                            ..self.doc.place.cursor
+                        },
+                    );
                 }
             }
             KeyCode::Char('v') if is_ctrl(key) => self.begin_visual(Mode::Visual),
@@ -1035,11 +898,20 @@ impl App {
             KeyCode::Char('C') if !ctrl => {
                 match self
                     .last_filled_column()
-                    .filter(|col| *col >= self.cursor.col)
+                    .filter(|col| *col >= self.doc.place.cursor.col)
                 {
                     Some(col) => {
-                        let last = CellRef { col, ..self.cursor };
-                        self.operate('c', self.cursor, last, false, self.cursor);
+                        let last = CellRef {
+                            col,
+                            ..self.doc.place.cursor
+                        };
+                        self.operate(
+                            'c',
+                            self.doc.place.cursor,
+                            last,
+                            false,
+                            self.doc.place.cursor,
+                        );
                     }
                     None => self.begin_edit(""),
                 }
@@ -1053,7 +925,7 @@ impl App {
                 self.edit_existing();
             }
             KeyCode::Char('=') if !ctrl => self.begin_edit("="),
-            KeyCode::Esc if self.is_loading() => self.cancel_load(),
+            KeyCode::Esc if self.doc.is_loading() => self.cancel_load(),
             _ => {}
         }
     }
@@ -1061,7 +933,7 @@ impl App {
     /// Quits, though a save in progress finishes first: nothing should be left half done, and the
     /// user may want to hear if it fails.
     fn quit_without_asking(&mut self) {
-        if self.is_saving() {
+        if self.doc.is_saving() {
             self.next_step = Some(NextStep::Quit);
         } else {
             self.should_quit = true;
@@ -1070,12 +942,12 @@ impl App {
 
     /// `ZZ`: saves and quits, except that a blank workbook with no edits has nothing to save.
     fn save_if_edited_and_quit(&mut self) {
-        if self.is_saving() {
+        if self.doc.is_saving() {
             self.quit_without_asking();
             return;
         }
-        let unsaved_file = self.workbook.path().is_none() || self.is_loading();
-        if unsaved_file && !self.workbook.is_dirty() {
+        let unsaved_file = self.doc.workbook().path().is_none() || self.doc.is_loading();
+        if unsaved_file && !self.doc.workbook().is_dirty() {
             self.should_quit = true;
         } else {
             self.save_and_quit();
@@ -1091,13 +963,13 @@ impl App {
     /// Starts saving, or asks where to if the workbook has no file yet. Whatever `next_step` holds
     /// happens once the save has worked.
     fn save(&mut self) {
-        if self.refuse_while_busy() {
-            return;
-        }
-        match self.workbook.begin_save() {
-            Ok(save) => self.saving = Some(save),
-            Err(XlsxError::NoFileName) => self.open_file_dialog(DialogKind::Save),
-            Err(error) => self.report_error(format!("Save failed: {error}")),
+        match self.doc.save() {
+            Ok(()) => {}
+            Err(SaveError::Refused(refusal)) => {
+                self.refuse(Err(refusal));
+            }
+            Err(SaveError::NoFile) => self.open_file_dialog(DialogKind::Save),
+            Err(SaveError::Failed(error)) => self.report_error(format!("Save failed: {error}")),
         }
     }
 
@@ -1107,7 +979,7 @@ impl App {
     }
 
     fn file_dialog_key(&mut self, key: KeyEvent) {
-        if self.is_saving() {
+        if self.doc.is_saving() {
             return;
         }
         let Some(dialog) = &mut self.file_dialog else {
@@ -1120,23 +992,16 @@ impl App {
                 self.close_file_dialog();
             }
             DialogAction::Save(path) => {
-                dialog.set_message("Saving…".into());
-                self.saving = Some(self.workbook.begin_save_as(path));
+                let started = self.doc.save_as(path);
+                dialog.set_message(saving_message(started));
             }
             DialogAction::Overwrite(path) => {
-                dialog.set_message("Saving…".into());
-                self.saving = Some(self.workbook.begin_save_over(path));
+                let started = self.doc.save_over(path);
+                dialog.set_message(saving_message(started));
             }
-            DialogAction::Open(path) => match Workbook::open_loading(path, 0) {
-                Ok((workbook, load)) => {
-                    self.close_file_dialog();
-                    self.begin_load(workbook, load, LoadKind::Open);
-                }
-                Err(error) => {
-                    if let Some(dialog) = &mut self.file_dialog {
-                        dialog.set_message(format!("Open failed: {error}"));
-                    }
-                }
+            DialogAction::Open(path) => match self.doc.open(path) {
+                Ok(()) => self.close_file_dialog(),
+                Err(error) => dialog.set_message(format!("Open failed: {error}")),
             },
         }
     }
@@ -1148,25 +1013,16 @@ impl App {
 
     /// Reads the file again, staying on the same sheet and cell if they still exist.
     fn reload(&mut self) {
-        let Some(path) = self.workbook.path().map(Path::to_path_buf) else {
+        if self.doc.workbook().path().is_none() {
             return;
-        };
-        match Workbook::open_loading(path, self.sheet) {
-            Ok((workbook, load)) => {
-                let (sheet, cursor, scroll) = (self.sheet, self.cursor, self.scroll);
-                self.begin_load(workbook, load, LoadKind::Reload);
-                if sheet < self.workbook.sheets.len() {
-                    self.sheet = sheet;
-                    self.cursor = cursor;
-                    self.scroll = scroll;
-                }
-            }
-            Err(error) => self.report_error(format!("Reload failed: {error}")),
+        }
+        if let Err(error) = self.doc.reload() {
+            self.report_error(format!("Reload failed: {error}"));
         }
     }
 
     pub fn file_name(&self) -> String {
-        let Some(path) = self.workbook.path() else {
+        let Some(path) = self.doc.workbook().path() else {
             return "[No Name]".into();
         };
         path.file_name()
@@ -1182,14 +1038,14 @@ impl App {
 
     /// Takes the step now, or asks first if it would lose unsaved edits.
     fn ask_before_losing_edits(&mut self, step: NextStep) {
-        if step == NextStep::Quit && self.is_saving() {
+        if step == NextStep::Quit && self.doc.is_saving() {
             self.quit_without_asking();
             return;
         }
-        if step != NextStep::Quit && self.refuse_while_busy() {
+        if step != NextStep::Quit && self.refuse(self.doc.ensure_changeable()) {
             return;
         }
-        if self.workbook.is_dirty() {
+        if self.doc.workbook().is_dirty() {
             self.next_step = Some(step);
             self.mode = Mode::ConfirmDiscard;
         } else {
@@ -1226,56 +1082,40 @@ impl App {
 
     /// Moves between sheets, each of which remembers its own cursor.
     fn switch_sheet(&mut self, offset: isize) {
-        let count = self.workbook.sheets.len() as isize;
-        let next = (self.sheet as isize + offset).rem_euclid(count) as usize;
-        self.cursors[self.sheet] = self.cursor;
-        self.sheet = next;
-        self.cursor = self.cursors[next];
-        if let Some(loading) = &self.loading {
-            loading.load.prefer(next);
-        }
+        self.doc.switch_sheet(offset);
     }
 
     /// `{n}gt`: shows a sheet by its 1-based position.
     fn go_to_sheet(&mut self, number: u32) {
         let index = number.saturating_sub(1) as isize;
-        if (index as usize) < self.workbook.sheets.len() {
-            self.switch_sheet(index - self.sheet as isize);
+        if (index as usize) < self.doc.workbook().sheets.len() {
+            self.switch_sheet(index - self.doc.sheet_index() as isize);
         }
     }
 
     fn undo(&mut self) {
-        if self.refuse_while_busy() {
-            return;
-        }
-        match self.history.undo(&mut self.workbook.sheets) {
-            Some(restored) => self.show_restored(restored),
-            None => self.status = "Nothing to undo".into(),
+        match self.doc.undo() {
+            Ok(true) => {}
+            Ok(false) => self.status = "Nothing to undo".into(),
+            Err(refusal) => {
+                self.refuse(Err(refusal));
+            }
         }
     }
 
     fn redo(&mut self) {
-        if self.refuse_while_busy() {
-            return;
-        }
-        match self.history.redo(&mut self.workbook.sheets) {
-            Some(restored) => self.show_restored(restored),
-            None => self.status = "Nothing to redo".into(),
-        }
-    }
-
-    /// Shows the user the first cell an undo or redo touched.
-    fn show_restored(&mut self, restored: Restored) {
-        self.cursors[self.sheet] = self.cursor;
-        self.sheet = restored.sheet;
-        if let Some(first) = restored.first {
-            self.cursor = first;
+        match self.doc.redo() {
+            Ok(true) => {}
+            Ok(false) => self.status = "Nothing to redo".into(),
+            Err(refusal) => {
+                self.refuse(Err(refusal));
+            }
         }
     }
 
     fn edit_existing(&mut self) {
-        let cell = self.current_sheet().cell(self.cursor);
-        let text = edit_text(&cell, self.workbook.date1904);
+        let cell = self.current_sheet().cell(self.doc.place.cursor);
+        let text = edit_text(&cell, self.doc.workbook().date1904);
         self.begin_edit(&text);
     }
 
@@ -1284,7 +1124,7 @@ impl App {
         if self.mode == Mode::Normal {
             self.forget_pending_keys();
             self.status.clear();
-            self.cursor = at;
+            self.doc.place.cursor = at;
             self.scroll_to_cursor();
         }
     }
@@ -1294,7 +1134,7 @@ impl App {
         if self.mode == Mode::Normal {
             self.forget_pending_keys();
             self.status.clear();
-            self.switch_sheet(index as isize - self.sheet as isize);
+            self.switch_sheet(index as isize - self.doc.sheet_index() as isize);
             self.scroll_to_cursor();
         }
     }
@@ -1304,7 +1144,9 @@ impl App {
         if matches!(self.mode, Mode::Normal | Mode::Visual | Mode::VisualRow) {
             self.forget_pending_keys();
             self.status.clear();
-            self.cursor.row = self
+            self.doc.place.cursor.row = self
+                .doc
+                .place
                 .cursor
                 .row
                 .saturating_add_signed(rows)
@@ -1385,15 +1227,15 @@ impl App {
             return;
         };
         let needle = query.to_lowercase();
-        let date1904 = self.workbook.date1904;
+        let date1904 = self.doc.workbook().date1904;
         let next = self
             .current_sheet()
-            .cells_around(self.cursor, forward)
+            .cells_around(self.doc.place.cursor, forward)
             .find(|(_, cell)| cell_contains(cell, &needle, date1904))
             .map(|(at, _)| *at);
         match next {
-            Some(at) => self.cursor = at,
-            None if self.is_loading() => {
+            Some(at) => self.doc.place.cursor = at,
+            None if self.doc.is_loading() => {
                 self.report_error(format!("No match for {query} in what has loaded so far"));
             }
             None => self.report_error(format!("No match for {query}")),
@@ -1403,10 +1245,10 @@ impl App {
     /// Moves to a cell such as `C7`, or to a row number in the same column.
     fn go_to(&mut self, target: &str) -> bool {
         if let Ok(row) = target.parse::<u32>() {
-            self.cursor.row = row.saturating_sub(1).min(MAX_ROWS - 1);
+            self.doc.place.cursor.row = row.saturating_sub(1).min(MAX_ROWS - 1);
             true
         } else if let Some(at) = CellRef::parse(target) {
-            self.cursor = at;
+            self.doc.place.cursor = at;
             true
         } else {
             false
@@ -1414,13 +1256,10 @@ impl App {
     }
 
     fn begin_edit(&mut self, initial: &str) {
-        if self.refuse_while_busy() {
+        if self.refuse(self.doc.ensure_editable(self.doc.place.cursor)) {
             return;
         }
-        if self.refuse_if_locked() {
-            return;
-        }
-        self.original = self.current_sheet().cell(self.cursor);
+        self.original = self.current_sheet().cell(self.doc.place.cursor);
         self.line = LineEdit::new(initial);
         self.mode = Mode::Insert;
     }
@@ -1439,33 +1278,14 @@ impl App {
         }
     }
 
-    fn refuse_if_locked(&mut self) -> bool {
-        let locked = self.current_sheet().is_locked(self.cursor);
-        if locked {
-            self.report_error(Locked { at: self.cursor }.to_string());
-        }
-        locked
-    }
-
     fn apply_edit(&mut self, at: CellRef, cell: Cell) {
         self.apply_edits(vec![(at, cell)]);
     }
 
     /// Applies edits as one undoable change, or none of them if any cell is read-only.
     fn apply_edits(&mut self, cells: Vec<(CellRef, Cell)>) -> bool {
-        if self.refuse_while_busy() {
-            return false;
-        }
-        match self
-            .history
-            .apply(&mut self.workbook.sheets, self.sheet, cells)
-        {
-            Ok(()) => true,
-            Err(locked) => {
-                self.report_error(locked.to_string());
-                false
-            }
-        }
+        let edited = self.doc.edit(cells);
+        !self.refuse(edited)
     }
 
     /// The populated cells of a rectangle.
@@ -1488,10 +1308,10 @@ impl App {
 
     fn commit_edit(&mut self) {
         self.mode = Mode::Normal;
-        let at = self.cursor;
+        let at = self.doc.place.cursor;
         let text = self.line.text();
         let was_date = self.current_sheet().cell(at).is_date;
-        let date1904 = self.workbook.date1904;
+        let date1904 = self.doc.workbook().date1904;
         // Confirming unchanged text must not disturb the cell, cached formula results included.
         if text == edit_text(&self.original, date1904) {
             return;
@@ -1501,11 +1321,19 @@ impl App {
     }
 
     fn move_by(&mut self, cols: i64, rows: i64) {
-        let col = i64::from(self.cursor.col) + cols;
-        let row = i64::from(self.cursor.row) + rows;
-        self.cursor = CellRef {
+        let col = i64::from(self.doc.place.cursor.col) + cols;
+        let row = i64::from(self.doc.place.cursor.row) + rows;
+        self.doc.place.cursor = CellRef {
             col: col.clamp(0, i64::from(MAX_COLS) - 1) as u32,
             row: row.clamp(0, i64::from(MAX_ROWS) - 1) as u32,
         };
+    }
+}
+
+/// What the file dialog says while its save is under way.
+fn saving_message(started: Result<(), Refusal>) -> String {
+    match started {
+        Ok(()) => "Saving…".into(),
+        Err(refusal) => refusal.to_string(),
     }
 }

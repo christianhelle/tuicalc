@@ -214,7 +214,7 @@ fn ctrl_c_cancels_and_confirming_unchanged_text_changes_nothing() {
         CellValue::Number(4.0),
         "the cached result is kept"
     );
-    assert!(!app.workbook.is_dirty());
+    assert!(!app.document().workbook().is_dirty());
 }
 
 #[test]
@@ -226,7 +226,7 @@ fn date_cells_edit_as_iso_text_and_stay_dates() {
     press(&mut app, KeyCode::F(2));
     assert_eq!(app.line().text(), "2023-03-15");
     press(&mut app, KeyCode::Enter);
-    assert!(!app.workbook.is_dirty());
+    assert!(!app.document().workbook().is_dirty());
 
     press(&mut app, KeyCode::Up);
     let cell = enter_value(&mut app, "2023-03-16");
@@ -307,7 +307,7 @@ fn array_formula_regions_cannot_be_edited() {
         assert_eq!(app.mode(), Mode::Normal);
         assert!(app.status().contains("array formula"), "{}", app.status());
     }
-    assert!(!app.workbook.is_dirty());
+    assert!(!app.document().workbook().is_dirty());
 
     press(&mut app, KeyCode::Right);
     assert_eq!(app.status(), "", "messages clear on the next key");
@@ -367,7 +367,7 @@ fn ctrl_s_saves_and_reports_success_or_failure() {
     app.finish_saving();
 
     assert_eq!(app.status(), "Saved book.xlsx");
-    assert!(!app.workbook.is_dirty());
+    assert!(!app.document().workbook().is_dirty());
     let reloaded = Workbook::open(&file.path).unwrap();
     assert_eq!(
         reloaded.sheets[0].cell(a1("A1")).value,
@@ -381,7 +381,7 @@ fn ctrl_s_saves_and_reports_success_or_failure() {
     app.finish_saving();
 
     assert!(app.status().starts_with("Save failed:"), "{}", app.status());
-    assert!(app.workbook.is_dirty());
+    assert!(app.document().workbook().is_dirty());
 }
 
 #[test]
@@ -1496,7 +1496,7 @@ fn enter_saves_the_name_in_the_current_folder_and_closes_the_dialog() {
     assert_eq!(app.mode(), Mode::Normal);
     assert!(app.file_dialog().is_none());
     assert_eq!(app.status(), "Saved budget.xlsx");
-    assert!(!app.workbook.is_dirty());
+    assert!(!app.document().workbook().is_dirty());
     assert!(!app.should_quit());
     assert_eq!(
         Workbook::open(dir.path().join("budget.xlsx"))
@@ -1594,7 +1594,7 @@ fn esc_and_ctrl_c_close_the_save_dialog_and_keep_the_edits() {
 
         assert_eq!(app.mode(), Mode::Normal);
         assert!(app.file_dialog().is_none());
-        assert!(app.workbook.is_dirty());
+        assert!(app.document().workbook().is_dirty());
         assert_eq!(
             app.current_sheet().cell(a1("A1")).value,
             CellValue::Number(5.0)
@@ -1755,7 +1755,10 @@ fn opening_a_file_starts_at_the_top_of_its_first_sheet() {
     open_file(&mut app, &second.path);
 
     assert_eq!(app.status(), "Opened book.xlsx");
-    assert_eq!(app.workbook.path(), Some(second.path.as_path()));
+    assert_eq!(
+        app.document().workbook().path(),
+        Some(second.path.as_path())
+    );
     assert_eq!(app.cursor(), a1("A1"));
     assert_eq!(app.scroll(), a1("A1"));
     assert_eq!(value(&app, "A1"), CellValue::Number(42.0));
@@ -1769,7 +1772,10 @@ fn opening_adds_the_xlsx_extension_to_a_name_without_one() {
 
     open_file(&mut app, &name);
 
-    assert_eq!(app.workbook.path(), Some(second.path.as_path()));
+    assert_eq!(
+        app.document().workbook().path(),
+        Some(second.path.as_path())
+    );
 }
 
 #[test]
@@ -1857,7 +1863,7 @@ fn a_file_that_cannot_be_opened_keeps_the_current_workbook() {
         );
         press(&mut app, KeyCode::Esc);
 
-        assert_eq!(app.workbook.path(), Some(first.path.as_path()));
+        assert_eq!(app.document().workbook().path(), Some(first.path.as_path()));
         assert_eq!(app.cursor(), a1("A2"));
         assert_eq!(value(&app, "A1"), CellValue::Number(1.0));
     }
@@ -1921,7 +1927,7 @@ fn f5_asks_about_unsaved_edits_and_discarding_reloads() {
     press(&mut app, KeyCode::Char('d'));
     app.finish_loading();
     assert_eq!(value(&app, "A1"), CellValue::Empty);
-    assert!(!app.workbook.is_dirty());
+    assert!(!app.document().workbook().is_dirty());
 }
 
 #[test]
@@ -2264,7 +2270,7 @@ fn ctrl_o_asks_about_unsaved_edits() {
     assert_eq!(app.mode(), Mode::ConfirmDiscard);
     press(&mut app, KeyCode::Esc);
     assert_eq!(app.mode(), Mode::Normal);
-    assert!(app.workbook.is_dirty());
+    assert!(app.document().workbook().is_dirty());
 }
 
 #[test]
@@ -2280,7 +2286,7 @@ fn discarding_at_ctrl_o_keeps_the_edits_until_a_file_is_chosen() {
 
     press(&mut app, KeyCode::Esc);
     assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
-    assert!(app.workbook.is_dirty());
+    assert!(app.document().workbook().is_dirty());
 }
 
 #[test]
@@ -2295,7 +2301,7 @@ fn saving_at_ctrl_o_saves_and_then_opens_the_dialog() {
     app.finish_saving();
 
     assert_eq!(app.file_dialog().unwrap().kind(), DialogKind::Open);
-    assert!(!app.workbook.is_dirty());
+    assert!(!app.document().workbook().is_dirty());
     let on_disk = Workbook::open(&file.path).unwrap();
     assert_eq!(
         on_disk.sheets[0].cell(a1("A1")).value,
@@ -2369,9 +2375,9 @@ fn discarding_and_then_cancelling_the_dialog_keeps_the_edits() {
 
     press(&mut app, KeyCode::Esc);
     assert_eq!(app.mode(), Mode::Normal);
-    assert!(app.workbook.is_dirty());
+    assert!(app.document().workbook().is_dirty());
     assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
-    assert_eq!(app.workbook.path(), Some(file.path.as_path()));
+    assert_eq!(app.document().workbook().path(), Some(file.path.as_path()));
 }
 
 /// A workbook with unsaved edits and the open dialog on `dir`, after choosing to discard them.
@@ -2398,7 +2404,7 @@ fn choosing_a_file_in_the_dialog_opens_it() {
     assert!(app.file_dialog().is_none());
     assert_eq!(app.status(), "Opened good.xlsx");
     assert_eq!(value(&app, "A1"), CellValue::Number(42.0));
-    assert!(!app.workbook.is_dirty());
+    assert!(!app.document().workbook().is_dirty());
 }
 
 #[test]
@@ -2430,7 +2436,7 @@ fn a_file_that_cannot_be_opened_leaves_the_dialog_open_with_the_error() {
         assert_eq!(app.mode(), Mode::FileDialog, "{name}");
         let dialog = app.file_dialog().unwrap();
         assert!(dialog.message().starts_with("Open failed"), "{name}");
-        assert_eq!(app.workbook.path(), Some(file.path.as_path()));
+        assert_eq!(app.document().workbook().path(), Some(file.path.as_path()));
         assert_eq!(value(&app, "A1"), CellValue::Number(5.0));
         for _ in 0..name.len() {
             press(&mut app, KeyCode::Backspace);

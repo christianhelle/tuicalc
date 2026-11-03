@@ -930,7 +930,7 @@ fn a_click_forgets_a_half_typed_command() {
     assert_eq!(app.pending_keys(), "");
     press(&mut app, KeyCode::Char('j'));
     assert_eq!(app.cursor(), a_cell(1, 2), "a plain move, not a delete");
-    assert!(!app.workbook.is_dirty());
+    assert!(!app.document().workbook().is_dirty());
 }
 
 #[test]

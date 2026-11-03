@@ -77,7 +77,7 @@ fn release_mouse_on_panic() {
 fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
     while !app.should_quit() {
         terminal.draw(|frame| draw(frame, app))?;
-        if app.is_busy() {
+        if app.document().is_busy() {
             app.absorb_background(BUSY_FRAME);
             while !app.should_quit() && event::poll(Duration::ZERO)? {
                 handle_event(terminal, app, event::read()?)?;

@@ -42,7 +42,7 @@ fn reaction(code: KeyCode, modifiers: KeyModifiers) -> bool {
         || app.should_quit()
         || !app.pending_keys().is_empty()
         || !app.status().is_empty()
-        || app.workbook.is_dirty()
+        || app.document().workbook().is_dirty()
 }
 
 #[test]

@@ -205,29 +205,32 @@ fn number_at(app: &App, at: &str) -> Option<f64> {
 fn an_app_can_show_a_workbook_before_its_cells_arrive() {
     let (_file, mut app) = app_opening(5000);
 
-    assert!(app.is_loading());
+    assert!(app.document().is_loading());
     assert_eq!(app.mode(), Mode::Normal);
     assert_eq!(app.current_sheet().name, "Sheet1");
     assert_eq!(number_at(&app, "A1"), None);
 
     app.absorb_next_chunk();
-    assert!(app.is_loading());
+    assert!(app.document().is_loading());
     assert_eq!(number_at(&app, "A1"), Some(1.0));
     assert_eq!(number_at(&app, "A5000"), None);
 
     app.finish_loading();
-    assert!(!app.is_loading());
+    assert!(!app.document().is_loading());
     assert_eq!(number_at(&app, "A5000"), Some(5000.0));
-    assert!(!app.workbook.is_dirty(), "loading isn't editing");
+    assert!(
+        !app.document().workbook().is_dirty(),
+        "loading isn't editing"
+    );
 }
 
 #[test]
 fn taking_in_cells_for_a_while_stops_when_they_run_out() {
     let (_file, mut app) = app_opening(10);
 
-    app.absorb_loaded(Duration::from_secs(30));
+    app.absorb_background(Duration::from_secs(30));
 
-    assert!(!app.is_loading());
+    assert!(!app.document().is_loading());
     assert_eq!(number_at(&app, "A10"), Some(10.0));
 }
 
@@ -235,9 +238,9 @@ fn taking_in_cells_for_a_while_stops_when_they_run_out() {
 fn taking_in_cells_gives_up_when_time_runs_out() {
     let (_file, mut app) = app_opening(50_000);
 
-    app.absorb_loaded(Duration::ZERO);
+    app.absorb_background(Duration::ZERO);
 
-    assert!(app.is_loading());
+    assert!(app.document().is_loading());
 }
 
 #[test]
@@ -299,7 +302,7 @@ fn a_problem_deep_in_the_only_workbook_ends_the_app_and_says_why() {
     app.finish_loading();
 
     assert!(app.should_quit());
-    assert!(!app.is_loading());
+    assert!(!app.document().is_loading());
     assert!(app.load_failure().unwrap().contains("malformed XML"));
 }
 
@@ -319,7 +322,7 @@ fn nothing_can_change_or_be_copied_until_the_workbook_has_arrived() {
             key(&mut app, KeyCode::Esc);
         }
         assert_eq!(app.mode(), Mode::Normal, "{keys}");
-        assert!(!app.workbook.is_dirty(), "{keys}");
+        assert!(!app.document().workbook().is_dirty(), "{keys}");
     }
 
     ctrl(&mut app, 's');
@@ -404,9 +407,12 @@ fn opening_another_file_shows_it_straight_away_and_says_so_when_done() {
     open_through_the_dialog(&mut app, &second.path);
 
     assert_eq!(app.mode(), Mode::Normal);
-    assert!(app.is_loading());
-    assert_eq!(app.workbook.path(), Some(second.path.as_path()));
-    assert_ne!(app.workbook.path(), Some(first.path.as_path()));
+    assert!(app.document().is_loading());
+    assert_eq!(
+        app.document().workbook().path(),
+        Some(second.path.as_path())
+    );
+    assert_ne!(app.document().workbook().path(), Some(first.path.as_path()));
 
     app.finish_loading();
     assert_eq!(app.status(), "Opened book.xlsx");
@@ -424,11 +430,11 @@ fn esc_while_opening_another_file_returns_to_the_last_one_intact() {
     key(&mut app, KeyCode::Esc);
 
     assert!(!app.should_quit());
-    assert!(!app.is_loading());
-    assert_eq!(app.workbook.path(), Some(first.path.as_path()));
+    assert!(!app.document().is_loading());
+    assert_eq!(app.document().workbook().path(), Some(first.path.as_path()));
     assert_eq!(app.cursor(), a1("A2"));
     assert_eq!(number_at(&app, "A1"), Some(5.0), "the edit is still there");
-    assert!(app.workbook.is_dirty());
+    assert!(app.document().workbook().is_dirty());
     assert_eq!(app.status(), "Stopped opening");
     key(&mut app, KeyCode::Char('u'));
     assert_eq!(number_at(&app, "A1"), Some(1.0), "and can be undone");
@@ -444,7 +450,7 @@ fn a_problem_deep_in_another_file_returns_to_the_last_one_with_the_error() {
     app.finish_loading();
 
     assert!(!app.should_quit());
-    assert_eq!(app.workbook.path(), Some(first.path.as_path()));
+    assert_eq!(app.document().workbook().path(), Some(first.path.as_path()));
     assert_eq!(number_at(&app, "A1"), Some(5.0));
     assert!(app.status().starts_with("Open failed:"), "{}", app.status());
     assert!(app.status_is_error());
@@ -458,8 +464,8 @@ fn a_file_that_is_not_a_workbook_still_stays_in_the_dialog() {
     open_through_the_dialog(&mut app, &broken.path);
 
     assert_eq!(app.mode(), Mode::FileDialog);
-    assert!(!app.is_loading());
-    assert_eq!(app.workbook.path(), Some(first.path.as_path()));
+    assert!(!app.document().is_loading());
+    assert_eq!(app.document().workbook().path(), Some(first.path.as_path()));
 }
 
 #[test]
@@ -469,7 +475,7 @@ fn reloading_keeps_the_place_straight_away_and_survives_a_problem_deep_in_the_fi
     type_keys(&mut app, "3jl");
 
     key(&mut app, KeyCode::F(5));
-    assert!(app.is_loading());
+    assert!(app.document().is_loading());
     assert_eq!(app.cursor(), a1("B4"));
     app.finish_loading();
     assert_eq!(app.status(), "Reloaded book.xlsx");

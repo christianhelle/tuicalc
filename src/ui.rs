@@ -97,7 +97,11 @@ fn tab_at(tabs: Rect, app: &App, x: u16, y: u16) -> Option<usize> {
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let [formula_bar, grid, tabs, status] = layout(frame.area());
     let editing = app.mode() == Mode::Insert;
-    let marker = if app.workbook.is_dirty() { "*" } else { "" };
+    let marker = if app.document().workbook().is_dirty() {
+        "*"
+    } else {
+        ""
+    };
     let title = format!("{}{marker} — {}", app.file_name(), app.current_sheet().name);
     let grid_block = section_block(!editing, &title);
     let grid_inner = grid_block.inner(grid);
@@ -379,7 +383,7 @@ fn draw_formula_bar(frame: &mut Frame, area: Rect, app: &App) {
         app.line()
     } else {
         let cell = app.current_sheet().cell(app.cursor());
-        showing = LineEdit::new(&edit_text(&cell, app.workbook.date1904));
+        showing = LineEdit::new(&edit_text(&cell, app.document().workbook().date1904));
         showing.go_home();
         &showing
     };
@@ -412,7 +416,8 @@ struct Tab {
 /// The tabs that fit, starting late enough to keep the current sheet on screen.
 fn visible_tabs(area: Rect, app: &App) -> Vec<Tab> {
     let names: Vec<String> = app
-        .workbook
+        .document()
+        .workbook()
         .sheets
         .iter()
         .map(|sheet| format!(" {} ", sheet.name))
@@ -482,12 +487,14 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     // The go-to dialog shows its own complaints.
     let message = if app.mode() == Mode::Search {
         format!(" /{}", search_window(area, app).text)
-    } else if let (Mode::Normal, true, Some(progress)) =
-        (app.mode(), app.status().is_empty(), app.loading_progress())
-    {
+    } else if let (Mode::Normal, true, Some(progress)) = (
+        app.mode(),
+        app.status().is_empty(),
+        app.document().loading_progress(),
+    ) {
         let percent = (progress * 100.0) as u32;
         format!(" Opening {}… {percent}% · Esc cancel", app.file_name())
-    } else if app.mode() == Mode::Normal && app.status().is_empty() && app.is_saving() {
+    } else if app.mode() == Mode::Normal && app.status().is_empty() && app.document().is_saving() {
         let then = match app.next_step() {
             Some(NextStep::Quit) => " then quitting",
             _ => "",
@@ -551,7 +558,7 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
         buffer.set_stringn(x, area.y, center(&name), CONTENT_WIDTH, style);
     }
     let sheet = app.current_sheet();
-    let date1904 = app.workbook.date1904;
+    let date1904 = app.document().workbook().date1904;
     let selection = app.selection();
     for row_offset in 0..rows {
         let y = area.y + 2 + row_offset as u16;

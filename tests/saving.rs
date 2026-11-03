@@ -139,18 +139,18 @@ fn ctrl_s_returns_at_once_and_reports_when_the_save_has_finished() {
     let (file, mut app) = app_with_an_edit();
 
     ctrl(&mut app, 's');
-    assert!(app.is_saving());
-    assert!(app.is_busy());
+    assert!(app.document().is_saving());
+    assert!(app.document().is_busy());
     assert!(
-        app.workbook.is_dirty(),
+        app.document().workbook().is_dirty(),
         "not saved until it's known to have worked"
     );
     assert_eq!(app.status(), "");
 
     app.finish_saving();
-    assert!(!app.is_saving());
+    assert!(!app.document().is_saving());
     assert_eq!(app.status(), "Saved book.xlsx");
-    assert!(!app.workbook.is_dirty());
+    assert!(!app.document().workbook().is_dirty());
     assert_eq!(number_on_disk(&file.path, "A1"), CellValue::Number(5.0));
 }
 
@@ -162,10 +162,10 @@ fn a_save_that_fails_says_why_and_keeps_the_edits() {
     ctrl(&mut app, 's');
     app.finish_saving();
 
-    assert!(!app.is_saving());
+    assert!(!app.document().is_saving());
     assert!(app.status().starts_with("Save failed:"), "{}", app.status());
     assert!(app.status_is_error());
-    assert!(app.workbook.is_dirty());
+    assert!(app.document().workbook().is_dirty());
 }
 
 #[test]
@@ -175,7 +175,7 @@ fn taking_in_the_outcome_for_a_while_ends_the_save() {
     ctrl(&mut app, 's');
     app.absorb_background(Duration::from_secs(30));
 
-    assert!(!app.is_saving());
+    assert!(!app.document().is_saving());
     assert_eq!(app.status(), "Saved book.xlsx");
 }
 
@@ -185,7 +185,7 @@ fn zz_quits_only_once_the_save_has_worked() {
 
     type_keys(&mut app, "ZZ");
     assert!(!app.should_quit());
-    assert!(app.is_saving());
+    assert!(app.document().is_saving());
 
     app.finish_saving();
     assert!(app.should_quit());
@@ -253,11 +253,11 @@ fn nothing_can_change_until_the_save_has_finished() {
     assert_eq!(app.mode(), Mode::Normal);
     key(&mut app, KeyCode::F(5));
     assert_eq!(app.status(), STILL_SAVING, "reloading");
-    assert!(!app.is_loading());
+    assert!(!app.document().is_loading());
 
     app.finish_saving();
     assert!(
-        !app.workbook.is_dirty(),
+        !app.document().workbook().is_dirty(),
         "nothing slipped in after the snapshot"
     );
     assert_eq!(number_on_disk(&file.path, "A1"), CellValue::Number(5.0));
@@ -299,7 +299,7 @@ fn moving_searching_and_copying_work_while_saving() {
     assert_eq!(app.mode(), Mode::Help);
     key(&mut app, KeyCode::Esc);
     assert_eq!(app.mode(), Mode::Normal);
-    assert!(app.is_saving());
+    assert!(app.document().is_saving());
 }
 
 #[test]
@@ -366,7 +366,7 @@ fn quitting_during_a_save_that_fails_stays_open_to_say_why() {
 
         assert!(!app.should_quit(), "{index}");
         assert!(app.status().starts_with("Save failed:"), "{index}");
-        assert!(app.workbook.is_dirty(), "{index}");
+        assert!(app.document().workbook().is_dirty(), "{index}");
     }
 }
 
@@ -387,7 +387,7 @@ fn the_save_dialog_stays_up_saying_so_until_the_save_has_finished() {
     let mut app = app_naming_a_file(dir.path(), "budget");
 
     key(&mut app, KeyCode::Enter);
-    assert!(app.is_saving());
+    assert!(app.document().is_saving());
     assert_eq!(app.mode(), Mode::FileDialog);
     assert_eq!(app.file_dialog().unwrap().message(), "Saving…");
 
@@ -401,7 +401,7 @@ fn the_save_dialog_stays_up_saying_so_until_the_save_has_finished() {
     assert_eq!(app.mode(), Mode::Normal);
     assert!(app.file_dialog().is_none());
     assert_eq!(app.status(), "Saved budget.xlsx");
-    assert!(!app.workbook.is_dirty());
+    assert!(!app.document().workbook().is_dirty());
     assert_eq!(
         number_on_disk(&dir.path().join("budget.xlsx"), "A1"),
         CellValue::Number(5.0)
@@ -438,7 +438,7 @@ fn overwriting_from_the_dialog_also_happens_in_the_background() {
 
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Char('y'));
-    assert!(app.is_saving());
+    assert!(app.document().is_saving());
     assert_eq!(app.mode(), Mode::FileDialog);
 
     app.finish_saving();
