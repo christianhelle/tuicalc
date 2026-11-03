@@ -1,10 +1,12 @@
 mod common;
 
+use std::time::Duration;
+
 use common::*;
 use tuicalc::address::CellRef;
-use tuicalc::document::{Document, Refusal};
+use tuicalc::document::{Document, Outcome, Refusal, SaveError};
 use tuicalc::model::{Cell, CellValue};
-use tuicalc::xlsx::Workbook;
+use tuicalc::xlsx::{Workbook, XlsxError};
 
 fn a1(text: &str) -> CellRef {
     CellRef::parse(text).unwrap()
@@ -112,4 +114,99 @@ fn a_locked_cell_is_refused_with_the_place_it_is() {
         Refusal::Locked(a1("B1")).to_string(),
         "B1 is part of an array formula and is read-only"
     );
+}
+
+#[test]
+fn nothing_changes_while_a_save_is_writing() {
+    let (_file, mut document) = document(&two_sheets());
+    document.edit(vec![(a1("A1"), number(5.0))]).unwrap();
+
+    document.save().unwrap();
+
+    assert!(document.is_saving());
+    let refused = Err(Refusal::StillSaving);
+    assert_eq!(document.edit(vec![(a1("A2"), number(6.0))]), refused);
+    assert_eq!(document.undo(), Err(Refusal::StillSaving));
+    assert_eq!(document.redo(), Err(Refusal::StillSaving));
+    assert_eq!(Refusal::StillSaving.to_string(), "Still saving");
+    assert_eq!(
+        document.workbook().sheets[0].cell(a1("A2")),
+        Cell::default()
+    );
+    assert!(matches!(
+        document.save(),
+        Err(SaveError::Refused(Refusal::StillSaving))
+    ));
+}
+
+#[test]
+fn a_finished_save_marks_the_document_saved_and_allows_changes_again() {
+    let (file, mut document) = document(&two_sheets());
+    document.edit(vec![(a1("A1"), number(5.0))]).unwrap();
+    document.save().unwrap();
+
+    assert!(matches!(document.finish_saving(), Some(Outcome::Saved)));
+
+    assert!(!document.is_saving());
+    assert!(!document.workbook().is_dirty());
+    assert_eq!(document.edit(vec![(a1("A2"), number(6.0))]), Ok(()));
+    let saved = Workbook::open(&file.path).unwrap();
+    assert_eq!(saved.sheets[0].cell(a1("A1")).value, CellValue::Number(5.0));
+}
+
+#[test]
+fn a_failed_save_keeps_the_edits_unsaved() {
+    let (file, mut document) = document(&two_sheets());
+    document.edit(vec![(a1("A1"), number(5.0))]).unwrap();
+    std::fs::write(&file.path, b"someone else's file").unwrap();
+    document.save().unwrap();
+
+    let outcome = document.finish_saving();
+
+    assert!(matches!(
+        outcome,
+        Some(Outcome::SaveFailed(XlsxError::ChangedOnDisk))
+    ));
+    assert!(document.workbook().is_dirty());
+    assert!(!document.is_saving());
+}
+
+#[test]
+fn a_blank_document_has_no_file_to_save_to_until_it_is_given_one() {
+    let mut document = Document::new(Workbook::blank().unwrap());
+    document.edit(vec![(a1("A1"), number(5.0))]).unwrap();
+    assert!(matches!(document.save(), Err(SaveError::NoFile)));
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("new.xlsx");
+    document.save_as(&path).unwrap();
+    assert!(matches!(document.finish_saving(), Some(Outcome::Saved)));
+
+    assert_eq!(document.workbook().path(), Some(path.as_path()));
+    assert!(!document.workbook().is_dirty());
+}
+
+#[test]
+fn saving_over_a_file_replaces_it() {
+    let (other, _) = document(&two_sheets());
+    let mut document = Document::new(Workbook::blank().unwrap());
+    document.edit(vec![(a1("A1"), number(5.0))]).unwrap();
+
+    document.save_over(&other.path).unwrap();
+    assert!(matches!(document.finish_saving(), Some(Outcome::Saved)));
+
+    let saved = Workbook::open(&other.path).unwrap();
+    assert_eq!(saved.sheets[0].cell(a1("A1")).value, CellValue::Number(5.0));
+}
+
+#[test]
+fn news_of_a_save_arrives_through_absorbing_too() {
+    let (_file, mut document) = document(&two_sheets());
+    document.edit(vec![(a1("A1"), number(5.0))]).unwrap();
+    document.save().unwrap();
+
+    let outcome = document.absorb(Duration::from_secs(30));
+
+    assert!(matches!(outcome, Some(Outcome::Saved)));
+    assert!(document.absorb(Duration::ZERO).is_none(), "nothing more");
 }
