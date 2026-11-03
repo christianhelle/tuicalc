@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A delete refused because of an array formula no longer replaces what was
+  yanked before it.
+
 ## [0.1.0] - 2026-11-03
 
 ### Added

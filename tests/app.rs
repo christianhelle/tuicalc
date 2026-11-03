@@ -2452,3 +2452,21 @@ fn the_file_dialog_name_can_be_edited_anywhere() {
 
     assert_eq!(app.file_dialog().unwrap().name(), "ac");
 }
+
+#[test]
+fn deleting_a_locked_cell_leaves_what_was_yanked_alone() {
+    let (_file, mut app) = app_with(
+        r#"<row r="1"><c r="A1"><v>1</v></c><c r="B1"><f t="array" ref="B1">C1*2</f><v>2</v></c></row><row r="2"><c r="A2"><v>7</v></c></row>"#,
+    );
+    type_text(&mut app, "jyyk");
+
+    type_text(&mut app, "dd");
+    assert!(app.status().contains("array formula"), "{}", app.status());
+
+    press(&mut app, KeyCode::Char('p'));
+    assert_eq!(
+        app.current_sheet().cell(a1("A2")).value,
+        CellValue::Number(7.0),
+        "the row yanked before the refused delete is still there to paste"
+    );
+}

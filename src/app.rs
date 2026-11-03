@@ -822,10 +822,10 @@ impl App {
         let range = CellRange { first, last };
         let register = Register::yank(self.current_sheet(), range, rows);
         let yanked = register.len();
-        self.register = Some(register);
         if operator != 'y' && !self.clear_cells(first, last) {
             return;
         }
+        self.register = Some(register);
         self.cursor = at;
         match operator {
             'y' => self.status = format!("{yanked} cells yanked"),
