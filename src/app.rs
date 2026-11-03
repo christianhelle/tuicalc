@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::address::{CellRange, CellRef, MAX_COLS, MAX_ROWS};
+use crate::changes::{History, Locked, Restored};
 use crate::file_dialog::{DialogAction, DialogKind, FileDialog};
 use crate::formula::translate;
 use crate::help::{self, HelpTable};
@@ -69,26 +70,12 @@ struct PreviousBook {
     scroll: CellRef,
     anchor: CellRef,
     cursors: Vec<CellRef>,
-    undo: Vec<Change>,
-    redo: Vec<Change>,
+    history: History,
 }
 
 /// Freeing a large workbook takes a noticeable moment, so it's done out of the user's way.
 fn free_later<T: Send + 'static>(value: T) {
     thread::spawn(move || drop(value));
-}
-
-/// One cell's part in a change.
-struct CellEdit {
-    at: CellRef,
-    before: Cell,
-    after: Cell,
-}
-
-/// What one command changed, undone and redone as a unit.
-struct Change {
-    sheet: usize,
-    edits: Vec<CellEdit>,
 }
 
 /// Cells kept by a yank or a delete, for pasting.
@@ -113,8 +100,7 @@ pub struct App {
     original: Cell,
     status: String,
     status_is_error: bool,
-    undo: Vec<Change>,
-    redo: Vec<Change>,
+    history: History,
     should_quit: bool,
     /// The cursor position left behind on each sheet.
     cursors: Vec<CellRef>,
@@ -174,8 +160,7 @@ impl App {
             original: Cell::default(),
             status: String::new(),
             status_is_error: false,
-            undo: Vec::new(),
-            redo: Vec::new(),
+            history: History::default(),
             should_quit: false,
         }
     }
@@ -340,8 +325,7 @@ impl App {
             scroll: self.scroll,
             anchor: self.anchor,
             cursors: std::mem::replace(&mut self.cursors, vec![origin; workbook.sheets.len()]),
-            undo: std::mem::take(&mut self.undo),
-            redo: std::mem::take(&mut self.redo),
+            history: std::mem::take(&mut self.history),
             workbook: std::mem::replace(&mut self.workbook, workbook),
         };
         self.sheet = 0;
@@ -362,8 +346,7 @@ impl App {
         self.scroll = previous.scroll;
         self.anchor = previous.anchor;
         self.cursors = previous.cursors;
-        self.undo = previous.undo;
-        self.redo = previous.redo;
+        self.history = previous.history;
         self.mode = Mode::Normal;
         self.help_from = Mode::Normal;
     }
@@ -1339,45 +1322,27 @@ impl App {
         if self.refuse_while_busy() {
             return;
         }
-        let Some(change) = self.undo.pop() else {
-            self.status = "Nothing to undo".into();
-            return;
-        };
-        let cells = change
-            .edits
-            .iter()
-            .map(|edit| (edit.at, edit.before.clone()))
-            .collect();
-        self.restore(change.sheet, cells);
-        self.redo.push(change);
+        match self.history.undo(&mut self.workbook.sheets) {
+            Some(restored) => self.show_restored(restored),
+            None => self.status = "Nothing to undo".into(),
+        }
     }
 
     fn redo(&mut self) {
         if self.refuse_while_busy() {
             return;
         }
-        let Some(change) = self.redo.pop() else {
-            self.status = "Nothing to redo".into();
-            return;
-        };
-        let cells = change
-            .edits
-            .iter()
-            .map(|edit| (edit.at, edit.after.clone()))
-            .collect();
-        self.restore(change.sheet, cells);
-        self.undo.push(change);
+        match self.history.redo(&mut self.workbook.sheets) {
+            Some(restored) => self.show_restored(restored),
+            None => self.status = "Nothing to redo".into(),
+        }
     }
 
-    /// Writes cells back and shows the first of them to the user.
-    fn restore(&mut self, sheet: usize, cells: Vec<(CellRef, Cell)>) {
-        let first = cells.first().map(|(at, _)| *at);
-        for (at, cell) in cells {
-            self.workbook.sheets[sheet].set_cell(at, cell);
-        }
+    /// Shows the user the first cell an undo or redo touched.
+    fn show_restored(&mut self, restored: Restored) {
         self.cursors[self.sheet] = self.cursor;
-        self.sheet = sheet;
-        if let Some(first) = first {
+        self.sheet = restored.sheet;
+        if let Some(first) = restored.first {
             self.cursor = first;
         }
     }
@@ -1551,10 +1516,7 @@ impl App {
     fn refuse_if_locked(&mut self) -> bool {
         let locked = self.current_sheet().is_locked(self.cursor);
         if locked {
-            self.report_error(format!(
-                "{} is part of an array formula and is read-only",
-                self.cursor
-            ));
+            self.report_error(Locked { at: self.cursor }.to_string());
         }
         locked
     }
@@ -1568,29 +1530,16 @@ impl App {
         if self.refuse_while_busy() {
             return false;
         }
-        if let Some((at, _)) = cells
-            .iter()
-            .find(|(at, _)| self.current_sheet().is_locked(*at))
+        match self
+            .history
+            .apply(&mut self.workbook.sheets, self.sheet, cells)
         {
-            self.report_error(format!("{at} is part of an array formula and is read-only"));
-            return false;
-        }
-        let mut edits = Vec::new();
-        for (at, after) in cells {
-            let before = self.current_sheet().cell(at);
-            if before != after {
-                self.workbook.sheets[self.sheet].set_cell(at, after.clone());
-                edits.push(CellEdit { at, before, after });
+            Ok(()) => true,
+            Err(locked) => {
+                self.report_error(locked.to_string());
+                false
             }
         }
-        if !edits.is_empty() {
-            self.undo.push(Change {
-                sheet: self.sheet,
-                edits,
-            });
-            self.redo.clear();
-        }
-        true
     }
 
     /// The populated cells of a rectangle.
