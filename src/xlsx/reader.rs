@@ -41,7 +41,7 @@ pub struct Plan {
 
 /// A run of a sheet's cells and read-only regions, in the order the file holds them.
 #[derive(Default)]
-pub struct SheetChunk {
+pub(super) struct SheetChunk {
     pub cells: Vec<(CellRef, Cell)>,
     pub locked: Vec<(CellRef, CellRef)>,
 }

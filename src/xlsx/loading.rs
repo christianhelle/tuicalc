@@ -14,7 +14,7 @@ const MAX_WORKERS: usize = 4;
 /// Enough to keep the workers busy between frames, without reading far ahead of the screen.
 const QUEUED_CHUNKS: usize = 16;
 
-pub enum LoadEvent {
+enum LoadEvent {
     Cells { sheet: usize, chunk: SheetChunk },
     Failed(XlsxError),
 }
@@ -32,7 +32,7 @@ pub enum Arrival {
 }
 
 /// The sheets waiting to be read. Whichever one is being looked at goes first.
-pub struct SheetQueue {
+struct SheetQueue {
     state: Mutex<QueueState>,
 }
 
@@ -42,7 +42,7 @@ struct QueueState {
 }
 
 impl SheetQueue {
-    pub fn new(sheets: usize, preferred: usize) -> Self {
+    fn new(sheets: usize, preferred: usize) -> Self {
         Self {
             state: Mutex::new(QueueState {
                 started: vec![false; sheets],
@@ -52,7 +52,7 @@ impl SheetQueue {
     }
 
     /// The sheet to read next, if any are left.
-    pub fn next(&self) -> Option<usize> {
+    fn next(&self) -> Option<usize> {
         let mut state = self.state.lock().ok()?;
         let preferred = state.preferred;
         let sheet = if state.started.get(preferred) == Some(&false) {
@@ -64,7 +64,7 @@ impl SheetQueue {
         Some(sheet)
     }
 
-    pub fn prefer(&self, sheet: usize) {
+    fn prefer(&self, sheet: usize) {
         if let Ok(mut state) = self.state.lock() {
             state.preferred = sheet;
         }
@@ -98,20 +98,6 @@ impl WorkbookLoad {
             queue,
             read_bytes,
             total_bytes: plan.total_bytes,
-        }
-    }
-
-    /// The next event, or `None` once the load has ended.
-    pub fn next_blocking(&self) -> Option<LoadEvent> {
-        self.events.recv().ok()
-    }
-
-    /// The next event within `wait`.
-    pub fn next_within(&self, wait: Duration) -> Waited {
-        match self.events.recv_timeout(wait) {
-            Ok(event) => Waited::Event(event),
-            Err(RecvTimeoutError::Timeout) => Waited::Nothing,
-            Err(RecvTimeoutError::Disconnected) => Waited::Ended,
         }
     }
 
@@ -155,12 +141,6 @@ fn arrive(event: LoadEvent, workbook: &mut Workbook) -> Arrival {
         }
         LoadEvent::Failed(error) => Arrival::Failed(error),
     }
-}
-
-pub enum Waited {
-    Event(LoadEvent),
-    Nothing,
-    Ended,
 }
 
 /// What the threads need, shared between them.
@@ -222,5 +202,24 @@ impl Job {
                 return;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SheetQueue;
+
+    #[test]
+    fn the_queue_starts_the_preferred_sheet_first_then_the_rest_in_order() {
+        let queue = SheetQueue::new(4, 2);
+        assert_eq!(queue.next(), Some(2));
+        assert_eq!(queue.next(), Some(0));
+
+        queue.prefer(3);
+        assert_eq!(queue.next(), Some(3));
+
+        queue.prefer(0);
+        assert_eq!(queue.next(), Some(1), "the preferred sheet already started");
+        assert_eq!(queue.next(), None);
     }
 }

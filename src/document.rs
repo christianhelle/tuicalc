@@ -8,9 +8,7 @@ use std::time::{Duration, Instant};
 use crate::address::CellRef;
 use crate::changes::{History, Locked, Restored};
 use crate::model::{Cell, Sheet};
-use crate::xlsx::{
-    LoadEvent, SavedPackage, Waited, Workbook, WorkbookLoad, WorkbookSave, XlsxError,
-};
+use crate::xlsx::{Arrival, SavedPackage, Workbook, WorkbookLoad, WorkbookSave, XlsxError};
 
 /// Why something that was asked of the document isn't happening.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -294,10 +292,8 @@ impl Document {
         let Some(Work::Loading(loading)) = &self.work else {
             return None;
         };
-        match loading.load.next_blocking() {
-            Some(event) => self.take_load_event(event),
-            None => self.finish_load(),
-        }
+        let arrival = loading.load.receive(&mut self.workbook);
+        self.take_arrival(arrival)
     }
 
     /// Waits for the whole workbook, and says how the load ended.
@@ -314,11 +310,11 @@ impl Document {
         let deadline = Instant::now() + budget;
         while let Some(Work::Loading(loading)) = &self.work {
             let wait = deadline.saturating_duration_since(Instant::now());
-            let outcome = match loading.load.next_within(wait) {
-                Waited::Event(event) => self.take_load_event(event),
-                Waited::Ended => self.finish_load(),
-                Waited::Nothing => return None,
-            };
+            let arrival = loading.load.receive_within(&mut self.workbook, wait);
+            if matches!(arrival, Arrival::Nothing) {
+                return None;
+            }
+            let outcome = self.take_arrival(arrival);
             if outcome.is_some() || Instant::now() >= deadline {
                 return outcome;
             }
@@ -326,13 +322,11 @@ impl Document {
         None
     }
 
-    fn take_load_event(&mut self, event: LoadEvent) -> Option<Outcome> {
-        match event {
-            LoadEvent::Cells { sheet, chunk } => {
-                chunk.apply_to(&mut self.workbook.sheets[sheet]);
-                None
-            }
-            LoadEvent::Failed(error) => {
+    fn take_arrival(&mut self, arrival: Arrival) -> Option<Outcome> {
+        match arrival {
+            Arrival::Cells | Arrival::Nothing => None,
+            Arrival::Ended => self.finish_load(),
+            Arrival::Failed(error) => {
                 let loading = self.take_loading()?;
                 let went_back = loading.previous.is_some();
                 if let Some(previous) = loading.previous {
