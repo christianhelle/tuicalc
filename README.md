@@ -1,16 +1,93 @@
 # TUICalc
 
-View and edit Excel `.xlsx` workbooks from the terminal.
+[![crates.io](https://img.shields.io/crates/v/tuicalc.svg)](https://crates.io/crates/tuicalc)
+[![CI](https://github.com/christianhelle/tuicalc/actions/workflows/ci.yml/badge.svg)](https://github.com/christianhelle/tuicalc/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+View and edit Excel `.xlsx` workbooks from the terminal, with vim-style keys. Saving changes only the
+cells you edited, so charts, styles, pivot tables and macros survive, and large workbooks open and
+save in the background while you keep working.
 
 ```
-cargo install --path .
+┌ B3 ────────────────────────────────────────────────────────────────────────────────┐
+│Revenue                                                                             │
+└────────────────────────────────────────────────────────────────────────────────────┘
+┏ financial-model.xlsx — Monthly Plan ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃       │     A     │     B     │     C     │     D     │     E     │     F     │    ┃
+┃───────┼───────────┼───────────┼───────────┼───────────┼───────────┼───────────┤    ┃
+┃      1│Monthly pla│           │           │           │           │           │    ┃
+┃      2│           │           │           │           │           │           │    ┃
+┃      3│Month      │Revenue    │Costs      │Profit     │Tax        │Net        │    ┃
+┃      4│ 2024-01-01│       1000│        600│        400│        100│        300│    ┃
+┃      5│ 2024-02-01│1004.166667│      602.5│401.6666667│100.4166667│     301.25│    ┃
+┃      6│ 2024-03-01│1008.350694│605.0104167│403.3402778│100.8350694│302.5052083│    ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ Assumptions  Monthly Plan  Lookups  Summary
+ NORMAL  ? help · i edit · v select · / find · gt sheet · Ctrl-S save · q quit
+```
+
+## Install
+
+tuicalc installs as the `tcalc` command, which is quicker to type.
+
+### macOS/Linux
+
+```bash
+curl -fsSL https://christianhelle.com/tuicalc/install | bash
+```
+
+This installs the latest release to `~/.local/bin`. To install somewhere else, or to pin a release:
+
+```bash
+curl -fsSL https://christianhelle.com/tuicalc/install | INSTALL_DIR="$HOME/bin" bash
+curl -fsSL https://christianhelle.com/tuicalc/install | VERSION="0.1.0" bash
+```
+
+### Windows PowerShell
+
+```powershell
+irm https://christianhelle.com/tuicalc/install.ps1 | iex
+```
+
+This installs the latest release to `%LOCALAPPDATA%\Programs\tuicalc`, or to `~\.local\bin` or `~\bin`
+if one of those already exists, and adds it to your user `PATH`. To install somewhere else, or to pin
+a release:
+
+```powershell
+$install = irm https://christianhelle.com/tuicalc/install.ps1
+& ([scriptblock]::Create($install)) -InstallDir "$env:USERPROFILE\bin"
+& ([scriptblock]::Create($install)) -Version "0.1.0"
+```
+
+### Cargo
+
+With [Rust](https://rustup.rs) 1.89 or later, install it from
+[crates.io](https://crates.io/crates/tuicalc):
+
+```bash
+cargo install tuicalc --locked
+```
+
+### Release archives
+
+Download a build from the [releases page](https://github.com/christianhelle/tuicalc/releases), unpack
+it and put `tcalc` somewhere on your `PATH`. Archives are available for Linux, macOS and Windows, on
+x64 and ARM64.
+
+To try changes that aren't released yet, install straight from GitHub:
+
+```bash
+cargo install --git https://github.com/christianhelle/tuicalc
+```
+
+## Usage
+
+```
 tcalc path/to/book.xlsx
 tcalc
 ```
 
 With no file, `tcalc` opens a blank workbook. `Ctrl-O` opens another one from inside the app.
-
-The project is tuicalc, and the command is `tcalc`, which is quicker to type.
 
 ## Keys
 
