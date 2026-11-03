@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-03
+
 ### Added
 
 - Viewing workbooks: `tcalc <file.xlsx>` shows a sheet as a grid, with the
@@ -73,4 +75,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cells in array formulas and data tables, which Excel only changes as a whole,
   are read-only and say why.
 
-[Unreleased]: https://github.com/christianhelle/tuicalc/commits/main
+[Unreleased]: https://github.com/christianhelle/tuicalc/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/christianhelle/tuicalc/releases/tag/v0.1.0
