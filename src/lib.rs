@@ -10,6 +10,7 @@ pub mod help;
 mod keys;
 pub mod line_edit;
 pub mod model;
+pub mod motion;
 pub mod text;
 pub mod ui;
 pub mod xlsx;
