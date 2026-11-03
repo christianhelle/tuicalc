@@ -92,3 +92,51 @@ fn ctrl_letters_are_not_text_but_altgr_characters_are() {
     ));
     assert_eq!(line.text(), "@");
 }
+
+#[test]
+fn the_window_shows_everything_that_fits() {
+    let line = LineEdit::new("abc");
+
+    let window = line.window(10);
+
+    assert_eq!(window.text, "abc");
+    assert_eq!(window.caret_x, 3);
+}
+
+#[test]
+fn the_window_drops_leading_characters_until_the_caret_fits() {
+    let line = LineEdit::new("abcdefgh");
+
+    let window = line.window(5);
+
+    assert_eq!(window.text, "defgh");
+    assert_eq!(window.caret_x, 5);
+}
+
+#[test]
+fn the_window_keeps_what_follows_the_caret() {
+    let mut line = LineEdit::new("abcdefgh");
+    line.go_home();
+
+    let window = line.window(3);
+
+    assert_eq!(window.text, "abcdefgh", "the caller cuts it to its room");
+    assert_eq!(window.caret_x, 0);
+}
+
+#[test]
+fn the_window_measures_wide_characters_in_terminal_cells() {
+    let line = LineEdit::new("日本語");
+
+    let window = line.window(4);
+
+    assert_eq!(window.text, "本語");
+    assert_eq!(window.caret_x, 4);
+}
+
+#[test]
+fn the_window_shows_control_characters_as_spaces() {
+    let line = LineEdit::new("a\nb");
+
+    assert_eq!(line.window(10).text, "a b");
+}

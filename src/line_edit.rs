@@ -2,7 +2,18 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 
+use unicode_width::UnicodeWidthChar;
+
 use crate::keys::{is_ctrl, is_text_input};
+
+/// The part of a line to show in a limited room.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Window {
+    /// The text from the first visible character on. It may run past the room.
+    pub text: String,
+    /// How many terminal cells from the start of `text` the caret is.
+    pub caret_x: u16,
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LineEdit {
@@ -61,6 +72,23 @@ impl LineEdit {
         }
     }
 
+    /// What to show in `room` terminal cells, starting late enough to keep the caret in view.
+    pub fn window(&self, room: usize) -> Window {
+        let shown: Vec<char> = self
+            .chars
+            .iter()
+            .map(|&c| if c.is_control() { ' ' } else { c })
+            .collect();
+        let mut start = 0;
+        while start < self.caret && width(&shown[start..self.caret]) > room {
+            start += 1;
+        }
+        Window {
+            text: shown[start..].iter().collect(),
+            caret_x: width(&shown[start..self.caret]) as u16,
+        }
+    }
+
     fn delete_word(&mut self) {
         let mut start = self.caret;
         while start > 0 && self.chars[start - 1].is_whitespace() {
@@ -72,4 +100,8 @@ impl LineEdit {
         self.chars.drain(start..self.caret);
         self.caret = start;
     }
+}
+
+fn width(chars: &[char]) -> usize {
+    chars.iter().map(|c| c.width().unwrap_or(0)).sum()
 }
