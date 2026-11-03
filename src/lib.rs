@@ -1,6 +1,7 @@
 //! View and edit .xlsx workbooks from the terminal.
 pub mod address;
 pub mod app;
+pub mod changes;
 pub mod date;
 pub mod file_dialog;
 pub mod formula;
