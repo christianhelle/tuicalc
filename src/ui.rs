@@ -10,7 +10,7 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 use unicode_width::UnicodeWidthChar;
 
 use crate::address::{CellRef, column_name};
-use crate::app::{App, Message, Mode, NextStep};
+use crate::app::{App, Click, Message, Mode, NextStep};
 use crate::file_dialog::{DialogKind, FileDialog};
 use crate::help::{HELP_KEYS, HELP_WIDTH};
 use crate::line_edit::{LineEdit, Window};
@@ -47,14 +47,16 @@ const WHEEL_STEP: i32 = 3;
 /// Acts on a mouse event, for a screen of the given size.
 pub fn handle_mouse(app: &mut App, screen: Rect, event: MouseEvent) {
     match event.kind {
-        MouseEventKind::Down(MouseButton::Left) if app.mode() == Mode::Help => app.close_help(),
         MouseEventKind::Down(MouseButton::Left) => {
             let [_, grid, tabs, _] = layout(screen);
-            if let Some(at) = cell_at(grid, app, event.column, event.row) {
-                app.click_cell(at);
+            let on = if let Some(at) = cell_at(grid, app, event.column, event.row) {
+                Click::Cell(at)
             } else if let Some(index) = tab_at(tabs, app, event.column, event.row) {
-                app.click_sheet(index);
-            }
+                Click::SheetTab(index)
+            } else {
+                Click::Elsewhere
+            };
+            app.click(on);
         }
         MouseEventKind::ScrollDown => app.wheel(WHEEL_STEP),
         MouseEventKind::ScrollUp => app.wheel(-WHEEL_STEP),

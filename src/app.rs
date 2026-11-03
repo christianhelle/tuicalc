@@ -59,6 +59,14 @@ pub enum Message {
     Said { text: String, is_error: bool },
 }
 
+/// What a left click landed on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Click {
+    Cell(CellRef),
+    SheetTab(usize),
+    Elsewhere,
+}
+
 /// A message for the user about background work.
 struct News {
     message: String,
@@ -865,31 +873,35 @@ impl App {
         self.begin_edit(&text);
     }
 
-    /// A left click on a cell in normal mode, dropping any half-typed command.
-    pub fn click_cell(&mut self, at: CellRef) {
-        if self.mode == Mode::Normal {
-            self.forget_pending_keys();
-            self.status.clear();
-            self.doc.place.cursor = at;
-            self.scroll_to_cursor();
+    /// A left click on a part of the screen. It closes the help, and otherwise only counts in
+    /// normal mode, dropping any half-typed command.
+    pub fn click(&mut self, on: Click) {
+        if self.mode == Mode::Help {
+            self.mode = self.help_from;
+            self.catch_up();
+            return;
         }
-    }
-
-    /// A left click on a sheet's tab in normal mode.
-    pub fn click_sheet(&mut self, index: usize) {
-        if self.mode == Mode::Normal {
-            self.forget_pending_keys();
-            self.status.clear();
-            self.switch_sheet(index as isize - self.doc.sheet_index() as isize);
-            self.scroll_to_cursor();
+        if self.mode != Mode::Normal {
+            return;
         }
+        match on {
+            Click::Cell(at) => {
+                self.begin_mouse_action();
+                self.doc.place.cursor = at;
+            }
+            Click::SheetTab(index) => {
+                self.begin_mouse_action();
+                self.switch_sheet(index as isize - self.doc.sheet_index() as isize);
+            }
+            Click::Elsewhere => {}
+        }
+        self.scroll_to_cursor();
     }
 
     /// Moves the cursor with the mouse wheel: scrolling alone would snap back to it.
     pub fn wheel(&mut self, rows: i32) {
         if matches!(self.mode, Mode::Normal | Mode::Visual | Mode::VisualRow) {
-            self.forget_pending_keys();
-            self.status.clear();
+            self.begin_mouse_action();
             self.doc.place.cursor.row = self
                 .doc
                 .place
@@ -901,16 +913,9 @@ impl App {
         }
     }
 
-    /// A left click while the help is showing closes it.
-    pub fn close_help(&mut self) {
-        if self.mode == Mode::Help {
-            self.mode = self.help_from;
-            self.catch_up();
-        }
-    }
-
-    fn forget_pending_keys(&mut self) {
+    fn begin_mouse_action(&mut self) {
         self.grammar.forget();
+        self.status.clear();
     }
 
     fn open_help(&mut self) {
