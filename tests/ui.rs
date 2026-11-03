@@ -964,7 +964,13 @@ fn the_wheel_extends_a_selection_but_leaves_edits_and_help_alone() {
 
     press(&mut app, KeyCode::Char('v'));
     mouse(&mut app, MouseEventKind::ScrollDown, (0, 0));
-    assert_eq!(app.selection(), Some((a_cell(0, 0), a_cell(0, 3))));
+    assert_eq!(
+        app.selection(),
+        Some(tuicalc::address::CellRange::between(
+            a_cell(0, 0),
+            a_cell(0, 3)
+        ))
+    );
     press(&mut app, KeyCode::Esc);
 
     press(&mut app, KeyCode::Char('s'));
