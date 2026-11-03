@@ -2,7 +2,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::keys::is_text_input;
+use crate::keys::{is_ctrl, is_text_input};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LineEdit {
@@ -29,14 +29,47 @@ impl LineEdit {
         self.caret
     }
 
+    /// Moves the caret to the start of the text.
+    pub fn go_home(&mut self) {
+        self.caret = 0;
+    }
+
+    /// Acts on the keys that edit text. Other keys do nothing.
     pub fn handle_key(&mut self, key: KeyEvent) {
         match key.code {
+            KeyCode::Char('u') if is_ctrl(key) => {
+                self.chars.drain(..self.caret);
+                self.caret = 0;
+            }
+            KeyCode::Char('w') if is_ctrl(key) => self.delete_word(),
             KeyCode::Char(c) if is_text_input(key) => {
                 self.chars.insert(self.caret, c);
                 self.caret += 1;
             }
             KeyCode::Left => self.caret = self.caret.saturating_sub(1),
+            KeyCode::Right => self.caret = (self.caret + 1).min(self.chars.len()),
+            KeyCode::Home => self.caret = 0,
+            KeyCode::End => self.caret = self.chars.len(),
+            KeyCode::Backspace if self.caret > 0 => {
+                self.caret -= 1;
+                self.chars.remove(self.caret);
+            }
+            KeyCode::Delete if self.caret < self.chars.len() => {
+                self.chars.remove(self.caret);
+            }
             _ => {}
         }
+    }
+
+    fn delete_word(&mut self) {
+        let mut start = self.caret;
+        while start > 0 && self.chars[start - 1].is_whitespace() {
+            start -= 1;
+        }
+        while start > 0 && !self.chars[start - 1].is_whitespace() {
+            start -= 1;
+        }
+        self.chars.drain(start..self.caret);
+        self.caret = start;
     }
 }
