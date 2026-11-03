@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use common::*;
 use tuicalc::address::CellRef;
-use tuicalc::document::{Document, LoadKind, Outcome, Refusal, SaveError};
+use tuicalc::document::{Document, LoadKind, OpenError, Outcome, Refusal, SaveError};
 use tuicalc::model::{Cell, CellValue};
 use tuicalc::xlsx::{Workbook, XlsxError};
 
@@ -400,4 +400,27 @@ fn a_file_that_is_no_workbook_is_refused_at_once_and_changes_nothing() {
 
     assert!(!document.is_loading());
     assert_eq!(document.workbook().path(), Some(first.path.as_path()));
+}
+
+#[test]
+fn no_other_workbook_loads_while_this_one_is_busy() {
+    let (_file, mut document) = document(&two_sheets());
+    let other = write_temp(&single_sheet(&sheet(&numbers(3)), &[]));
+    document.save().unwrap();
+
+    assert!(matches!(
+        document.open(&other.path),
+        Err(OpenError::Refused(Refusal::StillSaving))
+    ));
+    assert!(matches!(
+        document.reload(),
+        Err(OpenError::Refused(Refusal::StillSaving))
+    ));
+    document.finish_saving();
+
+    document.open(&other.path).unwrap();
+    assert!(matches!(
+        document.open(&other.path),
+        Err(OpenError::Refused(Refusal::StillOpening))
+    ));
 }

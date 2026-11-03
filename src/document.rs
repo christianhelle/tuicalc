@@ -39,6 +39,22 @@ pub enum SaveError {
     Failed(XlsxError),
 }
 
+/// Why another workbook didn't start loading.
+#[derive(Debug)]
+pub enum OpenError {
+    Refused(Refusal),
+    Failed(XlsxError),
+}
+
+impl fmt::Display for OpenError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Refused(refusal) => refusal.fmt(f),
+            Self::Failed(error) => error.fmt(f),
+        }
+    }
+}
+
 /// News of background work that has ended.
 #[derive(Debug)]
 pub enum Outcome {
@@ -206,16 +222,20 @@ impl Document {
 
     /// Puts another workbook on show with its cells on their way, keeping this one until they have
     /// all arrived. A file that isn't a workbook fails here, and leaves things as they are.
-    pub fn open(&mut self, path: impl AsRef<Path>) -> Result<(), XlsxError> {
-        let (workbook, load) = Workbook::open_loading(path, 0)?;
+    pub fn open(&mut self, path: impl AsRef<Path>) -> Result<(), OpenError> {
+        self.ensure_changeable().map_err(OpenError::Refused)?;
+        let (workbook, load) = Workbook::open_loading(path, 0).map_err(OpenError::Failed)?;
         self.begin_load(workbook, load, LoadKind::Open);
         Ok(())
     }
 
     /// Reads the file again, staying on the same sheet and cell if they still exist.
-    pub fn reload(&mut self) -> Result<(), XlsxError> {
-        let path = self.workbook.path().ok_or(XlsxError::NoFileName)?;
-        let (workbook, load) = Workbook::open_loading(path.to_path_buf(), self.place.sheet)?;
+    pub fn reload(&mut self) -> Result<(), OpenError> {
+        self.ensure_changeable().map_err(OpenError::Refused)?;
+        let path = self.workbook.path();
+        let path = path.ok_or(OpenError::Failed(XlsxError::NoFileName))?;
+        let (workbook, load) =
+            Workbook::open_loading(path, self.place.sheet).map_err(OpenError::Failed)?;
         let (sheet, cursor, scroll) = (self.place.sheet, self.place.cursor, self.place.scroll);
         self.begin_load(workbook, load, LoadKind::Reload);
         if sheet < self.workbook.sheets.len() {
