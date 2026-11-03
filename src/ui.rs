@@ -129,8 +129,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         draw_help(frame, app);
     }
     if app.mode() == Mode::Search && status.width > 0 && status.height > 0 {
-        let chars: Vec<char> = app.buffer().chars().collect();
-        let x = status.x + SEARCH_PROMPT_WIDTH + text_width(&chars[..app.caret()]) as u16;
+        let chars: Vec<char> = app.line().text().chars().collect();
+        let x = status.x + SEARCH_PROMPT_WIDTH + text_width(&chars[..app.line().caret()]) as u16;
         frame.set_cursor_position((x.min(status.right().saturating_sub(1)), status.y));
     }
 }
@@ -178,7 +178,7 @@ fn draw_go_to_dialog(frame: &mut Frame, app: &App) {
         ])
     };
     let lines = vec![
-        Line::raw(format!("{GO_TO_LABEL}{}", app.buffer())),
+        Line::raw(format!("{GO_TO_LABEL}{}", app.line().text())),
         last_line,
     ];
     let area = frame.area().centered(
@@ -192,8 +192,8 @@ fn draw_go_to_dialog(frame: &mut Frame, app: &App) {
     frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(lines).block(block), area);
     if inner.width > 0 && inner.height > 0 {
-        let chars: Vec<char> = app.buffer().chars().collect();
-        let x = inner.x + (GO_TO_LABEL.len() + text_width(&chars[..app.caret()])) as u16;
+        let chars: Vec<char> = app.line().text().chars().collect();
+        let x = inner.x + (GO_TO_LABEL.len() + text_width(&chars[..app.line().caret()])) as u16;
         frame.set_cursor_position((x.min(inner.right().saturating_sub(1)), inner.y));
     }
 }
@@ -365,7 +365,7 @@ fn draw_formula_bar(frame: &mut Frame, area: Rect, app: &App) {
     }
     let editing = app.mode() == Mode::Insert;
     let content = if editing {
-        app.buffer()
+        app.line().text()
     } else {
         edit_text(
             &app.current_sheet().cell(app.cursor()),
@@ -378,7 +378,7 @@ fn draw_formula_bar(frame: &mut Frame, area: Rect, app: &App) {
         .collect();
     // One cell stays free for the terminal cursor after the text.
     let room = usize::from(area.width.saturating_sub(1));
-    let caret = if editing { app.caret() } else { 0 };
+    let caret = if editing { app.line().caret() } else { 0 };
 
     // Drop leading characters until the caret fits in the visible room.
     let mut start = 0;
@@ -481,7 +481,7 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
     };
     // The go-to dialog shows its own complaints.
     let message = if app.mode() == Mode::Search {
-        format!(" /{}", app.buffer())
+        format!(" /{}", app.line().text())
     } else if let (Mode::Normal, true, Some(progress)) =
         (app.mode(), app.status().is_empty(), app.loading_progress())
     {

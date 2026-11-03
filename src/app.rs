@@ -11,7 +11,8 @@ use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
 use crate::file_dialog::{DialogAction, DialogKind, FileDialog};
 use crate::formula::translate;
 use crate::help::{self, HelpTable};
-use crate::keys::{is_ctrl, is_text_input};
+use crate::keys::is_ctrl;
+use crate::line_edit::LineEdit;
 use crate::model::{Cell, CellValue, Sheet};
 use crate::text::{cell_contains, edit_text, parse_input};
 use crate::xlsx::{
@@ -106,8 +107,8 @@ pub struct App {
     /// The visible grid size, in columns and rows.
     viewport: (u32, u32),
     mode: Mode,
-    buffer: Vec<char>,
-    caret: usize,
+    /// The text being typed into a cell or a prompt.
+    line: LineEdit,
     /// The cell as it was when editing began.
     original: Cell,
     status: String,
@@ -169,8 +170,7 @@ impl App {
             cursor: CellRef { col: 0, row: 0 },
             viewport: (10, 20),
             mode: Mode::Normal,
-            buffer: Vec::new(),
-            caret: 0,
+            line: LineEdit::default(),
             original: Cell::default(),
             status: String::new(),
             status_is_error: false,
@@ -470,14 +470,9 @@ impl App {
         self.mode
     }
 
-    /// The caret position within the edited text, in characters.
-    pub fn caret(&self) -> usize {
-        self.caret
-    }
-
-    /// The text being edited.
-    pub fn buffer(&self) -> String {
-        self.buffer.iter().collect()
+    /// The text being typed into a cell or a prompt.
+    pub fn line(&self) -> &LineEdit {
+        &self.line
     }
 
     /// The cell shown in the grid's top-left corner.
@@ -869,7 +864,7 @@ impl App {
         self.cursor = at;
         match operator {
             'y' => self.status = format!("{yanked} cells yanked"),
-            'c' => self.begin_edit(Vec::new()),
+            'c' => self.begin_edit(""),
             _ => {}
         }
     }
@@ -1134,9 +1129,9 @@ impl App {
             KeyCode::Char('a' | 'A') if !ctrl => self.edit_existing(),
             KeyCode::Char('i' | 'I') if !ctrl => {
                 self.edit_existing();
-                self.caret = 0;
+                self.line.go_home();
             }
-            KeyCode::Char('s') if !ctrl => self.begin_edit(Vec::new()),
+            KeyCode::Char('s') if !ctrl => self.begin_edit(""),
             KeyCode::Char('S') if !ctrl => self.operate_on_rows('c', count.unwrap_or(1)),
             KeyCode::Char('C') if !ctrl => {
                 match self
@@ -1147,7 +1142,7 @@ impl App {
                         let last = CellRef { col, ..self.cursor };
                         self.operate('c', self.cursor, last, false, self.cursor);
                     }
-                    None => self.begin_edit(Vec::new()),
+                    None => self.begin_edit(""),
                 }
             }
             KeyCode::Char('o') if !ctrl => {
@@ -1158,7 +1153,7 @@ impl App {
                 self.move_by(0, -1);
                 self.edit_existing();
             }
-            KeyCode::Char('=') if !ctrl => self.begin_edit(vec!['=']),
+            KeyCode::Char('=') if !ctrl => self.begin_edit("="),
             KeyCode::Esc if self.is_loading() => self.cancel_load(),
             _ => {}
         }
@@ -1400,7 +1395,7 @@ impl App {
     fn edit_existing(&mut self) {
         let cell = self.current_sheet().cell(self.cursor);
         let text = edit_text(&cell, self.workbook.date1904);
-        self.begin_edit(text.chars().collect());
+        self.begin_edit(&text);
     }
 
     /// A left click on a cell in normal mode, dropping any half-typed command.
@@ -1463,31 +1458,8 @@ impl App {
 
     /// Starts typing into an empty one-line prompt.
     fn begin_prompt(&mut self, mode: Mode) {
-        self.buffer.clear();
-        self.caret = 0;
+        self.line = LineEdit::default();
         self.mode = mode;
-    }
-
-    /// The editing keys every one-line prompt shares.
-    fn prompt_text_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Backspace if self.caret > 0 => {
-                self.caret -= 1;
-                self.buffer.remove(self.caret);
-            }
-            KeyCode::Delete if self.caret < self.buffer.len() => {
-                self.buffer.remove(self.caret);
-            }
-            KeyCode::Left => self.caret = self.caret.saturating_sub(1),
-            KeyCode::Right => self.caret = (self.caret + 1).min(self.buffer.len()),
-            KeyCode::Home => self.caret = 0,
-            KeyCode::End => self.caret = self.buffer.len(),
-            KeyCode::Char(c) if is_text_input(key) => {
-                self.buffer.insert(self.caret, c);
-                self.caret += 1;
-            }
-            _ => {}
-        }
     }
 
     fn go_to_key(&mut self, key: KeyEvent) {
@@ -1495,15 +1467,15 @@ impl App {
             KeyCode::Esc => self.mode = Mode::Normal,
             KeyCode::Char('c') if is_ctrl(key) => self.mode = Mode::Normal,
             KeyCode::Enter => {
-                let buffer = self.buffer();
-                let target = buffer.trim();
+                let text = self.line.text();
+                let target = text.trim();
                 if target.is_empty() || self.go_to(target) {
                     self.mode = Mode::Normal;
                 } else {
                     self.report_error(format!("{target} isn't a cell or a row"));
                 }
             }
-            _ => self.prompt_text_key(key),
+            _ => self.line.handle_key(key),
         }
     }
 
@@ -1513,14 +1485,15 @@ impl App {
             KeyCode::Char('c') if is_ctrl(key) => self.mode = Mode::Normal,
             KeyCode::Enter => {
                 self.mode = Mode::Normal;
-                if !self.buffer.is_empty() {
-                    self.search_query = Some(self.buffer());
+                let text = self.line.text();
+                if !text.is_empty() {
+                    self.search_query = Some(text);
                 }
                 if self.search_query.is_some() {
                     self.find_match(true);
                 }
             }
-            _ => self.prompt_text_key(key),
+            _ => self.line.handle_key(key),
         }
     }
 
@@ -1559,7 +1532,7 @@ impl App {
         }
     }
 
-    fn begin_edit(&mut self, initial: Vec<char>) {
+    fn begin_edit(&mut self, initial: &str) {
         if self.refuse_while_busy() {
             return;
         }
@@ -1567,8 +1540,7 @@ impl App {
             return;
         }
         self.original = self.current_sheet().cell(self.cursor);
-        self.caret = initial.len();
-        self.buffer = initial;
+        self.line = LineEdit::new(initial);
         self.mode = Mode::Insert;
     }
 
@@ -1578,41 +1550,11 @@ impl App {
             KeyCode::Esc => self.commit_edit(),
             KeyCode::F(1) => self.open_help(),
             KeyCode::Char('c') if is_ctrl(key) => self.mode = Mode::Normal,
-            KeyCode::Char('u') if is_ctrl(key) => {
-                self.buffer.drain(..self.caret);
-                self.caret = 0;
-            }
-            KeyCode::Char('w') if is_ctrl(key) => {
-                let mut start = self.caret;
-                while start > 0 && self.buffer[start - 1].is_whitespace() {
-                    start -= 1;
-                }
-                while start > 0 && !self.buffer[start - 1].is_whitespace() {
-                    start -= 1;
-                }
-                self.buffer.drain(start..self.caret);
-                self.caret = start;
-            }
             KeyCode::Enter | KeyCode::Down => self.commit_and_move(0, 1),
             KeyCode::Up => self.commit_and_move(0, -1),
             KeyCode::Tab => self.commit_and_move(1, 0),
             KeyCode::BackTab => self.commit_and_move(-1, 0),
-            KeyCode::Char(c) if is_text_input(key) => {
-                self.buffer.insert(self.caret, c);
-                self.caret += 1;
-            }
-            KeyCode::Left => self.caret = self.caret.saturating_sub(1),
-            KeyCode::Right => self.caret = (self.caret + 1).min(self.buffer.len()),
-            KeyCode::Home => self.caret = 0,
-            KeyCode::End => self.caret = self.buffer.len(),
-            KeyCode::Backspace if self.caret > 0 => {
-                self.caret -= 1;
-                self.buffer.remove(self.caret);
-            }
-            KeyCode::Delete if self.caret < self.buffer.len() => {
-                self.buffer.remove(self.caret);
-            }
-            _ => {}
+            _ => self.line.handle_key(key),
         }
     }
 
@@ -1685,7 +1627,7 @@ impl App {
     fn commit_edit(&mut self) {
         self.mode = Mode::Normal;
         let at = self.cursor;
-        let text = self.buffer();
+        let text = self.line.text();
         let was_date = self.current_sheet().cell(at).is_date;
         let date1904 = self.workbook.date1904;
         // Confirming unchanged text must not disturb the cell, cached formula results included.

@@ -109,7 +109,7 @@ fn typing_replaces_the_cell_and_enter_confirms_and_moves_down() {
     press(&mut app, KeyCode::Char('s'));
     type_text(&mut app, "42");
     assert_eq!(app.mode(), Mode::Insert);
-    assert_eq!(app.buffer(), "42");
+    assert_eq!(app.line().text(), "42");
     assert_eq!(
         app.current_sheet().cell(a1("A1")).value,
         CellValue::Number(1.0),
@@ -135,7 +135,7 @@ fn control_shortcuts_do_not_type_but_altgr_characters_do() {
     press(&mut app, KeyCode::Char('s'));
     let altgr = KeyModifiers::CONTROL | KeyModifiers::ALT;
     app.handle_key(KeyEvent::new(KeyCode::Char('@'), altgr));
-    assert_eq!(app.buffer(), "@");
+    assert_eq!(app.line().text(), "@");
 }
 
 #[test]
@@ -170,8 +170,8 @@ fn f2_edits_the_existing_content_at_the_caret() {
         app_with(r#"<row r="1"><c r="A1" t="inlineStr"><is><t>héllo</t></is></c></row>"#);
 
     press(&mut app, KeyCode::F(2));
-    assert_eq!(app.buffer(), "héllo");
-    assert_eq!(app.caret(), 5);
+    assert_eq!(app.line().text(), "héllo");
+    assert_eq!(app.line().caret(), 5);
 
     press(&mut app, KeyCode::Home);
     press(&mut app, KeyCode::Right);
@@ -183,8 +183,8 @@ fn f2_edits_the_existing_content_at_the_caret() {
     press(&mut app, KeyCode::Left);
     press(&mut app, KeyCode::Right);
     type_text(&mut app, "!");
-    assert_eq!(app.buffer(), "hél!l");
-    assert_eq!(app.caret(), 4);
+    assert_eq!(app.line().text(), "hél!l");
+    assert_eq!(app.line().caret(), 4);
 
     press(&mut app, KeyCode::Enter);
     assert_eq!(
@@ -224,7 +224,7 @@ fn date_cells_edit_as_iso_text_and_stay_dates() {
     let (_file, mut app) = app_from(&single_sheet(&sheet(rows), &[("xl/styles.xml", styles)]));
 
     press(&mut app, KeyCode::F(2));
-    assert_eq!(app.buffer(), "2023-03-15");
+    assert_eq!(app.line().text(), "2023-03-15");
     press(&mut app, KeyCode::Enter);
     assert!(!app.workbook.is_dirty());
 
@@ -241,7 +241,7 @@ fn f2_shows_each_kind_of_cell_as_text_that_recreates_it() {
     );
     for expected in ["=B1*2", "2.5", "TRUE", "'007"] {
         press(&mut app, KeyCode::F(2));
-        assert_eq!(app.buffer(), expected);
+        assert_eq!(app.line().text(), expected);
         press(&mut app, KeyCode::Esc);
         press(&mut app, KeyCode::Right);
     }
@@ -414,7 +414,7 @@ fn q_is_only_a_quit_key_in_normal_mode() {
     press(&mut app, KeyCode::Char('s'));
     press(&mut app, KeyCode::Char('q'));
     assert!(!app.should_quit());
-    assert_eq!(app.buffer(), "q");
+    assert_eq!(app.line().text(), "q");
     press(&mut app, KeyCode::Esc);
 
     press(&mut app, KeyCode::Char('v'));
@@ -601,13 +601,13 @@ fn i_and_a_edit_the_cell_with_the_caret_at_either_end() {
 
     keys(&mut app, "i");
     assert_eq!(app.mode(), Mode::Insert);
-    assert_eq!(app.buffer(), "word");
-    assert_eq!(app.caret(), 0);
+    assert_eq!(app.line().text(), "word");
+    assert_eq!(app.line().caret(), 0);
     press(&mut app, KeyCode::Esc);
 
     keys(&mut app, "a");
     assert_eq!(app.mode(), Mode::Insert);
-    assert_eq!(app.caret(), 4);
+    assert_eq!(app.line().caret(), 4);
 }
 
 #[test]
@@ -615,7 +615,7 @@ fn s_replaces_the_cell_and_equals_starts_a_formula() {
     let (_file, mut app) = app_with(r#"<row r="1"><c r="A1"><v>1</v></c></row>"#);
 
     keys(&mut app, "s");
-    assert_eq!(app.buffer(), "");
+    assert_eq!(app.line().text(), "");
     press(&mut app, KeyCode::Enter);
     assert_eq!(
         value(&app, "A1"),
@@ -624,8 +624,8 @@ fn s_replaces_the_cell_and_equals_starts_a_formula() {
     );
 
     keys(&mut app, "=");
-    assert_eq!(app.buffer(), "=");
-    assert_eq!(app.caret(), 1);
+    assert_eq!(app.line().text(), "=");
+    assert_eq!(app.line().caret(), 1);
 }
 
 #[test]
@@ -651,12 +651,12 @@ fn ctrl_u_and_ctrl_w_delete_backwards_in_insert_mode() {
     let (_file, mut app) = app_with("");
     keys(&mut app, "sone two  ");
     ctrl(&mut app, KeyCode::Char('w'));
-    assert_eq!(app.buffer(), "one ");
+    assert_eq!(app.line().text(), "one ");
     keys(&mut app, "x");
     press(&mut app, KeyCode::Left);
     ctrl(&mut app, KeyCode::Char('u'));
-    assert_eq!(app.buffer(), "x");
-    assert_eq!(app.caret(), 0);
+    assert_eq!(app.line().text(), "x");
+    assert_eq!(app.line().caret(), 0);
 }
 
 #[test]
@@ -1196,13 +1196,13 @@ fn o_and_capital_o_edit_the_cells_below_and_above() {
     keys(&mut app, "o");
     assert_eq!(app.mode(), Mode::Insert);
     assert_eq!(app.cursor(), a1("A2"));
-    assert_eq!(app.buffer(), "12");
+    assert_eq!(app.line().text(), "12");
     ctrl(&mut app, KeyCode::Char('c'));
 
     keys(&mut app, "O");
     assert_eq!(app.mode(), Mode::Insert);
     assert_eq!(app.cursor(), a1("A1"));
-    assert_eq!(app.buffer(), "1");
+    assert_eq!(app.line().text(), "1");
 }
 
 #[test]
@@ -1946,7 +1946,7 @@ fn ctrl_g_goes_to_a_cell_or_a_row() {
     ctrl(&mut app, KeyCode::Char('g'));
     assert_eq!(app.mode(), Mode::GoTo);
     type_text(&mut app, "c7");
-    assert_eq!(app.buffer(), "c7");
+    assert_eq!(app.line().text(), "c7");
     press(&mut app, KeyCode::Enter);
     assert_eq!(app.mode(), Mode::Normal);
     assert_eq!(app.cursor(), a1("C7"));
@@ -1964,8 +1964,8 @@ fn ctrl_g_starts_with_an_empty_box_after_editing() {
 
     ctrl(&mut app, KeyCode::Char('g'));
 
-    assert_eq!(app.buffer(), "");
-    assert_eq!(app.caret(), 0);
+    assert_eq!(app.line().text(), "");
+    assert_eq!(app.line().caret(), 0);
 }
 
 #[test]
@@ -1982,7 +1982,7 @@ fn ctrl_g_stays_open_on_nonsense_and_says_why() {
     assert_eq!(app.cursor(), a1("A1"));
 
     press(&mut app, KeyCode::Backspace);
-    assert_eq!(app.buffer(), "nop");
+    assert_eq!(app.line().text(), "nop");
     assert_eq!(app.status(), "", "typing clears the complaint");
 }
 
@@ -2217,7 +2217,7 @@ fn f1_helps_while_editing_and_question_mark_is_still_text() {
     let (_file, mut app) = app_with("");
     press(&mut app, KeyCode::Char('s'));
     press(&mut app, KeyCode::Char('?'));
-    assert_eq!(app.buffer(), "?");
+    assert_eq!(app.line().text(), "?");
 
     press(&mut app, KeyCode::F(1));
     assert_eq!(app.mode(), Mode::Help);
@@ -2225,7 +2225,7 @@ fn f1_helps_while_editing_and_question_mark_is_still_text() {
 
     press(&mut app, KeyCode::Char('x'));
     assert_eq!(app.mode(), Mode::Insert);
-    assert_eq!(app.buffer(), "?", "the edit carries on untouched");
+    assert_eq!(app.line().text(), "?", "the edit carries on untouched");
 }
 
 #[test]
