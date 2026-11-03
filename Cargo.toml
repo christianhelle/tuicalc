@@ -2,7 +2,15 @@
 name = "tuicalc"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.89"
+description = "A terminal spreadsheet editor for Excel .xlsx workbooks, with vim-style keys"
 license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/christianhelle/tuicalc"
+repository = "https://github.com/christianhelle/tuicalc"
+keywords = ["spreadsheet", "excel", "xlsx", "tui", "terminal"]
+categories = ["command-line-utilities"]
+exclude = [".github/", ".gitattributes", "docs/"]
 
 [[bin]]
 name = "tcalc"
