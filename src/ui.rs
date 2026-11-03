@@ -10,7 +10,7 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 use unicode_width::UnicodeWidthChar;
 
 use crate::address::{CellRef, column_name};
-use crate::app::{App, Mode, NextStep};
+use crate::app::{App, Message, Mode, NextStep};
 use crate::file_dialog::{DialogKind, FileDialog};
 use crate::help::{HELP_KEYS, HELP_WIDTH};
 use crate::line_edit::{LineEdit, Window};
@@ -490,34 +490,24 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
             _ => ("SAVE", Color::Blue, " Choose a folder and a name"),
         },
     };
-    // The go-to dialog shows its own complaints.
-    let message = if app.mode() == Mode::Search {
-        format!(" /{}", search_window(area, app).text)
-    } else if let (Mode::Normal, true, Some(progress)) = (
-        app.mode(),
-        app.status().is_empty(),
-        app.document().loading_progress(),
-    ) {
-        let percent = (progress * 100.0) as u32;
-        format!(" Opening {}… {percent}% · Esc cancel", app.file_name())
-    } else if app.mode() == Mode::Normal && app.status().is_empty() && app.document().is_saving() {
-        let then = match app.next_step() {
-            Some(NextStep::Quit) => " then quitting",
-            _ => "",
-        };
-        format!(" Saving {}…{then}", app.file_name())
-    } else if app.status().is_empty() || app.mode() == Mode::GoTo {
-        hint.to_string()
-    } else {
-        format!(" {}", app.status())
+    let (message, message_style) = match app.message() {
+        Message::Hint => (hint.to_string(), Style::default()),
+        Message::Search => (
+            format!(" /{}", search_window(area, app).text),
+            Style::default(),
+        ),
+        Message::Busy(text) => (format!(" {text}"), Style::default()),
+        Message::Said { text, is_error } => {
+            let style = if is_error {
+                Style::new().fg(Color::Red)
+            } else {
+                Style::default()
+            };
+            (format!(" {text}"), style)
+        }
     };
     let badge = format!(" {name} ");
     let badge_style = Style::new().fg(Color::Black).bg(color);
-    let message_style = if app.status_is_error() {
-        Style::new().fg(Color::Red)
-    } else {
-        Style::default()
-    };
     let room = usize::from(area.width);
     buffer.set_stringn(area.x, area.y, &badge, room, badge_style);
     let badge_width = badge.len() as u16;

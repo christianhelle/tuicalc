@@ -7,7 +7,7 @@ use std::time::Duration;
 use common::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tuicalc::address::CellRef;
-use tuicalc::app::{App, Mode, NextStep};
+use tuicalc::app::{App, Message, Mode, NextStep};
 use tuicalc::model::{Cell, CellValue};
 use tuicalc::xlsx::{Workbook, XlsxError};
 
@@ -556,4 +556,71 @@ fn a_finished_save_under_the_help_is_reported_when_the_help_closes() {
 
     key(&mut app, KeyCode::Esc);
     assert_eq!(app.status(), "Saved book.xlsx");
+}
+
+#[test]
+fn the_status_line_shows_hints_until_there_is_something_to_say() {
+    let (_file, mut app) = app_with_an_edit();
+    assert_eq!(app.message(), Message::Hint);
+
+    type_keys(&mut app, "n");
+    assert_eq!(
+        app.message(),
+        Message::Said {
+            text: "Nothing to search for".into(),
+            is_error: false,
+        }
+    );
+}
+
+#[test]
+fn the_status_line_follows_a_save_and_what_comes_after_it() {
+    let (_file, mut app) = app_with_an_edit();
+
+    ctrl(&mut app, 's');
+    assert_eq!(app.message(), Message::Busy("Saving book.xlsx…".into()),);
+
+    app.finish_saving();
+    assert_eq!(
+        app.message(),
+        Message::Said {
+            text: "Saved book.xlsx".into(),
+            is_error: false,
+        }
+    );
+
+    let (_file, mut app) = app_with_an_edit();
+    type_keys(&mut app, "ZZ");
+    assert_eq!(
+        app.message(),
+        Message::Busy("Saving book.xlsx… then quitting".into()),
+    );
+}
+
+#[test]
+fn the_status_line_gives_way_to_a_search_and_keeps_out_of_a_go_to() {
+    let (_file, mut app) = app_with_an_edit();
+
+    key(&mut app, KeyCode::Char('/'));
+    assert_eq!(app.message(), Message::Search);
+    key(&mut app, KeyCode::Esc);
+
+    ctrl(&mut app, 'g');
+    type_keys(&mut app, "nope");
+    key(&mut app, KeyCode::Enter);
+    assert!(app.status_is_error());
+    assert_eq!(
+        app.message(),
+        Message::Hint,
+        "the dialog shows its complaint"
+    );
+}
+
+#[test]
+fn a_saving_message_keeps_out_of_a_selection() {
+    let (_file, mut app) = app_with_an_edit();
+    ctrl(&mut app, 's');
+    key(&mut app, KeyCode::Char('v'));
+
+    assert_eq!(app.message(), Message::Hint);
 }

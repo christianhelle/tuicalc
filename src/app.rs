@@ -46,6 +46,19 @@ pub enum NextStep {
     Reload,
 }
 
+/// What the status line says, after the mode's badge.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Message {
+    /// The keys that matter in this mode.
+    Hint,
+    /// The search being typed.
+    Search,
+    /// How the work in the background is getting on.
+    Busy(String),
+    /// The latest thing the app has to tell the user.
+    Said { text: String, is_error: bool },
+}
+
 /// A message for the user about background work.
 struct News {
     message: String,
@@ -304,6 +317,39 @@ impl App {
     /// The keys of a command still being typed, as vim's `showcmd` shows them.
     pub fn pending_keys(&self) -> String {
         self.grammar.pending_keys()
+    }
+
+    /// What the status line should say.
+    pub fn message(&self) -> Message {
+        if self.mode == Mode::Search {
+            return Message::Search;
+        }
+        // The go-to dialog shows its own complaints.
+        if self.mode == Mode::GoTo {
+            return Message::Hint;
+        }
+        if !self.status.is_empty() {
+            return Message::Said {
+                text: self.status.clone(),
+                is_error: self.status_is_error,
+            };
+        }
+        if self.mode != Mode::Normal {
+            return Message::Hint;
+        }
+        if let Some(progress) = self.doc.loading_progress() {
+            let percent = (progress * 100.0) as u32;
+            let name = self.file_name();
+            return Message::Busy(format!("Opening {name}… {percent}% · Esc cancel"));
+        }
+        if self.doc.is_saving() {
+            let then = match self.next_step {
+                Some(NextStep::Quit) => " then quitting",
+                _ => "",
+            };
+            return Message::Busy(format!("Saving {}…{then}", self.file_name()));
+        }
+        Message::Hint
     }
 
     /// The latest message for the user.
