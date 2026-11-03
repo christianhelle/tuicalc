@@ -8,23 +8,7 @@ View and edit Excel `.xlsx` workbooks from the terminal, with vim-style keys. Sa
 cells you edited, so charts, styles, pivot tables and macros survive, and large workbooks open and
 save in the background while you keep working.
 
-```
-┌ B3 ────────────────────────────────────────────────────────────────────────────────┐
-│Revenue                                                                             │
-└────────────────────────────────────────────────────────────────────────────────────┘
-┏ financial-model.xlsx — Monthly Plan ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃       │     A     │     B     │     C     │     D     │     E     │     F     │    ┃
-┃───────┼───────────┼───────────┼───────────┼───────────┼───────────┼───────────┤    ┃
-┃      1│Monthly pla│           │           │           │           │           │    ┃
-┃      2│           │           │           │           │           │           │    ┃
-┃      3│Month      │Revenue    │Costs      │Profit     │Tax        │Net        │    ┃
-┃      4│ 2024-01-01│       1000│        600│        400│        100│        300│    ┃
-┃      5│ 2024-02-01│1004.166667│      602.5│401.6666667│100.4166667│     301.25│    ┃
-┃      6│ 2024-03-01│1008.350694│605.0104167│403.3402778│100.8350694│302.5052083│    ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
- Assumptions  Monthly Plan  Lookups  Summary
- NORMAL  ? help · i edit · v select · / find · gt sheet · Ctrl-S save · q quit
-```
+![tuicalc showing a ledger sheet of a financial model](images/screenshot.jpg)
 
 ## Install
 
