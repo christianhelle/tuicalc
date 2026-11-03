@@ -236,10 +236,11 @@ impl App {
 
     /// Catches up on what has been waiting for the user to finish what they were doing.
     fn catch_up(&mut self) {
-        if self.mode == Mode::Normal && self.status.is_empty() {
-            if let Some(news) = self.news.take() {
-                self.announce(news);
-            }
+        if self.mode == Mode::Normal
+            && self.status.is_empty()
+            && let Some(news) = self.news.take()
+        {
+            self.announce(news);
         }
         self.take_due_step();
     }

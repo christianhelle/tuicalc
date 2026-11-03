@@ -8,7 +8,7 @@ use crossterm::execute;
 use ratatui::DefaultTerminal;
 use ratatui::layout::Rect;
 use tuicalc::app::App;
-use tuicalc::ui::{draw, handle_mouse};
+use tuicalc::ui::{draw, fit, handle_mouse};
 use tuicalc::xlsx::Workbook;
 
 const USAGE: &str = "Usage: tcalc [file.xlsx]";
@@ -76,6 +76,8 @@ fn release_mouse_on_panic() {
 
 fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
     while !app.should_quit() {
+        let size = terminal.size()?;
+        fit(app, Rect::new(0, 0, size.width, size.height));
         terminal.draw(|frame| draw(frame, app))?;
         if app.document().is_busy() {
             app.absorb_background(BUSY_FRAME);

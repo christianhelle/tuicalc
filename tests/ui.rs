@@ -8,7 +8,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 use tuicalc::address::CellRef;
 use tuicalc::app::{App, Mode};
-use tuicalc::ui::{draw, handle_mouse};
+use tuicalc::ui::{draw, fit, handle_mouse};
 use tuicalc::xlsx::Workbook;
 use unicode_width::UnicodeWidthStr;
 
@@ -32,6 +32,7 @@ fn press(app: &mut App, code: KeyCode) {
 }
 
 fn terminal_for(app: &mut App, width: u16, height: u16) -> Terminal<TestBackend> {
+    fit(app, Rect::new(0, 0, width, height));
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal.draw(|frame| draw(frame, app)).unwrap();
     terminal
@@ -1283,4 +1284,32 @@ fn the_save_dialog_draws_the_terminal_cursor_at_the_names_caret() {
     let position = terminal.get_cursor_position().unwrap();
     let buffer = terminal.backend().buffer();
     assert_eq!(buffer[(position.x, position.y)].symbol(), "b");
+}
+
+#[test]
+fn fitting_to_a_screen_gives_screen_motions_their_rows_without_drawing() {
+    let (_file, mut app) = app_with("");
+
+    fit(&mut app, Rect::new(0, 0, 80, 24));
+    press(&mut app, KeyCode::Char('L'));
+
+    assert_eq!(app.cursor().row, 14, "24 lines leave 15 rows for cells");
+}
+
+#[test]
+fn drawing_leaves_the_app_as_it_was() {
+    let (_file, mut app) = app_with("");
+    fit(&mut app, Rect::new(0, 0, 80, 24));
+    let shared: &App = &app;
+
+    let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+    terminal.draw(|frame| draw(frame, shared)).unwrap();
+
+    assert_eq!(app.scroll().row, 0);
+    press(&mut app, KeyCode::Char('L'));
+    assert_eq!(
+        app.cursor().row,
+        14,
+        "the size came from fitting, not drawing"
+    );
 }

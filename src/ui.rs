@@ -94,7 +94,14 @@ fn tab_at(tabs: Rect, app: &App, x: u16, y: u16) -> Option<usize> {
         .map(|tab| tab.index)
 }
 
-pub fn draw(frame: &mut Frame, app: &mut App) {
+/// Tells the app how much of the sheet a screen of this size has room for.
+pub fn fit(app: &mut App, screen: Rect) {
+    let [_, grid, _, _] = layout(screen);
+    let (cols, rows) = grid_size(Block::bordered().inner(grid));
+    app.set_viewport(cols, rows);
+}
+
+pub fn draw(frame: &mut Frame, app: &App) {
     let [formula_bar, grid, tabs, status] = layout(frame.area());
     let editing = app.mode() == Mode::Insert;
     let marker = if app.document().workbook().is_dirty() {
@@ -107,7 +114,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let grid_inner = grid_block.inner(grid);
     frame.render_widget(grid_block, grid);
     let (visible_cols, visible_rows) = grid_size(grid_inner);
-    app.set_viewport(visible_cols, visible_rows);
     draw_grid(
         frame.buffer_mut(),
         grid_inner,
