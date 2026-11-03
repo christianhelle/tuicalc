@@ -2,6 +2,7 @@
 pub mod address;
 pub mod app;
 pub mod changes;
+pub mod command;
 pub mod date;
 pub mod document;
 pub mod file_dialog;
