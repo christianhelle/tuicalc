@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound;
 use std::sync::Arc;
 
-use crate::address::CellRef;
+use crate::address::{CellRange, CellRef};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum CellValue {
@@ -56,7 +56,7 @@ pub struct Sheet {
     /// How many cells each column holds, so the extent needn't look at every cell.
     column_counts: BTreeMap<u32, u32>,
     dirty: BTreeSet<CellRef>,
-    locked: Vec<(CellRef, CellRef)>,
+    locked: Vec<CellRange>,
 }
 
 impl Sheet {
@@ -108,13 +108,11 @@ impl Sheet {
 
     /// Marks a region that Excel only allows editing as a whole, such as an array formula.
     pub fn lock_range(&mut self, first: CellRef, last: CellRef) {
-        self.locked.push((first, last));
+        self.locked.push(CellRange::between(first, last));
     }
 
     pub fn is_locked(&self, at: CellRef) -> bool {
-        self.locked.iter().any(|(first, last)| {
-            (first.col..=last.col).contains(&at.col) && (first.row..=last.row).contains(&at.row)
-        })
+        self.locked.iter().any(|range| range.contains(at))
     }
 
     pub fn has_formulas(&self) -> bool {

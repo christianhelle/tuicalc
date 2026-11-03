@@ -4,7 +4,7 @@ use std::path::Path;
 
 use common::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use tuicalc::address::CellRef;
+use tuicalc::address::{CellRange, CellRef};
 use tuicalc::app::{App, Mode};
 use tuicalc::file_dialog::DialogKind;
 use tuicalc::model::{Cell, CellValue};
@@ -883,18 +883,27 @@ fn visual_mode_selects_the_rectangle_between_start_and_cursor() {
     assert_eq!(app.selection(), None);
     keys(&mut app, "lljv");
     assert_eq!(app.mode(), Mode::Visual);
-    assert_eq!(app.selection(), Some((a1("C2"), a1("C2"))));
+    assert_eq!(
+        app.selection(),
+        Some(CellRange::between(a1("C2"), a1("C2")))
+    );
 
     keys(&mut app, "2jh");
-    assert_eq!(app.selection(), Some((a1("B2"), a1("C4"))));
+    assert_eq!(
+        app.selection(),
+        Some(CellRange::between(a1("B2"), a1("C4")))
+    );
     keys(&mut app, "3k");
-    assert_eq!(app.selection(), Some((a1("B1"), a1("C2"))));
+    assert_eq!(
+        app.selection(),
+        Some(CellRange::between(a1("B1"), a1("C2")))
+    );
 
     keys(&mut app, "o");
     assert_eq!(app.cursor(), a1("C2"));
     assert_eq!(
         app.selection(),
-        Some((a1("B1"), a1("C2"))),
+        Some(CellRange::between(a1("B1"), a1("C2"))),
         "same corners, other end"
     );
 
@@ -908,11 +917,17 @@ fn visual_row_mode_selects_whole_rows_and_the_keys_switch_between_modes() {
     let (_file, mut app) = app_with(RUNS);
     keys(&mut app, "lVj");
     assert_eq!(app.mode(), Mode::VisualRow);
-    assert_eq!(app.selection(), Some((a1("A1"), a1("XFD2"))));
+    assert_eq!(
+        app.selection(),
+        Some(CellRange::between(a1("A1"), a1("XFD2")))
+    );
 
     keys(&mut app, "v");
     assert_eq!(app.mode(), Mode::Visual);
-    assert_eq!(app.selection(), Some((a1("B1"), a1("B2"))));
+    assert_eq!(
+        app.selection(),
+        Some(CellRange::between(a1("B1"), a1("B2")))
+    );
 
     keys(&mut app, "V");
     assert_eq!(app.mode(), Mode::VisualRow);
@@ -930,13 +945,25 @@ fn visual_row_mode_selects_whole_rows_and_the_keys_switch_between_modes() {
 fn every_motion_extends_a_visual_selection() {
     let (_file, mut app) = app_with(RUNS);
     keys(&mut app, "v$");
-    assert_eq!(app.selection(), Some((a1("A1"), a1("G1"))));
+    assert_eq!(
+        app.selection(),
+        Some(CellRange::between(a1("A1"), a1("G1")))
+    );
     keys(&mut app, "G");
-    assert_eq!(app.selection(), Some((a1("A1"), a1("G6"))));
+    assert_eq!(
+        app.selection(),
+        Some(CellRange::between(a1("A1"), a1("G6")))
+    );
     keys(&mut app, "gg");
-    assert_eq!(app.selection(), Some((a1("A1"), a1("G1"))));
+    assert_eq!(
+        app.selection(),
+        Some(CellRange::between(a1("A1"), a1("G1")))
+    );
     keys(&mut app, "2h");
-    assert_eq!(app.selection(), Some((a1("A1"), a1("E1"))));
+    assert_eq!(
+        app.selection(),
+        Some(CellRange::between(a1("A1"), a1("E1")))
+    );
 }
 
 #[test]

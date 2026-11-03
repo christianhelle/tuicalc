@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
+use crate::address::{CellRange, CellRef, MAX_COLS, MAX_ROWS};
 use crate::file_dialog::{DialogAction, DialogKind, FileDialog};
 use crate::formula::translate;
 use crate::help::{self, HelpTable};
@@ -766,30 +766,20 @@ impl App {
     }
 
     /// The selected rectangle, as its top-left and bottom-right cells.
-    pub fn selection(&self) -> Option<(CellRef, CellRef)> {
-        let (a, b) = (self.anchor, self.cursor);
-        let rows = (a.row.min(b.row), a.row.max(b.row));
+    pub fn selection(&self) -> Option<CellRange> {
+        let corners = CellRange::between(self.anchor, self.cursor);
         match self.mode {
-            Mode::Visual => Some((
-                CellRef {
-                    col: a.col.min(b.col),
-                    row: rows.0,
-                },
-                CellRef {
-                    col: a.col.max(b.col),
-                    row: rows.1,
-                },
-            )),
-            Mode::VisualRow => Some((
-                CellRef {
+            Mode::Visual => Some(corners),
+            Mode::VisualRow => Some(CellRange {
+                first: CellRef {
                     col: 0,
-                    row: rows.0,
+                    ..corners.first
                 },
-                CellRef {
+                last: CellRef {
                     col: MAX_COLS - 1,
-                    row: rows.1,
+                    ..corners.last
                 },
-            )),
+            }),
             _ => None,
         }
     }
@@ -831,7 +821,7 @@ impl App {
     }
 
     fn operate_on_selection(&mut self, operator: char) {
-        let Some((first, last)) = self.selection() else {
+        let Some(CellRange { first, last }) = self.selection() else {
             return;
         };
         let rows = self.mode == Mode::VisualRow;
@@ -1608,9 +1598,7 @@ impl App {
         self.current_sheet()
             .cells()
             .map(|(at, _)| *at)
-            .filter(|at| {
-                (first.col..=last.col).contains(&at.col) && (first.row..=last.row).contains(&at.row)
-            })
+            .filter(|at| CellRange { first, last }.contains(*at))
             .collect()
     }
 

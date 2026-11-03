@@ -573,9 +573,7 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
             let cell = sheet.cell(at);
             let text = display_text(&cell, date1904, CONTENT_WIDTH);
             let padded = pad(&text, is_right_aligned(&cell));
-            let selected = selection.is_some_and(|(first, last)| {
-                (first.col..=last.col).contains(&at.col) && (first.row..=last.row).contains(&at.row)
-            });
+            let selected = selection.is_some_and(|range| range.contains(at));
             let style = if at == app.cursor() && selection.is_some() {
                 SELECTED_CURSOR_STYLE
             } else if at == app.cursor() || selected {

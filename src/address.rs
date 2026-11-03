@@ -13,6 +13,34 @@ pub struct CellRef {
     pub col: u32,
 }
 
+/// A rectangle of cells, as its top-left and bottom-right corners.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CellRange {
+    pub first: CellRef,
+    pub last: CellRef,
+}
+
+impl CellRange {
+    /// The rectangle that two opposite corners span, in either order.
+    pub fn between(a: CellRef, b: CellRef) -> Self {
+        Self {
+            first: CellRef {
+                col: a.col.min(b.col),
+                row: a.row.min(b.row),
+            },
+            last: CellRef {
+                col: a.col.max(b.col),
+                row: a.row.max(b.row),
+            },
+        }
+    }
+
+    pub fn contains(&self, at: CellRef) -> bool {
+        (self.first.col..=self.last.col).contains(&at.col)
+            && (self.first.row..=self.last.row).contains(&at.row)
+    }
+}
+
 impl CellRef {
     /// Parses a reference such as `B7`.
     pub fn parse(text: &str) -> Option<Self> {
