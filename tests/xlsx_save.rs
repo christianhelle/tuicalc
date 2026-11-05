@@ -3,7 +3,7 @@ mod common;
 use common::*;
 use tuicalc::address::CellRef;
 use tuicalc::model::{Cell, CellValue};
-use tuicalc::xlsx::{Workbook, WorkbookError};
+use tuicalc::workbook::{Workbook, WorkbookError};
 
 fn a1(text: &str) -> CellRef {
     CellRef::parse(text).unwrap()

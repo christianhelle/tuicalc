@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
 
-use super::WorkbookError;
+use crate::workbook::WorkbookError;
 
 pub fn xml_error(error: impl std::fmt::Display) -> WorkbookError {
     WorkbookError::Xml(error.to_string())

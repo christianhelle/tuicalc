@@ -10,7 +10,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tuicalc::address::CellRef;
 use tuicalc::app::{App, Mode};
 use tuicalc::model::{Cell, CellValue};
-use tuicalc::xlsx::{Arrival, Workbook, WorkbookLoad};
+use tuicalc::workbook::{Arrival, Workbook, WorkbookLoad};
 
 const STILL_OPENING: &str = "Still opening: Esc cancels";
 

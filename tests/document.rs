@@ -6,7 +6,7 @@ use common::*;
 use tuicalc::address::CellRef;
 use tuicalc::document::{Document, LoadKind, OpenError, Outcome, Refusal, SaveError};
 use tuicalc::model::{Cell, CellValue};
-use tuicalc::xlsx::{Workbook, WorkbookError};
+use tuicalc::workbook::{Workbook, WorkbookError};
 
 fn a1(text: &str) -> CellRef {
     CellRef::parse(text).unwrap()

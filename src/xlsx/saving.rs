@@ -8,14 +8,15 @@ use std::thread;
 use std::time::Duration;
 
 use super::reader::Layout;
-use super::{WorkbookError, writer};
+use super::writer;
 use crate::model::Sheet;
+use crate::workbook::WorkbookError;
 
 /// A package that has reached the disk, ready for its workbook to take in.
 #[derive(Debug)]
 pub struct SavedPackage {
-    pub(super) path: PathBuf,
-    pub(super) bytes: Arc<Vec<u8>>,
+    pub(crate) path: PathBuf,
+    pub(crate) bytes: Arc<Vec<u8>>,
 }
 
 /// A save in progress. Dropping it leaves the save to finish by itself.
@@ -24,7 +25,7 @@ pub struct WorkbookSave {
 }
 
 impl WorkbookSave {
-    pub(super) fn start(job: SaveJob) -> Self {
+    pub(crate) fn start(job: SaveJob) -> Self {
         let (sender, result) = channel();
         thread::spawn(move || {
             let outcome = job.write();
@@ -55,7 +56,7 @@ fn stopped() -> WorkbookError {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Target {
+pub(crate) enum Target {
     /// The file the workbook came from, which nobody else may have changed.
     Own,
     /// A file that mustn't exist yet.
@@ -65,12 +66,12 @@ pub(super) enum Target {
 }
 
 /// A snapshot of the workbook, and where it goes.
-pub(super) struct SaveJob {
-    pub(super) source: Arc<Vec<u8>>,
-    pub(super) layout: Layout,
-    pub(super) sheets: Vec<Sheet>,
-    pub(super) path: PathBuf,
-    pub(super) target: Target,
+pub(crate) struct SaveJob {
+    pub(crate) source: Arc<Vec<u8>>,
+    pub(crate) layout: Layout,
+    pub(crate) sheets: Vec<Sheet>,
+    pub(crate) path: PathBuf,
+    pub(crate) target: Target,
 }
 
 impl SaveJob {

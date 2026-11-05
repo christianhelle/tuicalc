@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use crate::address::CellRef;
 use crate::changes::{History, Locked, Restored};
 use crate::model::{Cell, Sheet};
-use crate::xlsx::{Arrival, SavedPackage, Workbook, WorkbookError, WorkbookLoad, WorkbookSave};
+use crate::workbook::{Arrival, SavedPackage, Workbook, WorkbookError, WorkbookLoad, WorkbookSave};
 
 /// Why something that was asked of the document isn't happening.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

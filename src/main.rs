@@ -9,7 +9,7 @@ use ratatui::DefaultTerminal;
 use ratatui::layout::Rect;
 use tuicalc::app::App;
 use tuicalc::ui::{draw, fit, handle_mouse};
-use tuicalc::xlsx::Workbook;
+use tuicalc::workbook::Workbook;
 
 const USAGE: &str = "Usage: tcalc [file.xlsx]";
 /// How long to spend on a load or save in progress before looking at the keyboard and drawing

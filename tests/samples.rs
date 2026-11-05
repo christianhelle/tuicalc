@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use tuicalc::address::CellRef;
 use tuicalc::model::{Cell, CellValue, Sheet};
-use tuicalc::xlsx::Workbook;
+use tuicalc::workbook::Workbook;
 use zip::ZipArchive;
 
 const SAMPLES: [&str; 6] = [

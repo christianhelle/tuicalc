@@ -16,7 +16,7 @@ use crate::line_edit::LineEdit;
 use crate::model::{Cell, Sheet};
 use crate::motion::{Motion, Spot, last_filled_column, moved};
 use crate::text::{cell_contains, edit_text, parse_input};
-use crate::xlsx::{Workbook, WorkbookLoad};
+use crate::workbook::{Workbook, WorkbookLoad};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {

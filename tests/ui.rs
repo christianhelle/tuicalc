@@ -9,7 +9,7 @@ use ratatui::style::Modifier;
 use tuicalc::address::CellRef;
 use tuicalc::app::{App, Mode};
 use tuicalc::ui::{draw, fit, handle_mouse};
-use tuicalc::xlsx::Workbook;
+use tuicalc::workbook::Workbook;
 use unicode_width::UnicodeWidthStr;
 
 /// The cursor and highlighted dialog lines follow the terminal's theme, as reversed video.

@@ -8,11 +8,11 @@ use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use zip::ZipArchive;
 
-use super::WorkbookError;
 use super::xml::{attr, decode_excel_escapes, local_name, plain_attr, push_text, xml_error};
 use crate::address::CellRef;
 use crate::formula::translate;
 use crate::model::{Cell, CellValue, Sheet};
+use crate::workbook::WorkbookError;
 
 const OFFICE_DOCUMENT: &str = "/officeDocument";
 const WORKSHEET: &str = "/worksheet";
@@ -41,7 +41,7 @@ pub struct Plan {
 
 /// A run of a sheet's cells and read-only regions, in the order the file holds them.
 #[derive(Default)]
-pub(super) struct SheetChunk {
+pub(crate) struct SheetChunk {
     pub cells: Vec<(CellRef, Cell)>,
     pub locked: Vec<(CellRef, CellRef)>,
 }

@@ -4,7 +4,7 @@ use common::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tuicalc::app::App;
 use tuicalc::help::{HELP_KEYS, HELP_ROWS, HELP_WIDTH, INSERT_HELP, NORMAL_HELP, VISUAL_HELP};
-use tuicalc::xlsx::Workbook;
+use tuicalc::workbook::Workbook;
 use unicode_width::UnicodeWidthStr;
 
 #[test]

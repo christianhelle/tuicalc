@@ -8,7 +8,7 @@ use tuicalc::address::{CellRange, CellRef};
 use tuicalc::app::{App, Mode};
 use tuicalc::file_dialog::DialogKind;
 use tuicalc::model::{Cell, CellValue};
-use tuicalc::xlsx::Workbook;
+use tuicalc::workbook::Workbook;
 
 fn a1(text: &str) -> CellRef {
     CellRef::parse(text).unwrap()

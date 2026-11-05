@@ -7,7 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 use super::reader::{self, Plan, SheetChunk};
-use super::{Workbook, WorkbookError};
+use crate::workbook::{Workbook, WorkbookError};
 
 /// More than this adds little, since one sheet is read by one thread and cells merge on another.
 const MAX_WORKERS: usize = 4;
@@ -80,7 +80,7 @@ pub struct WorkbookLoad {
 }
 
 impl WorkbookLoad {
-    pub(super) fn start(source: Arc<Vec<u8>>, plan: &Plan, preferred: usize) -> Self {
+    pub(crate) fn start(source: Arc<Vec<u8>>, plan: &Plan, preferred: usize) -> Self {
         let (sender, events) = sync_channel(QUEUED_CHUNKS);
         let queue = Arc::new(SheetQueue::new(plan.sheet_names.len(), preferred));
         let read_bytes = Arc::new(AtomicU64::new(0));

@@ -14,4 +14,5 @@ pub mod model;
 pub mod motion;
 pub mod text;
 pub mod ui;
-pub mod xlsx;
+pub mod workbook;
+mod xlsx;
