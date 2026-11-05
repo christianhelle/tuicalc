@@ -1,6 +1,6 @@
 # Sample workbooks
 
-Complex `.xlsx` files for trying tuicalc by hand and for the tests in `tests/samples.rs`.
+Complex workbooks for trying tuicalc by hand and for the tests in `tests/samples.rs`.
 
 | File | What makes it hard |
 | --- | --- |
@@ -13,8 +13,18 @@ Complex `.xlsx` files for trying tuicalc by hand and for the tests in `tests/sam
 
 All but `foreign-writer.xlsx` were saved by real Excel, so they contain what Excel really writes.
 
-To rebuild them, run `generate.ps1`, which needs Windows and Excel. The data is the same on every
-run, but the files won't be byte-identical because Excel records timestamps and generated IDs.
+The OpenDocument samples are those same workbooks converted by real programs, and the tests check that
+they hold the same cells as the `.xlsx` files they came from.
+
+| File | Written by |
+| --- | --- |
+| `financial-model.ods`, `formula-edge-cases.ods`, `text-and-layout.ods`, `dates-1904.ods` | LibreOffice |
+| `text-and-layout.fods` | LibreOffice, as flat XML |
+| `financial-model-excel.ods` | Excel, which marks names and qualifies references differently |
+
+To rebuild them, run `generate.ps1`, which needs Windows, Excel and LibreOffice. `-OpenDocumentOnly`
+rebuilds only the OpenDocument files. The data is the same on every run, but the files won't be
+byte-identical because the programs record timestamps and generated IDs.
 
 ## Giant workbooks
 

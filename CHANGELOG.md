@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- OpenDocument spreadsheets: `.ods`, `.ots` and flat `.fods` files open and save
+  like `.xlsx` ones. Saving patches the file, keeping everything but the edited
+  cells, and formulas show and edit in the same style as in Excel. A new workbook
+  is saved in the format its name asks for.
+
 ### Changed
 
 - Long searches and go-to text scroll to keep the caret in view, and accept
