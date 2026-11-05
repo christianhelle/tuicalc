@@ -1,6 +1,11 @@
 # Sample workbooks
 
-Complex workbooks for trying tuicalc by hand and for the tests in `tests/samples.rs`.
+Complex workbooks for trying tuicalc by hand and for the tests in `tests/samples.rs`, in a folder for
+each format: `xlsx/`, `ods/` and `fods/`.
+
+## Excel
+
+These are in `xlsx/`.
 
 | File | What makes it hard |
 | --- | --- |
@@ -13,22 +18,26 @@ Complex workbooks for trying tuicalc by hand and for the tests in `tests/samples
 
 All but `foreign-writer.xlsx` were saved by real Excel, so they contain what Excel really writes.
 
-The OpenDocument samples are those same workbooks converted by real programs, and the tests check that
-they hold the same cells as the `.xlsx` files they came from.
+## OpenDocument
+
+These are in `ods/` and `fods/`. They're the same workbooks converted by real programs, and the tests
+check that they hold the same cells as the `.xlsx` files they came from.
 
 | File | Written by |
 | --- | --- |
-| `financial-model.ods`, `formula-edge-cases.ods`, `text-and-layout.ods`, `dates-1904.ods` | LibreOffice |
-| `text-and-layout.fods` | LibreOffice, as flat XML |
-| `financial-model-excel.ods` | Excel, which marks names and qualifies references differently |
+| `ods/financial-model.ods`, `ods/formula-edge-cases.ods`, `ods/text-and-layout.ods`, `ods/dates-1904.ods` | LibreOffice |
+| `fods/text-and-layout.fods` | LibreOffice, as flat XML |
+| `ods/financial-model-excel.ods` | Excel, which marks names and qualifies references differently |
 
-To rebuild them, run `generate.ps1`, which needs Windows, Excel and LibreOffice. `-OpenDocumentOnly`
+## Rebuilding
+
+To rebuild all of them, run `generate.ps1`, which needs Windows, Excel and LibreOffice. `-OpenDocumentOnly`
 rebuilds only the OpenDocument files. The data is the same on every run, but the files won't be
 byte-identical because the programs record timestamps and generated IDs.
 
 ## Giant workbooks
 
-`generate.ps1 -Giant` writes the same six workbooks to `giant/`, with millions of cells added, for
+`generate.ps1 -Giant` writes the same six workbooks to `xlsx/giant/`, with millions of cells added, for
 trying how tuicalc performs. It takes about a minute. Git ignores the folder because the files are
 far too big to commit, and the tests don't use them.
 
