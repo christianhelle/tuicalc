@@ -11,7 +11,7 @@ use tuicalc::app::App;
 use tuicalc::ui::{draw, fit, handle_mouse};
 use tuicalc::workbook::Workbook;
 
-const USAGE: &str = "Usage: tcalc [file.xlsx]";
+const USAGE: &str = "Usage: tcalc [file]";
 /// How long to spend on a load or save in progress before looking at the keyboard and drawing
 /// again.
 const BUSY_FRAME: Duration = Duration::from_millis(12);
