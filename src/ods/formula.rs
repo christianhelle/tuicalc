@@ -174,3 +174,193 @@ fn reference_to_excel(inner: &str) -> Option<String> {
     }
     Some(out)
 }
+
+/// The stored form of a formula typed without its `=`. One already in a grammar stays as it is.
+pub fn to_open_formula(typed: &str) -> String {
+    if has_grammar_prefix(typed) {
+        return typed.to_string();
+    }
+    let chars: Vec<char> = typed.chars().collect();
+    let mut out = String::from("of:=");
+    let mut in_array = false;
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '"' => i = copy_quoted(&chars, i, '"', &mut out),
+            '[' => {
+                let end = reference_end(&chars, i);
+                out.extend(&chars[i..(end + 1).min(chars.len())]);
+                i = end + 1;
+            }
+            '\'' => {
+                let mut sheet = String::new();
+                i = copy_quoted(&chars, i, '\'', &mut sheet);
+                if chars.get(i) == Some(&'!') {
+                    i = write_reference(&chars, i + 1, &sheet, &mut out);
+                } else {
+                    out.push_str(&sheet);
+                }
+            }
+            '#' if chars[i..].starts_with(&['#', 'R', 'E', 'F', '!']) => {
+                out.push_str("[.#REF!]");
+                i += 5;
+            }
+            '{' => {
+                in_array = true;
+                out.push('{');
+                i += 1;
+            }
+            '}' => {
+                in_array = false;
+                out.push('}');
+                i += 1;
+            }
+            ',' => {
+                out.push(';');
+                i += 1;
+            }
+            ';' if in_array => {
+                out.push('|');
+                i += 1;
+            }
+            c if is_token_char(c) => i = write_token(&chars, i, &mut out),
+            other => {
+                out.push(other);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Whether a formula starts with a grammar's name, such as `ooow:=`.
+fn has_grammar_prefix(typed: &str) -> bool {
+    typed.split_once(":=").is_some_and(|(name, _)| {
+        !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric())
+    })
+}
+
+fn is_token_char(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '$' | '_' | '.' | '\\')
+}
+
+fn token_end(chars: &[char], start: usize) -> usize {
+    let mut end = start;
+    while end < chars.len() && is_token_char(chars[end]) {
+        end += 1;
+    }
+    end
+}
+
+/// Writes a sheet name the way a reference needs it, quoting one that would be misread.
+fn write_sheet(sheet: &str, out: &mut String) {
+    out.push('$');
+    if sheet.contains('.') && !sheet.starts_with('\'') {
+        out.push('\'');
+        out.push_str(sheet);
+        out.push('\'');
+    } else {
+        out.push_str(sheet);
+    }
+}
+
+/// Writes the addresses of a reference starting at `start`, on `sheet` if it isn't empty.
+fn write_reference(chars: &[char], start: usize, sheet: &str, out: &mut String) -> usize {
+    let first_end = token_end(chars, start);
+    let first: String = chars[start..first_end].iter().collect();
+    let second = (chars.get(first_end) == Some(&':')).then(|| {
+        let end = token_end(chars, first_end + 1);
+        (chars[first_end + 1..end].iter().collect::<String>(), end)
+    });
+    out.push('[');
+    if sheet.is_empty() {
+        out.push('.');
+    } else {
+        write_sheet(sheet, out);
+        out.push('.');
+    }
+    out.push_str(&first);
+    match second {
+        Some((second, end)) if is_address(&second) => {
+            out.push_str(":.");
+            out.push_str(&second);
+            out.push(']');
+            end
+        }
+        _ => {
+            out.push(']');
+            first_end
+        }
+    }
+}
+
+/// Writes a run of name characters, which may turn out to be a reference, a sheet's name, a
+/// function or a name that isn't any of the app's business.
+fn write_token(chars: &[char], start: usize, out: &mut String) -> usize {
+    let end = token_end(chars, start);
+    let token: String = chars[start..end].iter().collect();
+    match chars.get(end) {
+        Some('!') => return write_reference(chars, end + 1, &token, out),
+        Some('(') => {
+            out.push_str(&token);
+            return end;
+        }
+        Some(':') => {
+            let second_end = token_end(chars, end + 1);
+            let second: String = chars[end + 1..second_end].iter().collect();
+            if chars.get(second_end) == Some(&'!') {
+                return write_sheet_span(chars, second_end + 1, &token, &second, out);
+            }
+            if is_address(&token) && is_address(&second) {
+                out.push_str(&format!("[.{token}:.{second}]"));
+                return second_end;
+            }
+        }
+        _ => {}
+    }
+    if is_cell_address(&token) {
+        out.push_str(&format!("[.{token}]"));
+    } else {
+        out.push_str(&token);
+    }
+    end
+}
+
+/// Writes a reference across sheets, such as `Sheet1:Sheet3!A1:B2`.
+fn write_sheet_span(
+    chars: &[char],
+    start: usize,
+    first_sheet: &str,
+    last_sheet: &str,
+    out: &mut String,
+) -> usize {
+    let first_end = token_end(chars, start);
+    let first: String = chars[start..first_end].iter().collect();
+    let mut last = first.clone();
+    let mut end = first_end;
+    if chars.get(first_end) == Some(&':') {
+        end = token_end(chars, first_end + 1);
+        last = chars[first_end + 1..end].iter().collect();
+    }
+    out.push('[');
+    write_sheet(first_sheet, out);
+    out.push('.');
+    out.push_str(&first);
+    out.push(':');
+    write_sheet(last_sheet, out);
+    out.push('.');
+    out.push_str(&last);
+    out.push(']');
+    end
+}
+
+/// Whether a token names one cell, rather than a number, a name or a whole line.
+fn is_cell_address(text: &str) -> bool {
+    let rest = text.strip_prefix('$').unwrap_or(text);
+    let digits_at = rest
+        .find(|c: char| !c.is_ascii_alphabetic())
+        .unwrap_or(rest.len());
+    let (column, row) = rest.split_at(digits_at);
+    let row = row.strip_prefix('$').unwrap_or(row);
+    !column.is_empty() && !row.is_empty() && is_address(text)
+}

@@ -5,12 +5,14 @@ use std::collections::BTreeMap;
 use std::io::{Cursor, Write};
 
 use quick_xml::Reader;
+use quick_xml::escape::partial_escape;
 use quick_xml::events::{BytesStart, Event};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
-use super::Layout;
+use super::formula::to_open_formula;
 use super::reader::CONTENT_PART;
+use super::{CALCEXT_NAMESPACE, Layout, OFFICE_NAMESPACE, TEXT_NAMESPACE, declared_prefix};
 use crate::address::CellRef;
 use crate::date;
 use crate::model::{Cell, CellValue, Sheet};
@@ -67,9 +69,8 @@ struct Tag<'a> {
 
 impl<'a> Tag<'a> {
     fn new(element: &BytesStart<'_>, inner: &'a str) -> Self {
-        let name: &str = &element.name().into_inner().to_owned();
         Self {
-            name: name.to_string(),
+            name: qualified_name(element),
             attributes: element
                 .attributes()
                 .with_checks(false)
@@ -117,6 +118,15 @@ impl<'a> Tag<'a> {
     }
 }
 
+/// Escapes an attribute's value, leaving the apostrophes in sheet names readable.
+fn escape_attribute(value: &str) -> String {
+    partial_escape(value).replace('"', "&quot;")
+}
+
+fn prefix_of(key: &str) -> &str {
+    key.split_once(':').map_or("", |(prefix, _)| prefix)
+}
+
 fn local_of(key: &str) -> &str {
     key.rsplit_once(':').map_or(key, |(_, local)| local)
 }
@@ -132,6 +142,7 @@ fn patch_content(xml: &str, sheets: &[Sheet]) -> Result<String, WorkbookError> {
     let mut in_spreadsheet = false;
     let mut next_sheet = 0;
     let mut table: Option<TablePatch> = None;
+    let mut prefixes = None;
     loop {
         let before = position(&reader);
         let event = reader.read_event().map_err(xml_error)?;
@@ -139,6 +150,12 @@ fn patch_content(xml: &str, sheets: &[Sheet]) -> Result<String, WorkbookError> {
         match &event {
             Event::Start(element) | Event::Empty(element) => {
                 let empty = matches!(event, Event::Empty(_));
+                if prefixes.is_none() {
+                    prefixes = Some(Prefixes::declared_by(element)?);
+                }
+                let Some(prefixes) = &prefixes else {
+                    continue;
+                };
                 match local_name(element).as_str() {
                     "spreadsheet" => in_spreadsheet = true,
                     "table" if in_spreadsheet && table.is_none() => {
@@ -157,7 +174,7 @@ fn patch_content(xml: &str, sheets: &[Sheet]) -> Result<String, WorkbookError> {
                                 patch.copy_until(before, after);
                                 patch.out.push_str(tag);
                                 patch.out.push('>');
-                                state.finish(&mut patch, None, table_prefix(element));
+                                state.finish(&mut patch, None, table_prefix(element), prefixes);
                                 patch
                                     .out
                                     .push_str(&format!("</{}>", qualified_name(element)));
@@ -185,7 +202,7 @@ fn patch_content(xml: &str, sheets: &[Sheet]) -> Result<String, WorkbookError> {
                                 &xml[span.start as usize..span.end as usize]
                             };
                             let end = position(&reader);
-                            table.patch_row(&mut patch, element, inner, before, end);
+                            table.patch_row(&mut patch, element, inner, before, end, prefixes);
                         }
                     }
                     _ => {}
@@ -197,7 +214,9 @@ fn patch_content(xml: &str, sheets: &[Sheet]) -> Result<String, WorkbookError> {
                         let name = element.name();
                         let full: &str = name.as_ref();
                         let prefix = full.split_once(':').map_or("", |(prefix, _)| prefix);
-                        state.finish(&mut patch, Some(before), prefix.to_string());
+                        if let Some(prefixes) = &prefixes {
+                            state.finish(&mut patch, Some(before), prefix.to_string(), prefixes);
+                        }
                     }
                 } else if AsRef::<str>::as_ref(&element.local_name()) == "spreadsheet" {
                     in_spreadsheet = false;
@@ -221,6 +240,28 @@ fn table_prefix(element: &BytesStart<'_>) -> String {
     let name = qualified_name(element);
     name.split_once(':')
         .map_or(String::new(), |(prefix, _)| prefix.to_string())
+}
+
+/// The prefixes the file uses for the namespaces edited cells need.
+struct Prefixes {
+    office: String,
+    text: String,
+    calcext: Option<String>,
+}
+
+impl Prefixes {
+    fn declared_by(root: &BytesStart<'_>) -> Result<Self, WorkbookError> {
+        let required = |namespace| {
+            declared_prefix(root, namespace).ok_or_else(|| {
+                WorkbookError::Invalid(format!("the file doesn't declare {namespace}"))
+            })
+        };
+        Ok(Self {
+            office: required(OFFICE_NAMESPACE)?,
+            text: required(TEXT_NAMESPACE)?,
+            calcext: declared_prefix(root, CALCEXT_NAMESPACE),
+        })
+    }
 }
 
 /// The output so far, and how far through the source it has got.
@@ -303,6 +344,7 @@ impl TablePatch {
         inner: &str,
         start: usize,
         end: usize,
+        prefixes: &Prefixes,
     ) {
         let first = self.next_row;
         let repeated = repeat_count(element, ROWS_REPEATED);
@@ -327,7 +369,7 @@ impl TablePatch {
                 tag.write_repeated(&mut patch.out, ROWS_REPEATED, row - row_at);
             }
             let cells = self.take_row(row);
-            let new_inner = patch_row_cells(inner, &tag.name, &cells);
+            let new_inner = patch_row_cells(inner, &tag.name, &cells, prefixes);
             Tag {
                 inner: &new_inner,
                 name: tag.name.clone(),
@@ -360,7 +402,13 @@ impl TablePatch {
 
     /// Writes the rows left over, past the end of the table. `table_end` is where the table's end
     /// tag starts in the source, if it has one.
-    fn finish(&mut self, patch: &mut ContentPatch<'_>, table_end: Option<usize>, prefix: String) {
+    fn finish(
+        &mut self,
+        patch: &mut ContentPatch<'_>,
+        table_end: Option<usize>,
+        prefix: String,
+        prefixes: &Prefixes,
+    ) {
         self.pending.retain(|_, cell| *cell != Cell::default());
         if !self.pending.is_empty() || !self.columns_declared {
             self.declare_columns(patch, prefix.clone());
@@ -395,7 +443,7 @@ impl TablePatch {
                     .push_str(&format!("<{row_name}{count}><{cell_name}/></{row_name}>"));
             }
             let cells = self.take_row(row);
-            let inner = patch_row_cells("", &row_name, &cells);
+            let inner = patch_row_cells("", &row_name, &cells, prefixes);
             patch
                 .out
                 .push_str(&format!("<{row_name}>{inner}</{row_name}>"));
@@ -413,7 +461,12 @@ fn qualified(prefix: &str, local: &str) -> String {
 }
 
 /// A row's cells with the edits made, splitting repeated cells around them.
-fn patch_row_cells(inner: &str, row_name: &str, edits: &[(u32, Cell)]) -> String {
+fn patch_row_cells(
+    inner: &str,
+    row_name: &str,
+    edits: &[(u32, Cell)],
+    prefixes: &Prefixes,
+) -> String {
     let prefix = row_name.split_once(':').map_or("", |(prefix, _)| prefix);
     let mut out = String::with_capacity(inner.len() + edits.len() * 64);
     let mut reader = Reader::from_str(inner);
@@ -456,7 +509,7 @@ fn patch_row_cells(inner: &str, row_name: &str, edits: &[(u32, Cell)]) -> String
                         if *at > piece_at {
                             tag.write_repeated(&mut out, COLUMNS_REPEATED, at - piece_at);
                         }
-                        write_edited_cell(&mut out, &tag, cell);
+                        write_edited_cell(&mut out, &tag, cell, prefixes);
                         piece_at = at + 1;
                     }
                     if past > piece_at {
@@ -487,7 +540,7 @@ fn patch_row_cells(inner: &str, row_name: &str, edits: &[(u32, Cell)]) -> String
             attributes: Vec::new(),
             inner: "",
         };
-        write_edited_cell(&mut out, &blank, cell);
+        write_edited_cell(&mut out, &blank, cell, prefixes);
         col = at + 1;
     }
     out
@@ -505,19 +558,25 @@ const VALUE_ATTRIBUTES: [&str; 8] = [
     "formula",
 ];
 
-fn write_edited_cell(out: &mut String, tag: &Tag<'_>, cell: &Cell) {
-    let office = "office";
+fn write_edited_cell(out: &mut String, tag: &Tag<'_>, cell: &Cell, prefixes: &Prefixes) {
+    let office = &prefixes.office;
+    let text_prefix = &prefixes.text;
     let mut was_time = false;
     out.push('<');
     out.push_str(&tag.name);
     for (key, value) in &tag.attributes {
         let local = local_of(key);
-        if local == "value-type" && !key.starts_with("calcext:") {
+        if local == "value-type" && prefix_of(key) == office {
             was_time = value == "time";
         }
         if local != COLUMNS_REPEATED && !VALUE_ATTRIBUTES.contains(&local) {
             out.push_str(&format!(r#" {key}="{value}""#));
         }
+    }
+    if let Some(formula) = &cell.formula {
+        let table = prefix_of(&tag.name);
+        let stored = escape_attribute(&to_open_formula(formula));
+        out.push_str(&format!(r#" {}="{stored}""#, qualified(table, "formula")));
     }
     let mut paragraphs = String::new();
     match &cell.value {
@@ -527,36 +586,54 @@ fn write_edited_cell(out: &mut String, tag: &Tag<'_>, cell: &Cell) {
             out.push_str(&format!(
                 r#" {office}:value-type="time" {office}:time-value="{duration}""#
             ));
-            write_paragraphs(&mut paragraphs, &date::clock_from_serial(*serial));
+            write_paragraphs(
+                &mut paragraphs,
+                text_prefix,
+                &date::clock_from_serial(*serial),
+            );
         }
         CellValue::Number(serial) if cell.is_date => {
             let iso = date::iso_from_serial(*serial);
             out.push_str(&format!(
                 r#" {office}:value-type="date" {office}:date-value="{iso}""#
             ));
-            write_paragraphs(&mut paragraphs, &date::format_serial(*serial, false));
+            write_paragraphs(
+                &mut paragraphs,
+                text_prefix,
+                &date::format_serial(*serial, false),
+            );
         }
         CellValue::Number(number) => {
             out.push_str(&format!(
                 r#" {office}:value-type="float" {office}:value="{number}""#
             ));
-            write_paragraphs(&mut paragraphs, &number.to_string());
+            write_paragraphs(&mut paragraphs, text_prefix, &number.to_string());
         }
         CellValue::Bool(flag) => {
             out.push_str(&format!(
                 r#" {office}:value-type="boolean" {office}:boolean-value="{flag}""#
             ));
-            write_paragraphs(&mut paragraphs, if *flag { "TRUE" } else { "FALSE" });
+            write_paragraphs(
+                &mut paragraphs,
+                text_prefix,
+                if *flag { "TRUE" } else { "FALSE" },
+            );
         }
         CellValue::Error(text) => {
-            out.push_str(&format!(
-                r#" {office}:value-type="string" {office}:string-value="" calcext:value-type="error""#
-            ));
-            write_paragraphs(&mut paragraphs, text);
+            match &prefixes.calcext {
+                Some(calcext) => out.push_str(&format!(
+                    r#" {office}:value-type="string" {office}:string-value="" {calcext}:value-type="error""#
+                )),
+                None => out.push_str(&format!(
+                    r#" {office}:value-type="string" {office}:string-value="{}""#,
+                    escape_attribute(text)
+                )),
+            }
+            write_paragraphs(&mut paragraphs, text_prefix, text);
         }
         CellValue::Text(text) => {
             out.push_str(&format!(r#" {office}:value-type="string""#));
-            write_paragraphs(&mut paragraphs, text);
+            write_paragraphs(&mut paragraphs, text_prefix, text);
         }
     }
     let kept = kept_children(tag.inner);
@@ -598,8 +675,7 @@ fn kept_children(inner: &str) -> String {
 }
 
 /// Writes text as paragraphs, using elements for what XML whitespace would lose.
-fn write_paragraphs(out: &mut String, text: &str) {
-    let name = "text";
+fn write_paragraphs(out: &mut String, name: &str, text: &str) {
     for line in text.split('\n') {
         let mut content = String::with_capacity(line.len());
         let mut chars = line.chars().peekable();

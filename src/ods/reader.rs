@@ -9,8 +9,8 @@ use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use zip::ZipArchive;
 
-use super::Layout;
 use super::formula::to_excel_style;
+use super::{CALCEXT_NAMESPACE, Layout, declared_prefix};
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
 use crate::date;
 use crate::model::{Cell, CellValue, Sheet};
@@ -149,6 +149,8 @@ struct Draft {
     value: CellValue,
     is_date: bool,
     is_error: bool,
+    /// The prefix the file uses for LibreOffice's extensions.
+    calcext: String,
     formula: Option<String>,
     /// The columns and rows of the array formula this cell starts.
     array_span: Option<(u32, u32)>,
@@ -185,7 +187,7 @@ impl Draft {
         self.paragraphs = 0;
         self.holds_text = false;
         self.is_date = false;
-        let (value_type, is_error) = value_types(element);
+        let (value_type, is_error) = value_types(element, &self.calcext);
         self.is_error = is_error;
         self.value = match value_type.as_deref() {
             Some("float" | "percentage" | "currency") => plain_attr(element, "value")
@@ -288,13 +290,13 @@ impl Draft {
 
 /// The `office:value-type` of a cell, and whether `calcext:value-type` says it holds an error. The
 /// two share a local name, and either can come first.
-fn value_types<'a>(element: &'a BytesStart<'_>) -> (Option<Cow<'a, str>>, bool) {
+fn value_types<'a>(element: &'a BytesStart<'_>, calcext: &str) -> (Option<Cow<'a, str>>, bool) {
     let mut office = None;
     let mut is_error = false;
     for attribute in element.attributes().with_checks(false).flatten() {
         let key: &str = attribute.key.as_ref();
-        if key.starts_with("calcext:") {
-            is_error |= key.ends_with(":value-type") && attribute.value.as_ref() == "error";
+        if key.strip_prefix(calcext) == Some(":value-type") {
+            is_error |= attribute.value.as_ref() == "error";
         } else if AsRef::<str>::as_ref(&attribute.key.local_name()) == "value-type" {
             office = Some(attribute.value);
         }
@@ -394,6 +396,7 @@ fn parse_content(
     let mut draft = Draft::default();
     let mut budget = RepeatBudget(MAX_REPEATED_CELLS);
     let mut in_cell = false;
+    let mut root_seen = false;
     let mut skipped = Vec::new();
     loop {
         buffer.clear();
@@ -403,6 +406,11 @@ fn parse_content(
                 let empty = matches!(event, Event::Empty(_));
                 let name = element.local_name();
                 let local = AsRef::<str>::as_ref(&name);
+                if !root_seen {
+                    root_seen = true;
+                    draft.calcext = declared_prefix(element, CALCEXT_NAMESPACE)
+                        .unwrap_or_else(|| "calcext".into());
+                }
                 if !empty
                     && sheet.is_some()
                     && holds_foreign_text(local, in_cell, draft.in_paragraph)

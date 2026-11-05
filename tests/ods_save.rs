@@ -5,7 +5,7 @@ use std::io::Cursor;
 use common::{ODS_MIMETYPE, TempXlsx, ods_content, ods_package_with, read_part, write_temp_as};
 use tuicalc::address::CellRef;
 use tuicalc::model::{Cell, CellValue, Sheet};
-use tuicalc::workbook::Workbook;
+use tuicalc::workbook::{Workbook, WorkbookError};
 use zip::{CompressionMethod, ZipArchive};
 
 fn at(reference: &str) -> CellRef {
@@ -415,4 +415,162 @@ fn attribute_values_stay_escaped_when_a_cell_is_rewritten() {
         saved_cell(before, number(1.0)),
         r#"<table:table-cell table:style-name="a&amp;b" table:content-validation-name="say &quot;hi&quot;" office:value-type="float" office:value="1"><text:p>1</text:p></table:table-cell>"#
     );
+}
+
+fn saved_formula(formula: &str) -> String {
+    let xml = saved_cell(BLANK, Cell::formula(formula));
+    let after = xml
+        .strip_prefix(r#"<table:table-cell table:formula=""#)
+        .unwrap();
+    after.strip_suffix(r#""/>"#).unwrap().to_string()
+}
+
+#[test]
+fn formulas_are_written_as_open_formula_with_no_cached_value() {
+    let cases = [
+        ("A1+1", "of:=[.A1]+1"),
+        ("SUM(A1:B2,$C$3)", "of:=SUM([.A1:.B2];[.$C$3])"),
+        ("Sheet2!C3*2", "of:=[$Sheet2.C3]*2"),
+        ("Sheet2!C3:D4", "of:=[$Sheet2.C3:.D4]"),
+        ("Sheet1:Sheet3!A1:B2", "of:=[$Sheet1.A1:$Sheet3.B2]"),
+        ("'My Sheet'!A1", "of:=[$'My Sheet'.A1]"),
+        ("'It''s'!A1", "of:=[$'It''s'.A1]"),
+        ("My.Sheet!A1", "of:=[$'My.Sheet'.A1]"),
+        ("SUM(A:B)", "of:=SUM([.A:.B])"),
+        ("SUM($1:2)", "of:=SUM([.$1:.2])"),
+        ("#REF!+1", "of:=[.#REF!]+1"),
+        ("SUM({1,2;3,4})", "of:=SUM({1;2|3;4})"),
+        ("TaxRate*A1", "of:=TaxRate*[.A1]"),
+        ("LOG10(A1)", "of:=LOG10([.A1])"),
+        ("1.5E+3+TRUE", "of:=1.5E+3+TRUE"),
+        (
+            "['file:///x.ods'#$Sheet1.A1]",
+            "of:=['file:///x.ods'#$Sheet1.A1]",
+        ),
+    ];
+    for (typed, stored) in cases {
+        assert_eq!(saved_formula(typed), stored, "{typed}");
+    }
+}
+
+#[test]
+fn text_in_a_formula_is_left_alone_and_the_attribute_is_escaped() {
+    assert_eq!(
+        saved_formula(r#"IF(A1<2,"x,A2&""y","z")"#),
+        "of:=IF([.A1]&lt;2;&quot;x,A2&amp;&quot;&quot;y&quot;;&quot;z&quot;)"
+    );
+}
+
+#[test]
+fn a_formula_in_a_grammar_the_app_does_not_know_stays_as_it_is() {
+    assert_eq!(saved_formula("ooow:=<A1>"), "ooow:=&lt;A1&gt;");
+}
+
+#[test]
+fn formulas_read_back_as_they_were_typed() {
+    let tables = sheet_of(&format!("<table:table-row>{BLANK}</table:table-row>"));
+    for typed in [
+        "SUM(A1:B2,$C$3)",
+        "Sheet2!C3*2",
+        "'My Sheet'!A1:B2",
+        r#"IF(A1<2,"x,y","z")"#,
+        "SUM({1,2;3,4})",
+    ] {
+        let sheet = saved_sheet(&tables, &[("A1", Cell::formula(typed))]);
+        assert_eq!(sheet.cell(at("A1")).formula.as_deref(), Some(typed));
+    }
+}
+
+#[test]
+fn a_formula_with_a_value_keeps_it_as_the_cached_result() {
+    let cell = Cell {
+        value: CellValue::Number(2.0),
+        formula: Some("1+1".into()),
+        is_date: false,
+    };
+    assert_eq!(
+        saved_cell(BLANK, cell),
+        r#"<table:table-cell table:formula="of:=1+1" office:value-type="float" office:value="2"><text:p>2</text:p></table:table-cell>"#
+    );
+}
+
+/// Content where every namespace has a prefix other than the usual one.
+const FOREIGN: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<o:document-content xmlns:o="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:t="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:x="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:c="urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0"><o:body><o:spreadsheet><t:table t:name="Sheet1"><t:table-column t:number-columns-repeated="2"/><t:table-row><t:table-cell o:value-type="float" o:value="1" t:number-columns-repeated="2"><x:p>1</x:p></t:table-cell></t:table-row></t:table></o:spreadsheet></o:body></o:document-content>"#;
+
+#[test]
+fn edits_use_the_prefixes_the_file_declares() {
+    let file = write_temp_as(&ods_package_with(ODS_MIMETYPE, FOREIGN, &[]), "book.ods");
+    let mut book = Workbook::open(&file.path).unwrap();
+    assert_eq!(book.sheets[0].cell(at("B1")).value, CellValue::Number(1.0));
+    book.sheets[0].set_cell(at("A1"), text("a  b"));
+    book.sheets[0].set_cell(at("B1"), Cell::value(CellValue::Error("#N/A".into())));
+    book.sheets[0].set_cell(at("A2"), Cell::formula("A1"));
+    book.save().unwrap();
+    let saved = read_part(&file.path, "content.xml").unwrap();
+    assert!(
+        saved.contains(concat!(
+            r#"<t:table-row><t:table-cell o:value-type="string"><x:p>a <x:s/>b</x:p></t:table-cell>"#,
+            r#"<t:table-cell o:value-type="string" o:string-value="" c:value-type="error"><x:p>#N/A</x:p></t:table-cell></t:table-row>"#,
+            r#"<t:table-row><t:table-cell t:formula="of:=[.A1]"/></t:table-row>"#,
+        )),
+        "{saved}"
+    );
+    assert_eq!(
+        Workbook::open(&file.path).unwrap().sheets[0]
+            .cell(at("B1"))
+            .value,
+        CellValue::Error("#N/A".into())
+    );
+}
+
+#[test]
+fn an_error_is_written_as_text_when_the_file_does_not_declare_calcext() {
+    let content = FOREIGN.replace(
+        r#" xmlns:c="urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0""#,
+        "",
+    );
+    let file = write_temp_as(&ods_package_with(ODS_MIMETYPE, &content, &[]), "book.ods");
+    let mut book = Workbook::open(&file.path).unwrap();
+    book.sheets[0].set_cell(at("A1"), Cell::value(CellValue::Error("#N/A".into())));
+    book.save().unwrap();
+    assert!(
+        read_part(&file.path, "content.xml").unwrap().contains(
+            r##"<t:table-cell o:value-type="string" o:string-value="#N/A"><x:p>#N/A</x:p></t:table-cell>"##
+        )
+    );
+}
+
+#[test]
+fn a_flat_file_is_patched_in_place() {
+    let original = common::fods(&sheet_of(&format!(
+        "<table:table-row>{CELL_7}<table:table-cell/></table:table-row>"
+    )));
+    let file = write_temp_as(original.as_bytes(), "book.fods");
+    let mut book = Workbook::open(&file.path).unwrap();
+    book.sheets[0].set_cell(at("B1"), number(9.0));
+    book.save().unwrap();
+    let saved = std::fs::read_to_string(&file.path).unwrap();
+    assert_eq!(
+        saved,
+        original.replace(
+            "<table:table-cell/>",
+            r#"<table:table-cell office:value-type="float" office:value="9"><text:p>9</text:p></table:table-cell>"#
+        )
+    );
+}
+
+#[test]
+fn saving_with_no_edits_changes_nothing_and_another_program_changing_the_file_is_noticed() {
+    let file = ods_file(&sheet_of(&format!(
+        "<table:table-row>{CELL_7}</table:table-row>"
+    )));
+    let original = std::fs::read(&file.path).unwrap();
+    let mut book = Workbook::open(&file.path).unwrap();
+    book.save().unwrap();
+    assert_eq!(std::fs::read(&file.path).unwrap(), original);
+
+    book.sheets[0].set_cell(at("A1"), number(1.0));
+    std::fs::write(&file.path, b"changed").unwrap();
+    assert!(matches!(book.save(), Err(WorkbookError::ChangedOnDisk)));
 }

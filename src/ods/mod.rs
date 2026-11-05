@@ -7,7 +7,7 @@ pub(crate) mod writer;
 use std::io::{Cursor, Read};
 
 use quick_xml::Reader;
-use quick_xml::events::Event;
+use quick_xml::events::{BytesStart, Event};
 use zip::ZipArchive;
 
 use crate::workbook::WorkbookError;
@@ -16,6 +16,23 @@ use crate::workbook::xml::{attr, local_name};
 const OPENDOCUMENT_MIMETYPE: &str = "application/vnd.oasis.opendocument.";
 const SPREADSHEET_MIMETYPE: &str = "application/vnd.oasis.opendocument.spreadsheet";
 const MANIFEST_PART: &str = "META-INF/manifest.xml";
+
+const OFFICE_NAMESPACE: &str = "urn:oasis:names:tc:opendocument:xmlns:office:1.0";
+const TEXT_NAMESPACE: &str = "urn:oasis:names:tc:opendocument:xmlns:text:1.0";
+const CALCEXT_NAMESPACE: &str =
+    "urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0";
+
+/// The prefix a root element declares for a namespace.
+fn declared_prefix(root: &BytesStart<'_>, namespace: &str) -> Option<String> {
+    root.attributes()
+        .with_checks(false)
+        .flatten()
+        .find_map(|attribute| {
+            let key: &str = attribute.key.as_ref();
+            let prefix = key.strip_prefix("xmlns:")?;
+            (attribute.value.as_ref() == namespace).then(|| prefix.to_string())
+        })
+}
 
 /// Where a workbook's content is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
