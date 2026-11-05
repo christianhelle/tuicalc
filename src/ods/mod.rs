@@ -1,4 +1,4 @@
-//! Reading OpenDocument spreadsheets.
+//! Reading and patching OpenDocument spreadsheets.
 
 mod formula;
 pub(crate) mod reader;

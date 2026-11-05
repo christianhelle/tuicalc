@@ -1,4 +1,4 @@
-//! View and edit .xlsx workbooks from the terminal.
+//! View and edit Excel and OpenDocument workbooks from the terminal.
 pub mod address;
 pub mod app;
 pub mod changes;
