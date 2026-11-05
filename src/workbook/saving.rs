@@ -7,10 +7,10 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::thread;
 use std::time::Duration;
 
-use super::reader::Layout;
-use super::writer;
+use super::WorkbookError;
 use crate::model::Sheet;
-use crate::workbook::WorkbookError;
+use crate::xlsx::reader::Layout;
+use crate::xlsx::writer;
 
 /// A package that has reached the disk, ready for its workbook to take in.
 #[derive(Debug)]

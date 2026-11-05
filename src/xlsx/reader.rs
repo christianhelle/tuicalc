@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Cursor, Read};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
@@ -13,6 +13,9 @@ use crate::address::CellRef;
 use crate::formula::translate;
 use crate::model::{Cell, CellValue, Sheet};
 use crate::workbook::WorkbookError;
+use crate::workbook::loading::{
+    CHUNK_CELLS, Counting, FIRST_CHUNK_CELLS, READ_BUFFER_BYTES, SheetChunk,
+};
 use crate::workbook::xml::{attr, local_name, plain_attr, push_text, xml_error};
 
 const OFFICE_DOCUMENT: &str = "/officeDocument";
@@ -39,29 +42,6 @@ pub struct Plan {
     /// The uncompressed size of the shared strings and every sheet.
     pub total_bytes: u64,
 }
-
-/// A run of a sheet's cells and read-only regions, in the order the file holds them.
-#[derive(Default)]
-pub(crate) struct SheetChunk {
-    pub cells: Vec<(CellRef, Cell)>,
-    pub locked: Vec<(CellRef, CellRef)>,
-}
-
-impl SheetChunk {
-    pub fn apply_to(self, sheet: &mut Sheet) {
-        for (at, cell) in self.cells {
-            sheet.load_cell(at, cell);
-        }
-        for (first, last) in self.locked {
-            sheet.lock_range(first, last);
-        }
-    }
-}
-
-/// A sheet's first chunk is about a screenful, so that it can be shown as soon as possible.
-const FIRST_CHUNK_CELLS: usize = 256;
-const CHUNK_CELLS: usize = 16_384;
-const READ_BUFFER_BYTES: usize = 64 * 1024;
 
 pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), WorkbookError> {
     let plan = read_plan(source)?;
@@ -145,20 +125,6 @@ pub fn read_plan(source: &[u8]) -> Result<Plan, WorkbookError> {
         date_styles,
         total_bytes,
     })
-}
-
-/// Counts the uncompressed bytes passing through, for showing progress.
-struct Counting<'a, R> {
-    inner: R,
-    count: &'a AtomicU64,
-}
-
-impl<R: Read> Read for Counting<'_, R> {
-    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-        let read = self.inner.read(buffer)?;
-        self.count.fetch_add(read as u64, Ordering::Relaxed);
-        Ok(read)
-    }
 }
 
 pub struct Relationship {

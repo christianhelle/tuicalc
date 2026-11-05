@@ -1,5 +1,6 @@
 //! An open workbook and the file it belongs to.
 
+pub(crate) mod loading;
 mod saving;
 pub(crate) mod xml;
 
@@ -8,10 +9,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::model::Sheet;
-use crate::xlsx::{reader, writer};
+use crate::xlsx::{loading as xlsx_loading, reader, writer};
 use saving::{SaveJob, Target};
 
-pub use crate::xlsx::loading::{Arrival, WorkbookLoad};
+pub use loading::{Arrival, WorkbookLoad};
 pub use saving::{SavedPackage, WorkbookSave};
 
 #[derive(Debug)]
@@ -90,7 +91,7 @@ impl Workbook {
         let path = path.as_ref().to_path_buf();
         let source = Arc::new(std::fs::read(&path)?);
         let plan = reader::read_plan(&source)?;
-        let load = WorkbookLoad::start(Arc::clone(&source), &plan, preferred_sheet);
+        let load = xlsx_loading::start(Arc::clone(&source), &plan, preferred_sheet);
         let workbook = Self {
             sheets: plan.sheet_names.iter().map(Sheet::new).collect(),
             date1904: plan.date1904,
