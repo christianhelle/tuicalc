@@ -1,5 +1,6 @@
 //! Streams an OpenDocument spreadsheet's content into the model.
 
+use std::borrow::Cow;
 use std::io::{BufRead, BufReader, Cursor};
 use std::sync::atomic::AtomicU64;
 
@@ -94,6 +95,7 @@ fn read_sheet_names(input: &mut dyn BufRead) -> Result<Vec<String>, WorkbookErro
 struct Draft {
     value: CellValue,
     is_date: bool,
+    is_error: bool,
     repeated: u32,
     /// Whether the cell's value is its text, rather than something in its attributes.
     holds_text: bool,
@@ -116,7 +118,9 @@ impl Draft {
         self.paragraphs = 0;
         self.holds_text = false;
         self.is_date = false;
-        self.value = match plain_attr(element, "value-type").as_deref() {
+        let (value_type, is_error) = value_types(element);
+        self.is_error = is_error;
+        self.value = match value_type.as_deref() {
             Some("float" | "percentage" | "currency") => plain_attr(element, "value")
                 .and_then(|value| value.parse().ok())
                 .map_or(CellValue::Empty, CellValue::Number),
@@ -198,7 +202,9 @@ impl Draft {
 
     fn take_cell(&mut self) -> Cell {
         let mut value = std::mem::take(&mut self.value);
-        if self.holds_text {
+        if self.is_error {
+            value = CellValue::Error(self.text.clone());
+        } else if self.holds_text {
             if let Some(text) = self.string_value.take() {
                 value = CellValue::Text(text);
             } else if self.paragraphs > 0 {
@@ -211,6 +217,22 @@ impl Draft {
             is_date: self.is_date,
         }
     }
+}
+
+/// The `office:value-type` of a cell, and whether `calcext:value-type` says it holds an error. The
+/// two share a local name, and either can come first.
+fn value_types<'a>(element: &'a BytesStart<'_>) -> (Option<Cow<'a, str>>, bool) {
+    let mut office = None;
+    let mut is_error = false;
+    for attribute in element.attributes().with_checks(false).flatten() {
+        let key: &str = attribute.key.as_ref();
+        if key.starts_with("calcext:") {
+            is_error |= key.ends_with(":value-type") && attribute.value.as_ref() == "error";
+        } else if AsRef::<str>::as_ref(&attribute.key.local_name()) == "value-type" {
+            office = Some(attribute.value);
+        }
+    }
+    (office, is_error)
 }
 
 fn repeat_count(element: &BytesStart<'_>, name: &str) -> u32 {

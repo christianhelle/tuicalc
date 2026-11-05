@@ -98,6 +98,27 @@ fn reads_dates_and_times_as_date_serials() {
 }
 
 #[test]
+fn reads_errors_from_the_calcext_value_type_rather_than_as_text() {
+    let book = open_row(
+        r#"<table:table-cell table:formula="of:=1/0" office:value-type="string" office:string-value="" calcext:value-type="error"><text:p>#DIV/0!</text:p></table:table-cell>"#,
+    );
+    assert_eq!(
+        book.sheets[0].cell(at("A1")).value,
+        CellValue::Error("#DIV/0!".into())
+    );
+}
+
+#[test]
+fn a_calcext_value_type_never_replaces_the_office_one() {
+    let book = open_row(concat!(
+        r#"<table:table-cell calcext:value-type="float" office:value-type="float" office:value="2"><text:p>2</text:p></table:table-cell>"#,
+        r#"<table:table-cell calcext:value-type="string" office:value-type="float" office:value="3"><text:p>3</text:p></table:table-cell>"#,
+    ));
+    assert_eq!(book.sheets[0].cell(at("A1")).value, CellValue::Number(2.0));
+    assert_eq!(book.sheets[0].cell(at("B1")).value, CellValue::Number(3.0));
+}
+
+#[test]
 fn reads_sheet_names_and_a_number() {
     let book = open(
         r#"<table:table table:name="First"><table:table-row><table:table-cell office:value-type="float" office:value="1.5"><text:p>1.5</text:p></table:table-cell></table:table-row></table:table><table:table table:name="R&amp;D"/>"#,
