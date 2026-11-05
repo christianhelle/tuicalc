@@ -2,6 +2,7 @@
 
 mod formula;
 pub(crate) mod reader;
+pub(crate) mod writer;
 
 use std::io::{Cursor, Read};
 

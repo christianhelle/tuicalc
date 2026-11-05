@@ -21,7 +21,7 @@ use crate::workbook::loading::{
 };
 use crate::workbook::xml::{attr, local_name, plain_attr, push_text, xml_error};
 
-const CONTENT_PART: &str = "content.xml";
+pub(super) const CONTENT_PART: &str = "content.xml";
 /// How many cells repeats may add to a sheet. A small file can ask for far more than fits in memory.
 const MAX_REPEATED_CELLS: u64 = 10_000_000;
 

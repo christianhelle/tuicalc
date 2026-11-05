@@ -1,0 +1,278 @@
+mod common;
+
+use std::io::Cursor;
+
+use common::{ODS_MIMETYPE, TempXlsx, ods_content, ods_package_with, read_part, write_temp_as};
+use tuicalc::address::CellRef;
+use tuicalc::model::{Cell, CellValue, Sheet};
+use tuicalc::workbook::Workbook;
+use zip::{CompressionMethod, ZipArchive};
+
+fn at(reference: &str) -> CellRef {
+    CellRef::parse(reference).unwrap()
+}
+
+fn number(value: f64) -> Cell {
+    Cell::value(CellValue::Number(value))
+}
+
+fn ods_file(tables: &str) -> TempXlsx {
+    let bytes = ods_package_with(ODS_MIMETYPE, &ods_content(tables), &[]);
+    write_temp_as(&bytes, "book.ods")
+}
+
+/// Applies the edits to a workbook of the given tables, and gives back the saved content's tables.
+fn saved_tables(tables: &str, edits: &[(&str, Cell)]) -> String {
+    let file = ods_file(tables);
+    let mut book = Workbook::open(&file.path).unwrap();
+    for (reference, cell) in edits {
+        book.sheets[0].set_cell(at(reference), cell.clone());
+    }
+    book.save().unwrap();
+    let content = read_part(&file.path, "content.xml").unwrap();
+    let start = content.find("<office:spreadsheet>").unwrap() + "<office:spreadsheet>".len();
+    let end = content.find("</office:spreadsheet>").unwrap();
+    content[start..end].to_string()
+}
+
+/// The sheet as a fresh reader sees it after the edits are saved.
+fn saved_sheet(tables: &str, edits: &[(&str, Cell)]) -> Sheet {
+    let file = ods_file(tables);
+    let mut book = Workbook::open(&file.path).unwrap();
+    for (reference, cell) in edits {
+        book.sheets[0].set_cell(at(reference), cell.clone());
+    }
+    book.save().unwrap();
+    Workbook::open(&file.path).unwrap().sheets.remove(0)
+}
+
+const ALL_COLUMNS: &str = r#"<table:table-column table:number-columns-repeated="16384"/>"#;
+
+fn table_of(content: &str) -> String {
+    format!(r#"<table:table table:name="Sheet1">{content}</table:table>"#)
+}
+
+fn sheet_of(rows: &str) -> String {
+    table_of(&format!("{ALL_COLUMNS}{rows}"))
+}
+
+const CELL_7: &str = r#"<table:table-cell office:value-type="float" office:value="7"><text:p>7</text:p></table:table-cell>"#;
+
+#[test]
+fn an_edit_changes_only_its_cell_and_the_rest_of_the_package_is_copied() {
+    let tables = format!(
+        r#"<table:table table:name="Sheet1"><table:table-column table:number-columns-repeated="3"/><table:table-row table:style-name="ro1"><table:table-cell table:style-name="ce1" office:value-type="float" office:value="1"><text:p>1</text:p></table:table-cell>{CELL_7}</table:table-row></table:table><table:table table:name="Other"><table:table-row>{CELL_7}</table:table-row></table:table>"#
+    );
+    let content = ods_content(&tables);
+    let styles = "<office:document-styles/>";
+    let bytes = ods_package_with(ODS_MIMETYPE, &content, &[("styles.xml", styles)]);
+    let file = write_temp_as(&bytes, "book.ods");
+
+    let mut book = Workbook::open(&file.path).unwrap();
+    book.sheets[0].set_cell(at("A1"), number(2.0));
+    book.save().unwrap();
+
+    let saved = std::fs::read(&file.path).unwrap();
+    let mut archive = ZipArchive::new(Cursor::new(saved)).unwrap();
+    let first = archive.by_index(0).unwrap();
+    assert_eq!(first.name().unwrap(), "mimetype");
+    assert_eq!(first.compression(), CompressionMethod::Stored);
+    drop(first);
+    assert_eq!(read_part(&file.path, "styles.xml").unwrap(), styles);
+
+    let expected = content.replace(
+        r#"<table:table-cell table:style-name="ce1" office:value-type="float" office:value="1"><text:p>1</text:p></table:table-cell>"#,
+        r#"<table:table-cell table:style-name="ce1" office:value-type="float" office:value="2"><text:p>2</text:p></table:table-cell>"#,
+    );
+    assert_eq!(read_part(&file.path, "content.xml").unwrap(), expected);
+}
+
+#[test]
+fn an_edit_inside_repeated_cells_splits_them() {
+    let tables = sheet_of(
+        r#"<table:table-row><table:table-cell table:style-name="ce1" office:value-type="float" office:value="7" table:number-columns-repeated="5"><text:p>7</text:p></table:table-cell></table:table-row>"#,
+    );
+    let saved = saved_tables(&tables, &[("C1", number(9.0))]);
+    assert_eq!(
+        saved,
+        sheet_of(concat!(
+            r#"<table:table-row>"#,
+            r#"<table:table-cell table:style-name="ce1" office:value-type="float" office:value="7" table:number-columns-repeated="2"><text:p>7</text:p></table:table-cell>"#,
+            r#"<table:table-cell table:style-name="ce1" office:value-type="float" office:value="9"><text:p>9</text:p></table:table-cell>"#,
+            r#"<table:table-cell table:style-name="ce1" office:value-type="float" office:value="7" table:number-columns-repeated="2"><text:p>7</text:p></table:table-cell>"#,
+            r#"</table:table-row>"#,
+        ))
+    );
+}
+
+#[test]
+fn an_edit_at_the_edge_of_repeated_cells_leaves_no_empty_piece() {
+    let tables = sheet_of(
+        r#"<table:table-row><table:table-cell table:number-columns-repeated="2"/></table:table-row>"#,
+    );
+    assert_eq!(
+        saved_tables(&tables, &[("B1", number(9.0))]),
+        sheet_of(
+            r#"<table:table-row><table:table-cell/><table:table-cell office:value-type="float" office:value="9"><text:p>9</text:p></table:table-cell></table:table-row>"#
+        )
+    );
+    assert_eq!(
+        saved_tables(&tables, &[("A1", number(9.0))]),
+        sheet_of(
+            r#"<table:table-row><table:table-cell office:value-type="float" office:value="9"><text:p>9</text:p></table:table-cell><table:table-cell/></table:table-row>"#
+        )
+    );
+}
+
+#[test]
+fn an_edit_inside_repeated_rows_splits_them() {
+    let row = |attributes: &str| {
+        format!(r#"<table:table-row table:style-name="ro1"{attributes}>{CELL_7}</table:table-row>"#)
+    };
+    let tables = sheet_of(&row(r#" table:number-rows-repeated="5""#));
+    let saved = saved_tables(&tables, &[("A3", number(9.0))]);
+    let edited = r#"<table:table-row table:style-name="ro1"><table:table-cell office:value-type="float" office:value="9"><text:p>9</text:p></table:table-cell></table:table-row>"#;
+    assert_eq!(
+        saved,
+        sheet_of(&format!(
+            r#"{0}{edited}{0}"#,
+            row(r#" table:number-rows-repeated="2""#)
+        ))
+    );
+}
+
+#[test]
+fn edits_on_the_padding_of_a_full_sheet_keep_the_sheet_the_same_size() {
+    let tables = sheet_of(concat!(
+        r#"<table:table-row table:number-rows-repeated="1048576"><table:table-cell table:number-columns-repeated="16384"/></table:table-row>"#,
+    ));
+    let saved = saved_tables(&tables, &[("C4", number(9.0)), ("A4", number(8.0))]);
+    assert_eq!(
+        saved,
+        sheet_of(concat!(
+            r#"<table:table-row table:number-rows-repeated="3"><table:table-cell table:number-columns-repeated="16384"/></table:table-row>"#,
+            r#"<table:table-row><table:table-cell office:value-type="float" office:value="8"><text:p>8</text:p></table:table-cell><table:table-cell/><table:table-cell office:value-type="float" office:value="9"><text:p>9</text:p></table:table-cell><table:table-cell table:number-columns-repeated="16381"/></table:table-row>"#,
+            r#"<table:table-row table:number-rows-repeated="1048572"><table:table-cell table:number-columns-repeated="16384"/></table:table-row>"#,
+        ))
+    );
+}
+
+#[test]
+fn an_edit_past_the_end_of_a_row_pads_up_to_it() {
+    let tables = sheet_of(&format!(r#"<table:table-row>{CELL_7}</table:table-row>"#));
+    let saved = saved_tables(&tables, &[("D1", number(9.0))]);
+    assert_eq!(
+        saved,
+        sheet_of(&format!(
+            r#"<table:table-row>{CELL_7}<table:table-cell table:number-columns-repeated="2"/><table:table-cell office:value-type="float" office:value="9"><text:p>9</text:p></table:table-cell></table:table-row>"#
+        ))
+    );
+}
+
+#[test]
+fn an_edit_on_an_empty_row_element_opens_it_up() {
+    let tables =
+        sheet_of(r#"<table:table-row table:style-name="ro1" table:number-rows-repeated="2"/>"#);
+    let saved = saved_tables(&tables, &[("A2", number(9.0))]);
+    assert_eq!(
+        saved,
+        sheet_of(
+            r#"<table:table-row table:style-name="ro1"/><table:table-row table:style-name="ro1"><table:table-cell office:value-type="float" office:value="9"><text:p>9</text:p></table:table-cell></table:table-row>"#
+        )
+    );
+}
+
+#[test]
+fn an_edit_past_the_last_row_comes_after_the_rows_and_before_what_follows_them() {
+    let tables = sheet_of(&format!(
+        r#"<table:table-row>{CELL_7}</table:table-row><table:named-expressions/>"#
+    ));
+    let saved = saved_tables(&tables, &[("B4", number(9.0))]);
+    assert_eq!(
+        saved,
+        sheet_of(&format!(
+            r#"<table:table-row>{CELL_7}</table:table-row><table:table-row table:number-rows-repeated="2"><table:table-cell/></table:table-row><table:table-row><table:table-cell/><table:table-cell office:value-type="float" office:value="9"><text:p>9</text:p></table:table-cell></table:table-row><table:named-expressions/>"#
+        ))
+    );
+}
+
+#[test]
+fn an_edit_past_the_declared_columns_declares_more() {
+    let tables = table_of(&format!(
+        r#"<table:table-column table:style-name="co1"/><table:table-column table:number-columns-repeated="2"/><table:table-row>{CELL_7}</table:table-row>"#
+    ));
+    let saved = saved_tables(&tables, &[("F1", number(9.0))]);
+    assert_eq!(
+        saved,
+        table_of(&format!(
+            r#"<table:table-column table:style-name="co1"/><table:table-column table:number-columns-repeated="2"/><table:table-column table:number-columns-repeated="3"/><table:table-row>{CELL_7}<table:table-cell table:number-columns-repeated="4"/><table:table-cell office:value-type="float" office:value="9"><text:p>9</text:p></table:table-cell></table:table-row>"#
+        ))
+    );
+}
+
+#[test]
+fn a_sheet_declaring_no_columns_gets_them_ahead_of_its_rows() {
+    let tables = table_of(&format!(r#"<table:table-row>{CELL_7}</table:table-row>"#));
+    let saved = saved_tables(&tables, &[("A1", number(9.0))]);
+    assert_eq!(
+        saved,
+        table_of(
+            r#"<table:table-column/><table:table-row><table:table-cell office:value-type="float" office:value="9"><text:p>9</text:p></table:table-cell></table:table-row>"#
+        )
+    );
+}
+
+#[test]
+fn an_edit_on_a_sheet_with_no_rows_gives_it_some() {
+    let file = ods_file(r#"<table:table table:name="Empty"/>"#);
+    let mut book = Workbook::open(&file.path).unwrap();
+    book.sheets[0].set_cell(at("B2"), number(9.0));
+    book.save().unwrap();
+    let again = Workbook::open(&file.path).unwrap();
+    assert_eq!(again.sheets[0].name, "Empty");
+    assert_eq!(again.sheets[0].cell(at("B2")).value, CellValue::Number(9.0));
+    assert_eq!(again.sheets[0].cells().count(), 1);
+}
+
+#[test]
+fn clearing_a_cell_with_nothing_there_writes_nothing() {
+    let tables = sheet_of(&format!(r#"<table:table-row>{CELL_7}</table:table-row>"#));
+    let saved = saved_tables(&tables, &[("B5", Cell::default())]);
+    assert_eq!(saved, tables);
+}
+
+#[test]
+fn only_the_sheet_with_edits_is_touched() {
+    let tables = format!(
+        r#"<table:table table:name="Sheet1"><table:table-row>{CELL_7}</table:table-row></table:table><table:table table:name="Other"><table:table-row>{CELL_7}</table:table-row></table:table>"#
+    );
+    let file = ods_file(&tables);
+    let mut book = Workbook::open(&file.path).unwrap();
+    book.sheets[1].set_cell(at("A1"), number(9.0));
+    book.save().unwrap();
+    let again = Workbook::open(&file.path).unwrap();
+    assert_eq!(again.sheets[0].cell(at("A1")).value, CellValue::Number(7.0));
+    assert_eq!(again.sheets[1].cell(at("A1")).value, CellValue::Number(9.0));
+}
+
+#[test]
+fn reading_back_finds_every_edit_in_place() {
+    let tables = sheet_of(concat!(
+        r#"<table:table-row table:number-rows-repeated="4"><table:table-cell office:value-type="float" office:value="1" table:number-columns-repeated="4"/></table:table-row>"#,
+    ));
+    let sheet = saved_sheet(
+        &tables,
+        &[
+            ("B2", number(5.0)),
+            ("D4", number(6.0)),
+            ("A9", number(7.0)),
+        ],
+    );
+    assert_eq!(sheet.cell(at("B2")).value, CellValue::Number(5.0));
+    assert_eq!(sheet.cell(at("D4")).value, CellValue::Number(6.0));
+    assert_eq!(sheet.cell(at("A9")).value, CellValue::Number(7.0));
+    assert_eq!(sheet.cell(at("A2")).value, CellValue::Number(1.0));
+    assert_eq!(sheet.cell(at("C2")).value, CellValue::Number(1.0));
+    assert_eq!(sheet.cell(at("D3")).value, CellValue::Number(1.0));
+    assert_eq!(sheet.cells().count(), 17);
+}

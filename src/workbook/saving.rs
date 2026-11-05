@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use super::{Layout, WorkbookError};
 use crate::model::Sheet;
+use crate::ods;
 use crate::xlsx::writer;
 
 /// A package that has reached the disk, ready for its workbook to take in.
@@ -99,9 +100,7 @@ impl SaveJob {
     fn patched(&self) -> Result<Vec<u8>, WorkbookError> {
         match &self.layout {
             Layout::Xlsx(layout) => writer::patch(&self.source, layout, &self.sheets),
-            Layout::Ods(_) => Err(WorkbookError::Invalid(
-                "saving OpenDocument files isn't supported".into(),
-            )),
+            Layout::Ods(layout) => ods::writer::patch(&self.source, *layout, &self.sheets),
         }
     }
 
