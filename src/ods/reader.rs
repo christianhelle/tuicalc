@@ -9,6 +9,7 @@ use quick_xml::events::{BytesStart, Event};
 use zip::ZipArchive;
 
 use super::Layout;
+use super::formula::to_excel_style;
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
 use crate::date;
 use crate::model::{Cell, CellValue, Sheet};
@@ -98,6 +99,9 @@ struct Draft {
     value: CellValue,
     is_date: bool,
     is_error: bool,
+    formula: Option<String>,
+    /// The columns and rows of the array formula this cell starts.
+    array_span: Option<(u32, u32)>,
     repeated: u32,
     /// Whether the cell's value is its text, rather than something in its attributes.
     holds_text: bool,
@@ -116,6 +120,17 @@ impl Draft {
     fn start(&mut self, element: &BytesStart<'_>) {
         self.repeated = repeat_count(element, "number-columns-repeated");
         self.string_value = None;
+        self.formula = attr(element, "formula").map(|stored| to_excel_style(&stored));
+        let columns = plain_attr(element, "number-matrix-columns-spanned");
+        let rows = plain_attr(element, "number-matrix-rows-spanned");
+        self.array_span = (columns.is_some() || rows.is_some()).then(|| {
+            let count = |text: Option<Cow<'_, str>>| {
+                text.and_then(|text| text.parse().ok())
+                    .unwrap_or(1_u32)
+                    .max(1)
+            };
+            (count(columns), count(rows))
+        });
         self.text.clear();
         self.paragraphs = 0;
         self.holds_text = false;
@@ -215,7 +230,7 @@ impl Draft {
         }
         Cell {
             value,
-            formula: None,
+            formula: self.formula.take(),
             is_date: self.is_date,
         }
     }
@@ -263,6 +278,7 @@ struct Row {
     next_col: u32,
     repeated: u32,
     cells: Vec<(u32, Cell)>,
+    locked: Vec<(CellRef, CellRef)>,
 }
 
 impl Row {
@@ -271,6 +287,17 @@ impl Row {
         draft: &mut Draft,
         budget: &mut RepeatBudget,
     ) -> Result<(), WorkbookError> {
+        if let Some((columns, rows)) = draft.array_span.take() {
+            let first = CellRef {
+                col: self.next_col,
+                row: self.at,
+            };
+            let last = CellRef {
+                col: self.next_col.saturating_add(columns - 1),
+                row: self.at.saturating_add(rows - 1),
+            };
+            self.locked.push((first, last));
+        }
         let cell = draft.take_cell();
         if cell != Cell::default() {
             let end = self.next_col.saturating_add(draft.repeated).min(MAX_COLS);
@@ -394,6 +421,7 @@ fn parse_content(
                     next_row = next_row.saturating_add(row.repeated);
                     let end = row.at.saturating_add(row.repeated).min(MAX_ROWS);
                     let cells = std::mem::take(&mut row.cells);
+                    chunk.locked.append(&mut row.locked);
                     let rows = u64::from(end.saturating_sub(row.at));
                     budget.spend(rows.saturating_mul(cells.len() as u64))?;
                     for at in row.at..end {

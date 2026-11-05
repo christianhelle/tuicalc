@@ -214,6 +214,80 @@ fn group_and_header_rows_count_as_rows() {
 }
 
 #[test]
+fn array_formula_regions_are_read_only() {
+    let book = open(
+        r#"<table:table table:name="Sheet1"><table:table-row><table:table-cell table:number-columns-repeated="1"/><table:table-cell table:formula="of:={1;2}" table:number-matrix-columns-spanned="2" table:number-matrix-rows-spanned="3" office:value-type="float" office:value="1"/></table:table-row></table:table>"#,
+    );
+    let sheet = &book.sheets[0];
+    for reference in ["B1", "C1", "B3", "C3"] {
+        assert!(sheet.is_locked(at(reference)), "{reference}");
+    }
+    for reference in ["A1", "D1", "B4"] {
+        assert!(!sheet.is_locked(at(reference)), "{reference}");
+    }
+}
+
+fn formula_of(stored: &str) -> Option<String> {
+    let escaped = stored
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;");
+    let book = open_row(&format!(
+        r#"<table:table-cell table:formula="{escaped}" office:value-type="float" office:value="1"/>"#
+    ));
+    book.sheets[0].cell(at("A1")).formula
+}
+
+#[test]
+fn formulas_read_as_excel_style_text() {
+    let cases = [
+        ("of:=[.A1]+1", "A1+1"),
+        ("of:=SUM([.A1:.B2];[.$C$3])", "SUM(A1:B2,$C$3)"),
+        ("of:=[$Sheet2.C3]*2", "Sheet2!C3*2"),
+        ("of:=[Sheet2.C3:.D4]", "Sheet2!C3:D4"),
+        ("of:=SUM(['My Sheet'.A1:.A9])", "SUM('My Sheet'!A1:A9)"),
+        ("of:=SUM([.A:.B])", "SUM(A:B)"),
+        ("of:=SUM([.$1:.2])", "SUM($1:2)"),
+        ("of:=[.#REF!]+1", "#REF!+1"),
+        ("of:=[#REF!]", "#REF!"),
+        (r#"of:=IF([.A1]="x;[.y]";1;2)"#, r#"IF(A1="x;[.y]",1,2)"#),
+        ("of:=SUM({1;2|3;4})", "SUM({1,2;3,4})"),
+        ("oooc:=[.A1]", "A1"),
+        ("msoxl:=A1+1", "A1+1"),
+        ("=[.A1]", "A1"),
+        ("of:=TaxRate*[.A1]", "TaxRate*A1"),
+    ];
+    for (stored, shown) in cases {
+        assert_eq!(formula_of(stored).as_deref(), Some(shown), "{stored}");
+    }
+}
+
+#[test]
+fn a_formula_that_cannot_be_converted_is_kept_as_it_is() {
+    assert_eq!(
+        formula_of("of:=['file:///x.ods'#$Sheet1.A1]").as_deref(),
+        Some("['file:///x.ods'#$Sheet1.A1]")
+    );
+    assert_eq!(
+        formula_of("ooow:=<A1>").as_deref(),
+        Some("ooow:=<A1>"),
+        "an unknown grammar"
+    );
+}
+
+#[test]
+fn a_formula_keeps_its_cached_result() {
+    let book = open_row(
+        r#"<table:table-cell table:formula="of:=1+1" office:value-type="float" office:value="2"/><table:table-cell table:formula="of:=&quot;a&quot;" office:value-type="string" office:string-value="a"><text:p>a</text:p></table:table-cell><table:table-cell table:formula="of:=NOW()"/>"#,
+    );
+    let sheet = &book.sheets[0];
+    assert_eq!(sheet.cell(at("A1")).value, CellValue::Number(2.0));
+    assert_eq!(sheet.cell(at("B1")).value, CellValue::Text("a".into()));
+    assert_eq!(sheet.cell(at("C1")).value, CellValue::Empty);
+    assert_eq!(sheet.cell(at("C1")).formula.as_deref(), Some("NOW()"));
+}
+
+#[test]
 fn reads_sheet_names_and_a_number() {
     let book = open(
         r#"<table:table table:name="First"><table:table-row><table:table-cell office:value-type="float" office:value="1.5"><text:p>1.5</text:p></table:table-cell></table:table-row></table:table><table:table table:name="R&amp;D"/>"#,

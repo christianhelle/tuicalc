@@ -1,5 +1,6 @@
 //! Reading OpenDocument spreadsheets.
 
+mod formula;
 pub(crate) mod reader;
 
 use std::io::{Cursor, Read};
