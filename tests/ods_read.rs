@@ -2,7 +2,7 @@ mod common;
 
 use common::{TempXlsx, ods_content, ods_package, write_temp_as};
 use tuicalc::address::CellRef;
-use tuicalc::model::CellValue;
+use tuicalc::model::{Cell, CellValue};
 use tuicalc::workbook::Workbook;
 
 fn at(reference: &str) -> CellRef {
@@ -69,6 +69,32 @@ d"
     assert_eq!(text("E1"), "wrapped by a writer");
     assert_eq!(text("F1"), "from the attribute");
     assert_eq!(text("G1"), "no type");
+}
+
+#[test]
+fn reads_dates_and_times_as_date_serials() {
+    let book = open_row(concat!(
+        r#"<table:table-cell office:value-type="date" office:date-value="2024-01-15"><text:p>15/01/24</text:p></table:table-cell>"#,
+        r#"<table:table-cell office:value-type="date" office:date-value="2024-01-15T18:00:00"><text:p>x</text:p></table:table-cell>"#,
+        r#"<table:table-cell office:value-type="time" office:time-value="PT06H00M00S"><text:p>06:00</text:p></table:table-cell>"#,
+        r#"<table:table-cell office:value-type="time" office:time-value="PT36H00M00.000S"><text:p>36:00</text:p></table:table-cell>"#,
+        r#"<table:table-cell office:value-type="date" office:date-value="1850-06-01"><text:p>x</text:p></table:table-cell>"#,
+    ));
+    let sheet = &book.sheets[0];
+    let date = |serial| Cell {
+        value: CellValue::Number(serial),
+        formula: None,
+        is_date: true,
+    };
+    assert_eq!(sheet.cell(at("A1")), date(45306.0));
+    assert_eq!(sheet.cell(at("B1")), date(45306.75));
+    assert_eq!(sheet.cell(at("C1")), date(0.25));
+    assert_eq!(sheet.cell(at("D1")), date(1.5));
+    assert_eq!(
+        sheet.cell(at("E1")).value,
+        CellValue::Text("1850-06-01".into()),
+        "a date before any serial stays readable"
+    );
 }
 
 #[test]

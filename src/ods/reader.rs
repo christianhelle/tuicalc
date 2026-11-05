@@ -9,6 +9,7 @@ use zip::ZipArchive;
 
 use super::Layout;
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
+use crate::date;
 use crate::model::{Cell, CellValue, Sheet};
 use crate::workbook::WorkbookError;
 use crate::workbook::loading::{
@@ -92,6 +93,7 @@ fn read_sheet_names(input: &mut dyn BufRead) -> Result<Vec<String>, WorkbookErro
 #[derive(Default)]
 struct Draft {
     value: CellValue,
+    is_date: bool,
     repeated: u32,
     /// Whether the cell's value is its text, rather than something in its attributes.
     holds_text: bool,
@@ -113,12 +115,33 @@ impl Draft {
         self.text.clear();
         self.paragraphs = 0;
         self.holds_text = false;
+        self.is_date = false;
         self.value = match plain_attr(element, "value-type").as_deref() {
             Some("float" | "percentage" | "currency") => plain_attr(element, "value")
                 .and_then(|value| value.parse().ok())
                 .map_or(CellValue::Empty, CellValue::Number),
             Some("boolean") => {
                 CellValue::Bool(plain_attr(element, "boolean-value").as_deref() == Some("true"))
+            }
+            Some("date") => {
+                let text = attr(element, "date-value").unwrap_or_default();
+                match date::serial_from_iso(&text) {
+                    Some(serial) => {
+                        self.is_date = true;
+                        CellValue::Number(serial)
+                    }
+                    None => CellValue::Text(text),
+                }
+            }
+            Some("time") => {
+                let text = attr(element, "time-value").unwrap_or_default();
+                match date::serial_from_duration(&text) {
+                    Some(serial) => {
+                        self.is_date = true;
+                        CellValue::Number(serial)
+                    }
+                    None => CellValue::Text(text),
+                }
             }
             Some("string") | None => {
                 self.holds_text = true;
@@ -182,7 +205,11 @@ impl Draft {
                 value = CellValue::Text(self.text.clone());
             }
         }
-        Cell::value(value)
+        Cell {
+            value,
+            formula: None,
+            is_date: self.is_date,
+        }
     }
 }
 

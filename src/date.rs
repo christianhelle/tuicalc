@@ -126,3 +126,35 @@ pub fn parse_serial(text: &str, date1904: bool) -> Option<f64> {
     }
     parse_date(text, date1904)
 }
+
+/// Reads an ISO 8601 date with an optional time, such as `2024-01-15T18:00:00.5`.
+pub fn serial_from_iso(text: &str) -> Option<f64> {
+    let (date, time) = text.split_once('T').unwrap_or((text, ""));
+    let days = parse_date(date, false)?;
+    if time.is_empty() {
+        return Some(days);
+    }
+    let mut parts = time.trim_end_matches('Z').split(':');
+    let hours: f64 = parts.next()?.parse().ok()?;
+    let minutes: f64 = parts.next()?.parse().ok()?;
+    let seconds: f64 = parts.next().map_or(Some(0.0), |part| part.parse().ok())?;
+    Some(days + (hours * 3_600.0 + minutes * 60.0 + seconds) / SECONDS_PER_DAY)
+}
+
+/// Reads an ISO 8601 duration of hours, minutes and seconds, such as `PT36H00M00.5S`, as days.
+pub fn serial_from_duration(text: &str) -> Option<f64> {
+    let mut rest = text.strip_prefix("PT")?;
+    let mut seconds = 0.0;
+    while !rest.is_empty() {
+        let unit_at = rest.find(['H', 'M', 'S'])?;
+        let number: f64 = rest[..unit_at].parse().ok()?;
+        seconds += number
+            * match rest.as_bytes()[unit_at] {
+                b'H' => 3_600.0,
+                b'M' => 60.0,
+                _ => 1.0,
+            };
+        rest = &rest[unit_at + 1..];
+    }
+    Some(seconds / SECONDS_PER_DAY)
+}
