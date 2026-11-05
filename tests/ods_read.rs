@@ -38,6 +38,40 @@ fn reads_percentages_currency_and_booleans() {
 }
 
 #[test]
+fn reads_text_with_its_spaces_paragraphs_and_spans() {
+    let book = open_row(concat!(
+        r#"<table:table-cell office:value-type="string"><text:p>plain &amp; simple</text:p></table:table-cell>"#,
+        r#"<table:table-cell office:value-type="string"><text:p>one</text:p><text:p>two</text:p></table:table-cell>"#,
+        r#"<table:table-cell office:value-type="string"><text:p>a <text:s text:c="2"/>b<text:tab/>c<text:line-break/>d</text:p></table:table-cell>"#,
+        r#"<table:table-cell office:value-type="string"><text:p><text:span text:style-name="T1">bo</text:span>ld</text:p></table:table-cell>"#,
+        r#"<table:table-cell office:value-type="string"><text:p>
+            wrapped   by a   writer
+        </text:p></table:table-cell>"#,
+        r#"<table:table-cell office:value-type="string" office:string-value="from the attribute"><text:p>shown</text:p></table:table-cell>"#,
+        r#"<table:table-cell><text:p>no type</text:p></table:table-cell>"#,
+    ));
+    let text = |reference: &str| match book.sheets[0].cell(at(reference)).value {
+        CellValue::Text(text) => text,
+        other => panic!("{reference} holds {other:?}"),
+    };
+    assert_eq!(text("A1"), "plain & simple");
+    assert_eq!(
+        text("B1"),
+        "one
+two"
+    );
+    assert_eq!(
+        text("C1"),
+        "a   b	c
+d"
+    );
+    assert_eq!(text("D1"), "bold");
+    assert_eq!(text("E1"), "wrapped by a writer");
+    assert_eq!(text("F1"), "from the attribute");
+    assert_eq!(text("G1"), "no type");
+}
+
+#[test]
 fn reads_sheet_names_and_a_number() {
     let book = open(
         r#"<table:table table:name="First"><table:table-row><table:table-cell office:value-type="float" office:value="1.5"><text:p>1.5</text:p></table:table-cell></table:table-row></table:table><table:table table:name="R&amp;D"/>"#,

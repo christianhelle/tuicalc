@@ -14,7 +14,7 @@ use crate::workbook::WorkbookError;
 use crate::workbook::loading::{
     CHUNK_CELLS, Counting, FIRST_CHUNK_CELLS, READ_BUFFER_BYTES, SheetChunk,
 };
-use crate::workbook::xml::{attr, local_name, plain_attr, xml_error};
+use crate::workbook::xml::{attr, local_name, plain_attr, push_text, xml_error};
 
 const CONTENT_PART: &str = "content.xml";
 
@@ -88,16 +88,31 @@ fn read_sheet_names(input: &mut dyn BufRead) -> Result<Vec<String>, WorkbookErro
     }
 }
 
-/// The cell being read.
+/// The cell being read, whose text buffers are reused from cell to cell.
 #[derive(Default)]
 struct Draft {
     value: CellValue,
     repeated: u32,
+    /// Whether the cell's value is its text, rather than something in its attributes.
+    holds_text: bool,
+    string_value: Option<String>,
+    text: String,
+    scratch: String,
+    paragraphs: u32,
+    in_paragraph: bool,
+    /// Whether whitespace in the XML would be collapsed away here.
+    after_space: bool,
+    /// Whether the text ends in a space made by collapsing, which doesn't count at a line's end.
+    collapsed_tail: bool,
 }
 
 impl Draft {
     fn start(&mut self, element: &BytesStart<'_>) {
         self.repeated = repeat_count(element, "number-columns-repeated");
+        self.string_value = None;
+        self.text.clear();
+        self.paragraphs = 0;
+        self.holds_text = false;
         self.value = match plain_attr(element, "value-type").as_deref() {
             Some("float" | "percentage" | "currency") => plain_attr(element, "value")
                 .and_then(|value| value.parse().ok())
@@ -105,8 +120,69 @@ impl Draft {
             Some("boolean") => {
                 CellValue::Bool(plain_attr(element, "boolean-value").as_deref() == Some("true"))
             }
+            Some("string") | None => {
+                self.holds_text = true;
+                self.string_value = attr(element, "string-value");
+                CellValue::Empty
+            }
             _ => CellValue::Empty,
         };
+    }
+
+    fn start_paragraph(&mut self) {
+        if self.paragraphs > 0 {
+            self.text.push('\n');
+        }
+        self.paragraphs += 1;
+        self.in_paragraph = true;
+        self.after_space = true;
+        self.collapsed_tail = false;
+    }
+
+    fn end_paragraph(&mut self) {
+        if self.collapsed_tail {
+            self.text.pop();
+        }
+        self.in_paragraph = false;
+    }
+
+    /// Adds text from the XML, where any run of whitespace means one space.
+    fn push_collapsing(&mut self, event: &Event<'_>) -> Result<(), WorkbookError> {
+        self.scratch.clear();
+        push_text(event, &mut self.scratch)?;
+        for c in self.scratch.chars() {
+            if matches!(c, ' ' | '\t' | '\r' | '\n') {
+                if !self.after_space {
+                    self.text.push(' ');
+                    self.after_space = true;
+                    self.collapsed_tail = true;
+                }
+            } else {
+                self.text.push(c);
+                self.after_space = false;
+                self.collapsed_tail = false;
+            }
+        }
+        Ok(())
+    }
+
+    /// Adds characters that an element stands for, which are never collapsed.
+    fn push_literal(&mut self, c: char, count: usize) {
+        self.text.extend(std::iter::repeat_n(c, count));
+        self.after_space = false;
+        self.collapsed_tail = false;
+    }
+
+    fn take_cell(&mut self) -> Cell {
+        let mut value = std::mem::take(&mut self.value);
+        if self.holds_text {
+            if let Some(text) = self.string_value.take() {
+                value = CellValue::Text(text);
+            } else if self.paragraphs > 0 {
+                value = CellValue::Text(self.text.clone());
+            }
+        }
+        Cell::value(value)
     }
 }
 
@@ -127,7 +203,7 @@ struct Row {
 
 impl Row {
     fn finish_cell(&mut self, draft: &mut Draft) {
-        let cell = Cell::value(std::mem::take(&mut draft.value));
+        let cell = draft.take_cell();
         if cell != Cell::default() {
             let end = self.next_col.saturating_add(draft.repeated).min(MAX_COLS);
             for col in self.next_col..end {
@@ -191,10 +267,23 @@ fn parse_content(
                             row.finish_cell(&mut draft);
                         }
                     }
+                    "p" if sheet.is_some() => {
+                        draft.start_paragraph();
+                        if empty {
+                            draft.end_paragraph();
+                        }
+                    }
+                    "s" if draft.in_paragraph => {
+                        let count = repeat_count(element, "c") as usize;
+                        draft.push_literal(' ', count);
+                    }
+                    "tab" if draft.in_paragraph => draft.push_literal('\t', 1),
+                    "line-break" if draft.in_paragraph => draft.push_literal('\n', 1),
                     _ => {}
                 }
             }
             Event::End(element) => match AsRef::<str>::as_ref(&element.local_name()) {
+                "p" if draft.in_paragraph => draft.end_paragraph(),
                 "table-cell" | "covered-table-cell" if sheet.is_some() => {
                     row.finish_cell(&mut draft);
                 }
@@ -229,6 +318,7 @@ fn parse_content(
                 _ => {}
             },
             Event::Eof => return Ok(()),
+            _ if draft.in_paragraph => draft.push_collapsing(&event)?,
             _ => {}
         }
     }
