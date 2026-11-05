@@ -10,7 +10,7 @@ use quick_xml::events::{BytesStart, Event};
 use zip::ZipArchive;
 
 use super::formula::to_excel_style;
-use super::{CALCEXT_NAMESPACE, Layout, declared_prefix};
+use super::{CALCEXT_NAMESPACE, Layout, declared_prefix, repeat_count};
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
 use crate::date;
 use crate::model::{Cell, CellValue, Sheet};
@@ -302,12 +302,6 @@ fn value_types<'a>(element: &'a BytesStart<'_>, calcext: &str) -> (Option<Cow<'a
         }
     }
     (office, is_error)
-}
-
-fn repeat_count(element: &BytesStart<'_>, name: &str) -> u32 {
-    plain_attr(element, name)
-        .and_then(|count| count.parse().ok())
-        .unwrap_or(1)
 }
 
 /// How many more cells repeats may add to the sheet being read.

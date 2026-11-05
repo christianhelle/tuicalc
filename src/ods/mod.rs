@@ -12,7 +12,7 @@ use quick_xml::events::{BytesStart, Event};
 use zip::ZipArchive;
 
 use crate::workbook::WorkbookError;
-use crate::workbook::xml::{attr, local_name};
+use crate::workbook::xml::{attr, local_name, plain_attr};
 
 const OPENDOCUMENT_MIMETYPE: &str = "application/vnd.oasis.opendocument.";
 const SPREADSHEET_MIMETYPE: &str = "application/vnd.oasis.opendocument.spreadsheet";
@@ -42,6 +42,12 @@ pub enum Layout {
     Package,
     /// The whole file, as in `.fods`.
     Flat,
+}
+
+fn repeat_count(element: &BytesStart<'_>, name: &str) -> u32 {
+    plain_attr(element, name)
+        .and_then(|count| count.parse().ok())
+        .unwrap_or(1)
 }
 
 /// What a file's name says it holds.

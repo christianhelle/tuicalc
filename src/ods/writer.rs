@@ -14,13 +14,13 @@ use super::formula::to_open_formula;
 use super::reader::CONTENT_PART;
 use super::{
     CALCEXT_NAMESPACE, Kind, Layout, MANIFEST_PART, OFFICE_NAMESPACE, SPREADSHEET_MIMETYPE,
-    TEXT_NAMESPACE, declared_prefix,
+    TEXT_NAMESPACE, declared_prefix, repeat_count,
 };
 use crate::address::CellRef;
 use crate::date;
 use crate::model::{Cell, CellValue, Sheet};
 use crate::workbook::WorkbookError;
-use crate::workbook::xml::{local_name, plain_attr, xml_error};
+use crate::workbook::xml::{local_name, xml_error};
 
 const ROWS_REPEATED: &str = "number-rows-repeated";
 const COLUMNS_REPEATED: &str = "number-columns-repeated";
@@ -105,12 +105,6 @@ fn position(reader: &Reader<&[u8]>) -> usize {
     reader.buffer_position() as usize
 }
 
-fn repeat_count(element: &BytesStart<'_>, name: &str) -> u32 {
-    plain_attr(element, name)
-        .and_then(|count| count.parse().ok())
-        .unwrap_or(1)
-}
-
 /// An element's name and attributes as written, so it can be written again with changes.
 struct Tag<'a> {
     name: String,
@@ -137,12 +131,7 @@ impl<'a> Tag<'a> {
 
     /// Writes the element, with its repeat count set to `repeat`.
     fn write_repeated(&self, out: &mut String, repeat_attribute: &str, repeat: u32) {
-        let prefix = self.name.split_once(':').map_or("", |(prefix, _)| prefix);
-        let qualified = if prefix.is_empty() {
-            repeat_attribute.to_string()
-        } else {
-            format!("{prefix}:{repeat_attribute}")
-        };
+        let qualified = qualified(prefix_of(&self.name), repeat_attribute);
         out.push('<');
         out.push_str(&self.name);
         let mut placed = false;
@@ -225,7 +214,8 @@ fn patch_content(xml: &str, sheets: &[Sheet]) -> Result<String, WorkbookError> {
                                 patch.copy_until(before, after);
                                 patch.out.push_str(tag);
                                 patch.out.push('>');
-                                state.finish(&mut patch, None, table_prefix(element), prefixes);
+                                let name = qualified_name(element);
+                                state.finish(&mut patch, None, prefix_of(&name), prefixes);
                                 patch
                                     .out
                                     .push_str(&format!("</{}>", qualified_name(element)));
@@ -245,7 +235,7 @@ fn patch_content(xml: &str, sheets: &[Sheet]) -> Result<String, WorkbookError> {
                     }
                     "table-row" => {
                         if let Some(table) = &mut table {
-                            table.declare_columns(&mut patch, table_prefix(element));
+                            table.declare_columns(&mut patch, prefix_of(&qualified_name(element)));
                             let inner = if empty {
                                 ""
                             } else {
@@ -263,10 +253,9 @@ fn patch_content(xml: &str, sheets: &[Sheet]) -> Result<String, WorkbookError> {
                 if AsRef::<str>::as_ref(&element.local_name()) == "table" {
                     if let Some(mut state) = table.take() {
                         let name = element.name();
-                        let full: &str = name.as_ref();
-                        let prefix = full.split_once(':').map_or("", |(prefix, _)| prefix);
                         if let Some(prefixes) = &prefixes {
-                            state.finish(&mut patch, Some(before), prefix.to_string(), prefixes);
+                            let table_prefix = prefix_of(name.as_ref());
+                            state.finish(&mut patch, Some(before), table_prefix, prefixes);
                         }
                     }
                 } else if AsRef::<str>::as_ref(&element.local_name()) == "spreadsheet" {
@@ -285,12 +274,6 @@ fn qualified_name(element: &BytesStart<'_>) -> String {
     let name = element.name();
     let full: &str = name.as_ref();
     full.to_string()
-}
-
-fn table_prefix(element: &BytesStart<'_>) -> String {
-    let name = qualified_name(element);
-    name.split_once(':')
-        .map_or(String::new(), |(prefix, _)| prefix.to_string())
 }
 
 /// The prefixes the file uses for the namespaces edited cells need.
@@ -366,7 +349,7 @@ impl TablePatch {
     }
 
     /// Adds column declarations for edits past the last one. They must come before any row.
-    fn declare_columns(&mut self, patch: &mut ContentPatch<'_>, prefix: String) {
+    fn declare_columns(&mut self, patch: &mut ContentPatch<'_>, prefix: &str) {
         if self.columns_declared {
             return;
         }
@@ -376,8 +359,8 @@ impl TablePatch {
         }
         let missing = self.columns_needed - self.declared_columns;
         patch.copy_until(self.last_column_end, self.last_column_end);
-        let name = qualified(&prefix, "table-column");
-        let repeat = qualified(&prefix, COLUMNS_REPEATED);
+        let name = qualified(prefix, "table-column");
+        let repeat = qualified(prefix, COLUMNS_REPEATED);
         if missing > 1 {
             patch
                 .out
@@ -457,12 +440,12 @@ impl TablePatch {
         &mut self,
         patch: &mut ContentPatch<'_>,
         table_end: Option<usize>,
-        prefix: String,
+        prefix: &str,
         prefixes: &Prefixes,
     ) {
         self.pending.retain(|_, cell| *cell != Cell::default());
         if !self.pending.is_empty() || !self.columns_declared {
-            self.declare_columns(patch, prefix.clone());
+            self.declare_columns(patch, prefix);
         }
         if self.pending.is_empty() {
             return;
@@ -471,9 +454,9 @@ impl TablePatch {
         if let Some(at) = at {
             patch.copy_until(at, at);
         }
-        let row_name = qualified(&prefix, "table-row");
-        let cell_name = qualified(&prefix, "table-cell");
-        let repeat = qualified(&prefix, ROWS_REPEATED);
+        let row_name = qualified(prefix, "table-row");
+        let cell_name = qualified(prefix, "table-cell");
+        let repeat = qualified(prefix, ROWS_REPEATED);
         let rows: Vec<u32> = self
             .pending
             .keys()
@@ -518,7 +501,7 @@ fn patch_row_cells(
     edits: &[(u32, Cell)],
     prefixes: &Prefixes,
 ) -> String {
-    let prefix = row_name.split_once(':').map_or("", |(prefix, _)| prefix);
+    let prefix = prefix_of(row_name);
     let mut out = String::with_capacity(inner.len() + edits.len() * 64);
     let mut reader = Reader::from_str(inner);
     let mut copied_to = 0;
