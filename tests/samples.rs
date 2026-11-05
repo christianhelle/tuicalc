@@ -19,9 +19,12 @@ const SAMPLES: [&str; 6] = [
     "text-and-layout.xlsx",
 ];
 
+/// Each format's samples have a folder named after its extension.
 fn sample_path(name: &str) -> PathBuf {
+    let format = Path::new(name).extension().unwrap();
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("samples")
+        .join(format)
         .join(name)
 }
 

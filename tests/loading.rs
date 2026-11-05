@@ -48,7 +48,7 @@ fn the_sheets_are_known_before_any_cells_arrive() {
 
 #[test]
 fn loading_produces_the_same_workbook_as_opening_it_outright() {
-    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
+    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/xlsx");
     for name in [
         "dates-1904.xlsx",
         "financial-model.xlsx",
@@ -139,7 +139,7 @@ fn progress_runs_from_nothing_to_everything() {
 
 #[test]
 fn dropping_the_load_stops_it() {
-    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
+    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/xlsx");
 
     let (_workbook, load) = Workbook::open_loading(samples.join("sales-pivot.xlsx"), 0).unwrap();
     drop(load);
@@ -149,7 +149,7 @@ fn dropping_the_load_stops_it() {
 
 #[test]
 fn opening_on_a_later_sheet_loads_it_too() {
-    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
+    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/xlsx");
 
     let (mut workbook, load) =
         Workbook::open_loading(samples.join("financial-model.xlsx"), 3).unwrap();
@@ -487,7 +487,7 @@ fn reloading_keeps_the_place_straight_away_and_survives_a_problem_deep_in_the_fi
 
 #[test]
 fn switching_sheets_while_loading_lands_on_the_sheet_and_it_fills_in() {
-    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
+    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/xlsx");
     let (workbook, load) = Workbook::open_loading(samples.join("financial-model.xlsx"), 0).unwrap();
     let mut app = App::opening(workbook, load);
 

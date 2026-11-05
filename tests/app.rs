@@ -1780,7 +1780,7 @@ fn opening_adds_the_xlsx_extension_to_a_name_without_one() {
 
 #[test]
 fn opening_a_file_returns_to_its_first_sheet() {
-    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
+    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/xlsx");
     let book = Workbook::open(samples.join("financial-model.xlsx")).unwrap();
     let mut app = App::new(book);
     keys(&mut app, "gt");

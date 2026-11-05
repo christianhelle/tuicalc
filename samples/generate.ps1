@@ -1,10 +1,10 @@
-# Rebuilds the sample workbooks in this folder. Needs Windows and Excel, except for
+# Rebuilds the sample workbooks in the folder for each format. Needs Windows and Excel, except for
 # foreign-writer.xlsx, which is written by hand to look like the output of other tools.
 # The OpenDocument samples are made from the .xlsx ones by LibreOffice, and one of them by Excel.
 #
 # Excel runs invisibly. Only Excel processes started by this script are ever stopped.
 #
-# With -Giant, it writes the same workbooks with millions of cells added to samples/giant/ instead,
+# With -Giant, it writes the same workbooks with millions of cells added to samples/xlsx/giant/ instead,
 # for trying how tuicalc performs. They're tens of megabytes each, so git ignores them.
 #
 # With -OpenDocumentOnly, it leaves the .xlsx samples as they are and only rebuilds the OpenDocument
@@ -13,8 +13,13 @@ param([switch]$Giant, [switch]$OpenDocumentOnly)
 
 $ErrorActionPreference = 'Stop'
 
-$OutputFolder = if ($Giant) { Join-Path $PSScriptRoot 'giant' } else { $PSScriptRoot }
-[void](New-Item -ItemType Directory -Force $OutputFolder)
+$XlsxFolder = Join-Path $PSScriptRoot 'xlsx'
+$OdsFolder = Join-Path $PSScriptRoot 'ods'
+$FodsFolder = Join-Path $PSScriptRoot 'fods'
+$OutputFolder = if ($Giant) { Join-Path $XlsxFolder 'giant' } else { $XlsxFolder }
+foreach ($folder in $OutputFolder, $OdsFolder, $FodsFolder) {
+    [void](New-Item -ItemType Directory -Force $folder)
+}
 
 $missing = [Type]::Missing
 $xlOpenXMLWorkbook = 51
@@ -556,7 +561,7 @@ function Convert-WithLibreOffice([string]$format, [string[]]$names) {
     $profileUrl = ([Uri]$profile).AbsoluteUri
     foreach ($name in $names) {
         & $soffice "-env:UserInstallation=$profileUrl" --headless --convert-to $format `
-            --outdir $OutputFolder (Join-Path $OutputFolder "$name.xlsx") | Write-Output
+            --outdir (Join-Path $PSScriptRoot $format) (Join-Path $XlsxFolder "$name.xlsx") | Write-Output
     }
 }
 
@@ -569,8 +574,8 @@ function New-OpenDocumentSamples {
     $excel.Visible = $false
     $excel.DisplayAlerts = $false
     try {
-        $book = $excel.Workbooks.Open((Join-Path $OutputFolder 'financial-model.xlsx'))
-        $book.SaveAs((Join-Path $OutputFolder 'financial-model-excel.ods'), $xlOpenDocumentSpreadsheet)
+        $book = $excel.Workbooks.Open((Join-Path $XlsxFolder 'financial-model.xlsx'))
+        $book.SaveAs((Join-Path $OdsFolder 'financial-model-excel.ods'), $xlOpenDocumentSpreadsheet)
         $book.Close($false)
         Write-Output 'wrote financial-model-excel.ods'
     } finally {
