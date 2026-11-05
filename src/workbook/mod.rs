@@ -1,15 +1,17 @@
 //! An open workbook and the file it belongs to.
 
+mod saving;
+
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::model::Sheet;
-use crate::xlsx::saving::{SaveJob, Target};
 use crate::xlsx::{reader, writer};
+use saving::{SaveJob, Target};
 
 pub use crate::xlsx::loading::{Arrival, WorkbookLoad};
-pub use crate::xlsx::saving::{SavedPackage, WorkbookSave};
+pub use saving::{SavedPackage, WorkbookSave};
 
 #[derive(Debug)]
 pub enum WorkbookError {
