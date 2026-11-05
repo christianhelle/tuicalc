@@ -99,9 +99,12 @@ impl Draft {
     fn start(&mut self, element: &BytesStart<'_>) {
         self.repeated = repeat_count(element, "number-columns-repeated");
         self.value = match plain_attr(element, "value-type").as_deref() {
-            Some("float") => plain_attr(element, "value")
+            Some("float" | "percentage" | "currency") => plain_attr(element, "value")
                 .and_then(|value| value.parse().ok())
                 .map_or(CellValue::Empty, CellValue::Number),
+            Some("boolean") => {
+                CellValue::Bool(plain_attr(element, "boolean-value").as_deref() == Some("true"))
+            }
             _ => CellValue::Empty,
         };
     }
