@@ -441,6 +441,8 @@ fn formulas_are_written_as_open_formula_with_no_cached_value() {
         ("#REF!+1", "of:=[.#REF!]+1"),
         ("SUM({1,2;3,4})", "of:=SUM({1;2|3;4})"),
         ("TaxRate*A1", "of:=TaxRate*[.A1]"),
+        ("SUM(A1:A2 B1:B2)", "of:=SUM([.A1:.A2]![.B1:.B2])"),
+        ("A1 + B1", "of:=[.A1] + [.B1]"),
         ("LOG10(A1)", "of:=LOG10([.A1])"),
         ("1.5E+3+TRUE", "of:=1.5E+3+TRUE"),
         (
@@ -496,7 +498,7 @@ fn a_formula_with_a_value_keeps_it_as_the_cached_result() {
 
 /// Content where every namespace has a prefix other than the usual one.
 const FOREIGN: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<o:document-content xmlns:o="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:t="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:x="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:c="urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0"><o:body><o:spreadsheet><t:table t:name="Sheet1"><t:table-column t:number-columns-repeated="2"/><t:table-row><t:table-cell o:value-type="float" o:value="1" t:number-columns-repeated="2"><x:p>1</x:p></t:table-cell></t:table-row></t:table></o:spreadsheet></o:body></o:document-content>"#;
+<o:document-content xmlns:o="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:f="urn:oasis:names:tc:opendocument:xmlns:of:1.2" xmlns:t="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:x="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:c="urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0"><o:body><o:spreadsheet><t:table t:name="Sheet1"><t:table-column t:number-columns-repeated="2"/><t:table-row><t:table-cell o:value-type="float" o:value="1" t:number-columns-repeated="2"><x:p>1</x:p></t:table-cell></t:table-row></t:table></o:spreadsheet></o:body></o:document-content>"#;
 
 #[test]
 fn edits_use_the_prefixes_the_file_declares() {
@@ -512,7 +514,7 @@ fn edits_use_the_prefixes_the_file_declares() {
         saved.contains(concat!(
             r#"<t:table-row><t:table-cell o:value-type="string"><x:p>a <x:s/>b</x:p></t:table-cell>"#,
             r#"<t:table-cell o:value-type="string" o:string-value="" c:value-type="error"><x:p>#N/A</x:p></t:table-cell></t:table-row>"#,
-            r#"<t:table-row><t:table-cell t:formula="of:=[.A1]"/></t:table-row>"#,
+            r#"<t:table-row><t:table-cell t:formula="f:=[.A1]"/></t:table-row>"#,
         )),
         "{saved}"
     );
@@ -608,4 +610,42 @@ fn an_opened_ods_file_can_be_saved_under_another_ods_name() {
     assert_eq!(book.path(), Some(target.as_path()));
     let again = Workbook::open(&target).unwrap();
     assert_eq!(again.sheets[0].cell(at("A1")).value, CellValue::Number(1.0));
+}
+
+#[test]
+fn a_formula_has_no_namespace_prefix_if_the_file_does_not_declare_one() {
+    let content = ods_content(&sheet_of(&format!(
+        "<table:table-row>{BLANK}</table:table-row>"
+    )))
+    .replace(
+        r#" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2""#,
+        "",
+    );
+    let file = write_temp_as(&ods_package_with(ODS_MIMETYPE, &content, &[]), "book.ods");
+    let mut book = Workbook::open(&file.path).unwrap();
+    book.sheets[0].set_cell(at("A1"), Cell::formula("B1"));
+    book.save().unwrap();
+    let saved = read_part(&file.path, "content.xml").unwrap();
+    assert!(saved.contains(r#"table:formula="=[.B1]""#), "{saved}");
+}
+
+#[test]
+fn a_new_ods_or_flat_file_declares_what_its_formulas_need() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["new.ods", "new.ots", "new.fods"] {
+        let path = dir.path().join(name);
+        let mut book = Workbook::blank().unwrap();
+        book.sheets[0].set_cell(at("A1"), Cell::formula("B1"));
+        book.save_as(&path).unwrap();
+        let content = if name.ends_with(".fods") {
+            std::fs::read_to_string(&path).unwrap()
+        } else {
+            read_part(&path, "content.xml").unwrap()
+        };
+        assert!(
+            content.contains(r#"xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2""#),
+            "{name}"
+        );
+        assert!(content.contains(r#"table:formula="of:=[.B1]""#), "{name}");
+    }
 }

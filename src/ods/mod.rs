@@ -20,6 +20,7 @@ const MANIFEST_PART: &str = "META-INF/manifest.xml";
 
 const OFFICE_NAMESPACE: &str = "urn:oasis:names:tc:opendocument:xmlns:office:1.0";
 const TEXT_NAMESPACE: &str = "urn:oasis:names:tc:opendocument:xmlns:text:1.0";
+const FORMULA_NAMESPACE: &str = "urn:oasis:names:tc:opendocument:xmlns:of:1.2";
 const CALCEXT_NAMESPACE: &str =
     "urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0";
 

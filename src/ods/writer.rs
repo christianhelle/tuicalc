@@ -13,8 +13,8 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 use super::formula::to_open_formula;
 use super::reader::CONTENT_PART;
 use super::{
-    CALCEXT_NAMESPACE, Kind, Layout, MANIFEST_PART, OFFICE_NAMESPACE, SPREADSHEET_MIMETYPE,
-    TEXT_NAMESPACE, declared_prefix, repeat_count,
+    CALCEXT_NAMESPACE, FORMULA_NAMESPACE, Kind, Layout, MANIFEST_PART, OFFICE_NAMESPACE,
+    SPREADSHEET_MIMETYPE, TEXT_NAMESPACE, declared_prefix, repeat_count,
 };
 use crate::address::CellRef;
 use crate::date;
@@ -29,6 +29,7 @@ const NAMESPACES: &str = concat!(
     r#"xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0""#,
     r#" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0""#,
     r#" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0""#,
+    r#" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2""#,
     r#" xmlns:calcext="urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0""#,
 );
 const BLANK_BODY: &str = concat!(
@@ -281,6 +282,7 @@ struct Prefixes {
     office: String,
     text: String,
     calcext: Option<String>,
+    formula: Option<String>,
 }
 
 impl Prefixes {
@@ -294,6 +296,7 @@ impl Prefixes {
             office: required(OFFICE_NAMESPACE)?,
             text: required(TEXT_NAMESPACE)?,
             calcext: declared_prefix(root, CALCEXT_NAMESPACE),
+            formula: declared_prefix(root, FORMULA_NAMESPACE),
         })
     }
 }
@@ -609,7 +612,7 @@ fn write_edited_cell(out: &mut String, tag: &Tag<'_>, cell: &Cell, prefixes: &Pr
     }
     if let Some(formula) = &cell.formula {
         let table = prefix_of(&tag.name);
-        let stored = escape_attribute(&to_open_formula(formula));
+        let stored = escape_attribute(&to_open_formula(formula, prefixes.formula.as_deref()));
         out.push_str(&format!(r#" {}="{stored}""#, qualified(table, "formula")));
     }
     let mut paragraphs = String::new();

@@ -54,6 +54,13 @@ fn convert_body(body: &str) -> String {
                 out.push(',');
                 i += 1;
             }
+            // The intersection of two references, which Excel writes as a space.
+            '!' => {
+                out.push(' ');
+                i += 1;
+            }
+            // What marks a name in the files Excel writes.
+            '$' if chars.get(i + 1) == Some(&'$') => i += 2,
             '|' if in_array => {
                 out.push(';');
                 i += 1;
@@ -175,13 +182,14 @@ fn reference_to_excel(inner: &str) -> Option<String> {
     Some(out)
 }
 
-/// The stored form of a formula typed without its `=`. One already in a grammar stays as it is.
-pub fn to_open_formula(typed: &str) -> String {
+/// The stored form of a formula typed without its `=`, using the prefix the file declares for
+/// OpenFormula if it does. One already in a grammar stays as it is.
+pub fn to_open_formula(typed: &str, prefix: Option<&str>) -> String {
     if has_grammar_prefix(typed) {
         return typed.to_string();
     }
     let chars: Vec<char> = typed.chars().collect();
-    let mut out = String::from("of:=");
+    let mut out = prefix.map_or_else(|| "=".to_string(), |prefix| format!("{prefix}:="));
     let mut in_array = false;
     let mut i = 0;
     while i < chars.len() {
@@ -223,6 +231,10 @@ pub fn to_open_formula(typed: &str) -> String {
                 out.push('|');
                 i += 1;
             }
+            ' ' if out.ends_with(']') && starts_reference(&chars[i + 1..]) => {
+                out.push('!');
+                i += 1;
+            }
             c if is_token_char(c) => i = write_token(&chars, i, &mut out),
             other => {
                 out.push(other);
@@ -231,6 +243,12 @@ pub fn to_open_formula(typed: &str) -> String {
         }
     }
     out
+}
+
+/// Whether what follows a space could be the second reference of an intersection.
+fn starts_reference(rest: &[char]) -> bool {
+    rest.first()
+        .is_some_and(|&c| is_token_char(c) || matches!(c, '\'' | '['))
 }
 
 /// Whether a formula starts with a grammar's name, such as `ooow:=`.

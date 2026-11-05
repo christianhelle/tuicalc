@@ -256,6 +256,9 @@ fn formulas_read_as_excel_style_text() {
         ("msoxl:=A1+1", "A1+1"),
         ("=[.A1]", "A1"),
         ("of:=TaxRate*[.A1]", "TaxRate*A1"),
+        ("of:=$$TaxRate*[.A1]", "TaxRate*A1"),
+        ("of:=SUM([.A1:.A2]![.B1:.B2])", "SUM(A1:A2 B1:B2)"),
+        (r#"of:="a!$$b""#, r#""a!$$b""#),
     ];
     for (stored, shown) in cases {
         assert_eq!(formula_of(stored).as_deref(), Some(shown), "{stored}");
