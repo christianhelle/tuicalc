@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::model::Sheet;
+use crate::ods;
 use crate::xlsx::{loading as xlsx_loading, reader, writer};
 use saving::{SaveJob, Target};
 
@@ -55,6 +56,13 @@ impl From<zip::result::ZipError> for WorkbookError {
     }
 }
 
+/// Where the parts that saving needs live in the file, which also says what format it's in.
+#[derive(Debug, Clone)]
+pub(crate) enum Layout {
+    Xlsx(reader::Layout),
+    Ods(ods::Layout),
+}
+
 /// An open workbook, together with the package bytes it was loaded from.
 #[derive(Debug)]
 pub struct Workbook {
@@ -64,20 +72,29 @@ pub struct Workbook {
     /// The file this workbook belongs to, which a blank one doesn't have yet.
     path: Option<PathBuf>,
     source: Arc<Vec<u8>>,
-    layout: reader::Layout,
+    layout: Layout,
 }
 
 impl Workbook {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, WorkbookError> {
         let path = path.as_ref().to_path_buf();
         let source = std::fs::read(&path)?;
+        if let Some(layout) = ods::detect(&source)? {
+            return Ok(Self {
+                sheets: ods::reader::read(&source, layout)?,
+                date1904: false,
+                path: Some(path),
+                source: Arc::new(source),
+                layout: Layout::Ods(layout),
+            });
+        }
         let (sheets, date1904, layout) = reader::read(&source)?;
         Ok(Self {
             sheets,
             date1904,
             path: Some(path),
             source: Arc::new(source),
-            layout,
+            layout: Layout::Xlsx(layout),
         })
     }
 
@@ -97,7 +114,7 @@ impl Workbook {
             date1904: plan.date1904,
             path: Some(path),
             source,
-            layout: plan.layout,
+            layout: Layout::Xlsx(plan.layout),
         };
         Ok((workbook, load))
     }
@@ -111,7 +128,7 @@ impl Workbook {
             date1904,
             path: None,
             source: Arc::new(source),
-            layout,
+            layout: Layout::Xlsx(layout),
         })
     }
 

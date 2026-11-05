@@ -7,9 +7,8 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::thread;
 use std::time::Duration;
 
-use super::WorkbookError;
+use super::{Layout, WorkbookError};
 use crate::model::Sheet;
-use crate::xlsx::reader::Layout;
 use crate::xlsx::writer;
 
 /// A package that has reached the disk, ready for its workbook to take in.
@@ -86,7 +85,7 @@ impl SaveJob {
             }
         }
         let bytes = if dirty {
-            Arc::new(writer::patch(&self.source, &self.layout, &self.sheets)?)
+            Arc::new(self.patched()?)
         } else {
             Arc::clone(&self.source)
         };
@@ -95,6 +94,15 @@ impl SaveJob {
             Target::Own | Target::Over => replace_file(&self.path, &bytes)?,
         }
         Ok(self.saved(bytes))
+    }
+
+    fn patched(&self) -> Result<Vec<u8>, WorkbookError> {
+        match &self.layout {
+            Layout::Xlsx(layout) => writer::patch(&self.source, layout, &self.sheets),
+            Layout::Ods(_) => Err(WorkbookError::Invalid(
+                "saving OpenDocument files isn't supported".into(),
+            )),
+        }
     }
 
     fn saved(&self, bytes: Arc<Vec<u8>>) -> SavedPackage {

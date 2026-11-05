@@ -66,3 +66,40 @@ pub fn read_part(path: &Path, name: &str) -> Option<String> {
     file.read_to_string(&mut content).unwrap();
     Some(content)
 }
+
+pub const ODS_MIMETYPE: &str = "application/vnd.oasis.opendocument.spreadsheet";
+
+/// Everything an ODS content part needs around the given tables.
+pub fn ods_content(tables: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:calcext="urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0" office:version="1.3"><office:body><office:spreadsheet>{tables}</office:spreadsheet></office:body></office:document-content>"#
+    )
+}
+
+/// An ODS package with the given content part: the mimetype first and stored, as the spec demands.
+pub fn ods_package(content: &str) -> Vec<u8> {
+    ods_package_with(ODS_MIMETYPE, content, &[])
+}
+
+pub fn ods_package_with(mimetype: &str, content: &str, extras: &[(&str, &str)]) -> Vec<u8> {
+    let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+    let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+    let deflated = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    zip.start_file("mimetype", stored).unwrap();
+    zip.write_all(mimetype.as_bytes()).unwrap();
+    zip.start_file("content.xml", deflated).unwrap();
+    zip.write_all(content.as_bytes()).unwrap();
+    for (name, part) in extras {
+        zip.start_file(*name, deflated).unwrap();
+        zip.write_all(part.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+pub fn write_temp_as(bytes: &[u8], name: &str) -> TempXlsx {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(name);
+    std::fs::write(&path, bytes).unwrap();
+    TempXlsx { _dir: dir, path }
+}

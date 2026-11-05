@@ -12,6 +12,7 @@ mod keys;
 pub mod line_edit;
 pub mod model;
 pub mod motion;
+mod ods;
 pub mod text;
 pub mod ui;
 pub mod workbook;
