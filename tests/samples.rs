@@ -347,3 +347,130 @@ fn every_sample_survives_an_edit_on_every_sheet() {
         }
     }
 }
+
+const OPENDOCUMENT_SAMPLES: [(&str, &str); 6] = [
+    ("financial-model.xlsx", "financial-model.ods"),
+    ("financial-model.xlsx", "financial-model-excel.ods"),
+    ("formula-edge-cases.xlsx", "formula-edge-cases.ods"),
+    ("text-and-layout.xlsx", "text-and-layout.ods"),
+    ("text-and-layout.xlsx", "text-and-layout.fods"),
+    ("dates-1904.xlsx", "dates-1904.ods"),
+];
+
+/// The two values agree, allowing for how each program rounds and names its own errors.
+fn same_value(ods: &CellValue, xlsx: &CellValue) -> bool {
+    match (ods, xlsx) {
+        (CellValue::Number(a), CellValue::Number(b)) => (a - b).abs() <= 1e-9 * b.abs().max(1.0),
+        (CellValue::Error(_), CellValue::Error(_)) => true,
+        _ => ods == xlsx,
+    }
+}
+
+#[test]
+fn opendocument_samples_hold_what_the_workbooks_they_came_from_hold() {
+    for (xlsx, ods) in OPENDOCUMENT_SAMPLES {
+        let original = open(xlsx);
+        let converted = open(ods);
+        assert_eq!(original.sheets.len(), converted.sheets.len(), "{ods}");
+        for (expected, actual) in original.sheets.iter().zip(&converted.sheets) {
+            for (at, cell) in expected.cells() {
+                let found = actual.cell(*at);
+                let label = format!("{ods} {} {at}", actual.name);
+                assert_eq!(found.is_date, cell.is_date, "{label}");
+                // Dates have other serials in the 1904 system, which an OpenDocument file doesn't use. Lengths
+                // of time don't.
+                if original.date1904 && cell.is_date && !same_value(&found.value, &cell.value) {
+                    let shown = |value: &CellValue, date1904| match value {
+                        CellValue::Number(serial) => {
+                            tuicalc::date::format_serial(*serial, date1904)
+                        }
+                        other => panic!("{label} holds {other:?}"),
+                    };
+                    assert_eq!(
+                        shown(&found.value, false),
+                        shown(&cell.value, true),
+                        "{label}"
+                    );
+                } else {
+                    assert!(
+                        same_value(&found.value, &cell.value),
+                        "{label}: {:?} but {:?}",
+                        found.value,
+                        cell.value
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn formulas_written_by_libreoffice_and_excel_read_in_excel_style() {
+    let book = open("financial-model.ods");
+    let plan = sheet(&book, "Monthly Plan");
+    assert_eq!(formula(plan, "B5"), "B4*(1+Growth/12)");
+    let summary = sheet(&book, "Summary");
+    assert_eq!(formula(summary, "B1"), "'Monthly Plan'!F16");
+
+    let book = open("financial-model-excel.ods");
+    let plan = sheet(&book, "Monthly_Plan");
+    assert_eq!(formula(plan, "B5"), "B4*(1+Growth/12)");
+}
+
+#[test]
+fn opendocument_samples_survive_an_edit_with_only_its_cell_changed() {
+    for (_, name) in OPENDOCUMENT_SAMPLES {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(name);
+        std::fs::copy(sample_path(name), &path).unwrap();
+        let original = Workbook::open(&path).unwrap();
+        let edited_at = a1("B60");
+
+        let mut book = Workbook::open(&path).unwrap();
+        book.sheets[0].set_cell(edited_at, Cell::value(text("edited  by tuicalc")));
+        book.save().unwrap();
+
+        let saved = Workbook::open(&path).unwrap();
+        assert_eq!(saved.sheets.len(), original.sheets.len(), "{name}");
+        assert_eq!(
+            saved.sheets[0].cell(edited_at).value,
+            text("edited  by tuicalc"),
+            "{name}"
+        );
+        for (index, (before, after)) in original.sheets.iter().zip(&saved.sheets).enumerate() {
+            assert_eq!(before.name, after.name, "{name}");
+            for (at, cell) in before.cells() {
+                if index != 0 || *at != edited_at {
+                    assert_eq!(after.cell(*at), *cell, "{name} {} {at}", before.name);
+                }
+            }
+            let added = usize::from(index == 0 && !before.has_cell(edited_at));
+            assert_eq!(
+                after.cells().count(),
+                before.cells().count() + added,
+                "{name}"
+            );
+        }
+        assert_other_parts_are_unchanged(&sample_path(name), &path);
+    }
+}
+
+/// Every part of a zipped package but its content arrives byte for byte, in the same order.
+fn assert_other_parts_are_unchanged(from: &Path, to: &Path) {
+    let Ok(mut before) = ZipArchive::new(std::fs::File::open(from).unwrap()) else {
+        return;
+    };
+    let mut after = ZipArchive::new(std::fs::File::open(to).unwrap()).unwrap();
+    assert_eq!(before.len(), after.len());
+    for index in 0..before.len() {
+        let mut part = before.by_index(index).unwrap();
+        let mut saved = after.by_index(index).unwrap();
+        assert_eq!(part.name().unwrap(), saved.name().unwrap());
+        if part.name().unwrap() != "content.xml" {
+            let (mut a, mut b) = (Vec::new(), Vec::new());
+            part.read_to_end(&mut a).unwrap();
+            saved.read_to_end(&mut b).unwrap();
+            assert_eq!(a, b, "{}", part.name().unwrap());
+        }
+    }
+}

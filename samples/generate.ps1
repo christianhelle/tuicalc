@@ -1,11 +1,15 @@
 # Rebuilds the sample workbooks in this folder. Needs Windows and Excel, except for
 # foreign-writer.xlsx, which is written by hand to look like the output of other tools.
+# The OpenDocument samples are made from the .xlsx ones by LibreOffice, and one of them by Excel.
 #
 # Excel runs invisibly. Only Excel processes started by this script are ever stopped.
 #
 # With -Giant, it writes the same workbooks with millions of cells added to samples/giant/ instead,
 # for trying how tuicalc performs. They're tens of megabytes each, so git ignores them.
-param([switch]$Giant)
+#
+# With -OpenDocumentOnly, it leaves the .xlsx samples as they are and only rebuilds the OpenDocument
+# ones from them.
+param([switch]$Giant, [switch]$OpenDocumentOnly)
 
 $ErrorActionPreference = 'Stop'
 
@@ -14,6 +18,7 @@ $OutputFolder = if ($Giant) { Join-Path $PSScriptRoot 'giant' } else { $PSScript
 
 $missing = [Type]::Missing
 $xlOpenXMLWorkbook = 51
+$xlOpenDocumentSpreadsheet = 60
 $xlLine = 4
 $xlColumnClustered = 51
 $xlRowField = 1
@@ -534,6 +539,50 @@ function New-ForeignWriter {
     Write-Output 'wrote foreign-writer.xlsx'
 }
 
+function Stop-NewExcel($excel, $existing) {
+    $excel.Quit()
+    [void][Runtime.InteropServices.Marshal]::ReleaseComObject($excel)
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
+    Start-Sleep -Milliseconds 500
+    Get-Process excel -ErrorAction SilentlyContinue |
+        Where-Object { $existing -notcontains $_.Id } |
+        Stop-Process -Force
+}
+
+function Convert-WithLibreOffice([string]$format, [string[]]$names) {
+    $soffice = 'C:\Program Files\LibreOffice\program\soffice.exe'
+    $profile = Join-Path ([IO.Path]::GetTempPath()) 'tuicalc-samples-profile'
+    $profileUrl = ([Uri]$profile).AbsoluteUri
+    foreach ($name in $names) {
+        & $soffice "-env:UserInstallation=$profileUrl" --headless --convert-to $format `
+            --outdir $OutputFolder (Join-Path $OutputFolder "$name.xlsx") | Write-Output
+    }
+}
+
+function New-OpenDocumentSamples {
+    Convert-WithLibreOffice 'ods' @('financial-model', 'formula-edge-cases', 'text-and-layout', 'dates-1904')
+    Convert-WithLibreOffice 'fods' @('text-and-layout')
+
+    $existing = @(Get-Process excel -ErrorAction SilentlyContinue | ForEach-Object Id)
+    $excel = New-Object -ComObject Excel.Application
+    $excel.Visible = $false
+    $excel.DisplayAlerts = $false
+    try {
+        $book = $excel.Workbooks.Open((Join-Path $OutputFolder 'financial-model.xlsx'))
+        $book.SaveAs((Join-Path $OutputFolder 'financial-model-excel.ods'), $xlOpenDocumentSpreadsheet)
+        $book.Close($false)
+        Write-Output 'wrote financial-model-excel.ods'
+    } finally {
+        Stop-NewExcel $excel $existing
+    }
+}
+
+if ($OpenDocumentOnly) {
+    New-OpenDocumentSamples
+    return
+}
+
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 New-ForeignWriter
 
@@ -548,12 +597,9 @@ try {
     New-TextAndLayout $excel
     New-Dates1904 $excel
 } finally {
-    $excel.Quit()
-    [void][Runtime.InteropServices.Marshal]::ReleaseComObject($excel)
-    [GC]::Collect()
-    [GC]::WaitForPendingFinalizers()
-    Start-Sleep -Milliseconds 500
-    Get-Process excel -ErrorAction SilentlyContinue |
-        Where-Object { $existing -notcontains $_.Id } |
-        Stop-Process -Force
+    Stop-NewExcel $excel $existing
+}
+
+if (-not $Giant) {
+    New-OpenDocumentSamples
 }

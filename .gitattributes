@@ -2,4 +2,5 @@
 *.xlsx binary
 *.ods binary
 *.ots binary
+*.fods binary
 *.jpg binary
