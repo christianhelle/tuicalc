@@ -143,9 +143,9 @@ fn an_edit_inside_repeated_rows_splits_them() {
 
 #[test]
 fn edits_on_the_padding_of_a_full_sheet_keep_the_sheet_the_same_size() {
-    let tables = sheet_of(concat!(
-        r#"<table:table-row table:number-rows-repeated="1048576"><table:table-cell table:number-columns-repeated="16384"/></table:table-row>"#,
-    ));
+    let tables = sheet_of(
+        "<table:table-row table:number-rows-repeated=\"1048576\"><table:table-cell table:number-columns-repeated=\"16384\"/></table:table-row>",
+    );
     let saved = saved_tables(&tables, &[("C4", number(9.0)), ("A4", number(8.0))]);
     assert_eq!(
         saved,
@@ -257,9 +257,9 @@ fn only_the_sheet_with_edits_is_touched() {
 
 #[test]
 fn reading_back_finds_every_edit_in_place() {
-    let tables = sheet_of(concat!(
-        r#"<table:table-row table:number-rows-repeated="4"><table:table-cell office:value-type="float" office:value="1" table:number-columns-repeated="4"/></table:table-row>"#,
-    ));
+    let tables = sheet_of(
+        "<table:table-row table:number-rows-repeated=\"4\"><table:table-cell office:value-type=\"float\" office:value=\"1\" table:number-columns-repeated=\"4\"/></table:table-row>",
+    );
     let sheet = saved_sheet(
         &tables,
         &[

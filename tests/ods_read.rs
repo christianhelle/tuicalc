@@ -163,9 +163,9 @@ fn filled_repeats_stop_at_the_edges_of_a_sheet() {
 
 #[test]
 fn a_tiny_file_cannot_ask_for_billions_of_cells() {
-    let file = ods_file(concat!(
-        r#"<table:table table:name="Sheet1"><table:table-row table:number-rows-repeated="1048576"><table:table-cell office:value-type="float" office:value="1" table:number-columns-repeated="16384"/></table:table-row></table:table>"#,
-    ));
+    let file = ods_file(
+        "<table:table table:name=\"Sheet1\"><table:table-row table:number-rows-repeated=\"1048576\"><table:table-cell office:value-type=\"float\" office:value=\"1\" table:number-columns-repeated=\"16384\"/></table:table-row></table:table>",
+    );
     let error = Workbook::open(&file.path).unwrap_err();
     assert!(error.to_string().contains("too many"), "{error}");
 }
