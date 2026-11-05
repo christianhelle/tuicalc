@@ -172,6 +172,7 @@ impl Workbook {
             sheets: self.sheets.clone(),
             path,
             target,
+            is_blank: self.path.is_none(),
         })
     }
 
@@ -179,6 +180,7 @@ impl Workbook {
     pub fn finish_save(&mut self, saved: SavedPackage) {
         self.path = Some(saved.path);
         self.source = saved.bytes;
+        self.layout = saved.layout;
         self.sheets.iter_mut().for_each(Sheet::mark_saved);
     }
 

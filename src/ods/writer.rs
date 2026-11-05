@@ -12,7 +12,10 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use super::formula::to_open_formula;
 use super::reader::CONTENT_PART;
-use super::{CALCEXT_NAMESPACE, Layout, OFFICE_NAMESPACE, TEXT_NAMESPACE, declared_prefix};
+use super::{
+    CALCEXT_NAMESPACE, Kind, Layout, MANIFEST_PART, OFFICE_NAMESPACE, SPREADSHEET_MIMETYPE,
+    TEXT_NAMESPACE, declared_prefix,
+};
 use crate::address::CellRef;
 use crate::date;
 use crate::model::{Cell, CellValue, Sheet};
@@ -21,6 +24,54 @@ use crate::workbook::xml::{local_name, plain_attr, xml_error};
 
 const ROWS_REPEATED: &str = "number-rows-repeated";
 const COLUMNS_REPEATED: &str = "number-columns-repeated";
+
+const NAMESPACES: &str = concat!(
+    r#"xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0""#,
+    r#" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0""#,
+    r#" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0""#,
+    r#" xmlns:calcext="urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0""#,
+);
+const BLANK_BODY: &str = concat!(
+    r#"<office:body><office:spreadsheet><table:table table:name="Sheet1">"#,
+    r#"<table:table-column/><table:table-row><table:table-cell/></table:table-row>"#,
+    r#"</table:table></office:spreadsheet></office:body>"#,
+);
+const XML_DECLARATION: &str = r#"<?xml version="1.0" encoding="UTF-8"?>"#;
+
+/// A file holding one empty sheet: all a workbook needs to open anywhere.
+pub fn blank(kind: Kind) -> Result<Vec<u8>, WorkbookError> {
+    let mimetype = match kind {
+        Kind::Spreadsheet | Kind::Flat => SPREADSHEET_MIMETYPE.to_string(),
+        Kind::Template => format!("{SPREADSHEET_MIMETYPE}-template"),
+    };
+    if kind == Kind::Flat {
+        return Ok(format!(
+            r#"{XML_DECLARATION}<office:document {NAMESPACES} office:version="1.3" office:mimetype="{mimetype}">{BLANK_BODY}</office:document>"#
+        )
+        .into_bytes());
+    }
+    let mut output = ZipWriter::new(Cursor::new(Vec::new()));
+    let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+    let deflated = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    // The spec wants the mimetype first and uncompressed, so that it can be seen without unzipping.
+    output.start_file("mimetype", stored)?;
+    output.write_all(mimetype.as_bytes())?;
+    output.start_file(MANIFEST_PART, deflated)?;
+    output.write_all(
+        format!(
+            r#"{XML_DECLARATION}<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3"><manifest:file-entry manifest:full-path="/" manifest:version="1.3" manifest:media-type="{mimetype}"/><manifest:file-entry manifest:full-path="{CONTENT_PART}" manifest:media-type="text/xml"/></manifest:manifest>"#
+        )
+        .as_bytes(),
+    )?;
+    output.start_file(CONTENT_PART, deflated)?;
+    output.write_all(
+        format!(
+            r#"{XML_DECLARATION}<office:document-content {NAMESPACES} office:version="1.3">{BLANK_BODY}</office:document-content>"#
+        )
+        .as_bytes(),
+    )?;
+    Ok(output.finish()?.into_inner())
+}
 
 pub fn patch(source: &[u8], layout: Layout, sheets: &[Sheet]) -> Result<Vec<u8>, WorkbookError> {
     match layout {

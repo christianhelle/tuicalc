@@ -17,6 +17,8 @@ use crate::xlsx::writer;
 pub struct SavedPackage {
     pub(super) path: PathBuf,
     pub(super) bytes: Arc<Vec<u8>>,
+    /// How the file is laid out, which saving can change for a workbook that had no file.
+    pub(super) layout: Layout,
 }
 
 /// A save in progress. Dropping it leaves the save to finish by itself.
@@ -72,6 +74,8 @@ pub(super) struct SaveJob {
     pub(super) sheets: Vec<Sheet>,
     pub(super) path: PathBuf,
     pub(super) target: Target,
+    /// Whether the workbook has no file yet, so that it can go out in any format.
+    pub(super) is_blank: bool,
 }
 
 impl SaveJob {
@@ -79,35 +83,64 @@ impl SaveJob {
         let dirty = self.sheets.iter().any(Sheet::is_dirty);
         if self.target == Target::Own {
             if !dirty {
-                return Ok(self.saved(Arc::clone(&self.source)));
+                return Ok(self.saved(Arc::clone(&self.source), self.layout.clone()));
             }
             if std::fs::read(&self.path)? != *self.source {
                 return Err(WorkbookError::ChangedOnDisk);
             }
         }
+        let (source, layout) = self.package_for_path()?;
         let bytes = if dirty {
-            Arc::new(self.patched()?)
+            Arc::new(self.patched(&source, &layout)?)
         } else {
-            Arc::clone(&self.source)
+            source
         };
         match self.target {
             Target::New => create_file(&self.path, &bytes)?,
             Target::Own | Target::Over => replace_file(&self.path, &bytes)?,
         }
-        Ok(self.saved(bytes))
+        Ok(self.saved(bytes, layout))
     }
 
-    fn patched(&self) -> Result<Vec<u8>, WorkbookError> {
-        match &self.layout {
-            Layout::Xlsx(layout) => writer::patch(&self.source, layout, &self.sheets),
-            Layout::Ods(layout) => ods::writer::patch(&self.source, *layout, &self.sheets),
+    /// What to write edits into, given the name of the file they're going to. A workbook with no
+    /// file takes the format its name asks for, and one with a file stays in its format.
+    fn package_for_path(&self) -> Result<(Arc<Vec<u8>>, Layout), WorkbookError> {
+        let kind = ods::Kind::of_path(&self.path);
+        let is_xlsx = self
+            .path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("xlsx"));
+        let same_format = match (&self.layout, kind) {
+            (Layout::Xlsx(_), kind) => kind.is_none(),
+            (Layout::Ods(layout), Some(kind)) => kind.layout() == *layout,
+            (Layout::Ods(_), None) => !is_xlsx,
+        };
+        if same_format || self.target == Target::Own {
+            return Ok((Arc::clone(&self.source), self.layout.clone()));
+        }
+        match kind {
+            Some(kind) if self.is_blank => {
+                let source = ods::writer::blank(kind)?;
+                Ok((Arc::new(source), Layout::Ods(kind.layout())))
+            }
+            _ => Err(WorkbookError::Invalid(
+                "can't save an opened workbook in another format".into(),
+            )),
         }
     }
 
-    fn saved(&self, bytes: Arc<Vec<u8>>) -> SavedPackage {
+    fn patched(&self, source: &[u8], layout: &Layout) -> Result<Vec<u8>, WorkbookError> {
+        match layout {
+            Layout::Xlsx(layout) => writer::patch(source, layout, &self.sheets),
+            Layout::Ods(layout) => ods::writer::patch(source, *layout, &self.sheets),
+        }
+    }
+
+    fn saved(&self, bytes: Arc<Vec<u8>>, layout: Layout) -> SavedPackage {
         SavedPackage {
             path: self.path.clone(),
             bytes,
+            layout,
         }
     }
 }

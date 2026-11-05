@@ -574,3 +574,38 @@ fn saving_with_no_edits_changes_nothing_and_another_program_changing_the_file_is
     std::fs::write(&file.path, b"changed").unwrap();
     assert!(matches!(book.save(), Err(WorkbookError::ChangedOnDisk)));
 }
+
+#[test]
+fn an_opened_workbook_is_not_written_in_another_format() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let xlsx = dir.path().join("book.xlsx");
+    let mut blank = Workbook::blank().unwrap();
+    blank.save_as(&xlsx).unwrap();
+    let mut book = Workbook::open(&xlsx).unwrap();
+    let error = book.save_as(dir.path().join("to.ods")).unwrap_err();
+    assert!(error.to_string().contains("another format"), "{error}");
+    assert!(!dir.path().join("to.ods").exists());
+
+    let ods = ods_file(&sheet_of(""));
+    let mut book = Workbook::open(&ods.path).unwrap();
+    let error = book.save_as(dir.path().join("to.xlsx")).unwrap_err();
+    assert!(error.to_string().contains("another format"), "{error}");
+    let error = book.save_as(dir.path().join("to.fods")).unwrap_err();
+    assert!(error.to_string().contains("another format"), "{error}");
+}
+
+#[test]
+fn an_opened_ods_file_can_be_saved_under_another_ods_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = ods_file(&sheet_of(&format!(
+        "<table:table-row>{CELL_7}</table:table-row>"
+    )));
+    let mut book = Workbook::open(&file.path).unwrap();
+    book.sheets[0].set_cell(at("A1"), number(1.0));
+    let target = dir.path().join("copy.ods");
+    book.save_as(&target).unwrap();
+    assert_eq!(book.path(), Some(target.as_path()));
+    let again = Workbook::open(&target).unwrap();
+    assert_eq!(again.sheets[0].cell(at("A1")).value, CellValue::Number(1.0));
+}

@@ -8,6 +8,9 @@ use crossterm::event::{KeyCode, KeyEvent};
 use crate::keys::is_ctrl;
 use crate::line_edit::LineEdit;
 
+/// What the dialog lists as workbooks.
+const WORKBOOK_EXTENSIONS: [&str; 4] = ["xlsx", "ods", "ots", "fods"];
+
 /// One line of the dialog's list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Entry {
@@ -251,6 +254,9 @@ pub fn with_default_extension(name: &str) -> PathBuf {
 }
 
 fn is_workbook(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("xlsx"))
+    path.extension().is_some_and(|extension| {
+        WORKBOOK_EXTENSIONS
+            .iter()
+            .any(|known| extension.eq_ignore_ascii_case(known))
+    })
 }

@@ -5,6 +5,7 @@ pub(crate) mod reader;
 pub(crate) mod writer;
 
 use std::io::{Cursor, Read};
+use std::path::Path;
 
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
@@ -41,6 +42,33 @@ pub enum Layout {
     Package,
     /// The whole file, as in `.fods`.
     Flat,
+}
+
+/// What a file's name says it holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Spreadsheet,
+    Template,
+    Flat,
+}
+
+impl Kind {
+    pub fn of_path(path: &Path) -> Option<Self> {
+        let extension = path.extension()?.to_string_lossy().to_ascii_lowercase();
+        match extension.as_str() {
+            "ods" => Some(Self::Spreadsheet),
+            "ots" => Some(Self::Template),
+            "fods" => Some(Self::Flat),
+            _ => None,
+        }
+    }
+
+    pub fn layout(self) -> Layout {
+        match self {
+            Self::Spreadsheet | Self::Template => Layout::Package,
+            Self::Flat => Layout::Flat,
+        }
+    }
 }
 
 /// How to read `source` if it's an OpenDocument spreadsheet, and an error if it's OpenDocument but

@@ -2476,3 +2476,120 @@ fn deleting_a_locked_cell_leaves_what_was_yanked_alone() {
         "the row yanked before the refused delete is still there to paste"
     );
 }
+
+#[test]
+fn the_dialog_lists_opendocument_spreadsheets_and_not_other_opendocument_files() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["a.ods", "b.OTS", "c.fods", "d.odt", "e.xlsx"] {
+        std::fs::write(dir.path().join(name), b"x").unwrap();
+    }
+    let app = app_in_save_dialog(dir.path());
+    assert_eq!(listed(&app), ["..", "a.ods", "b.OTS", "c.fods", "e.xlsx"]);
+}
+
+/// Saves a blank workbook with a number in it under the given name, and gives back its path.
+fn save_blank_as(dir: &Path, name: &str) -> std::path::PathBuf {
+    let mut app = blank_app();
+    enter_value(&mut app, "5");
+    app.set_dialog_directory(dir);
+    ctrl(&mut app, KeyCode::Char('s'));
+    type_text(&mut app, name);
+    press(&mut app, KeyCode::Enter);
+    app.finish_saving();
+    assert_eq!(app.status(), format!("Saved {name}"));
+
+    // The app has moved on to the new format, so it can save there again.
+    enter_value(&mut app, "6");
+    ctrl(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
+    assert_eq!(app.status(), format!("Saved {name}"));
+    dir.join(name)
+}
+
+fn assert_holds_five_and_six(path: &Path) {
+    let book = Workbook::open(path).unwrap();
+    assert_eq!(book.sheets[0].name, "Sheet1");
+    assert_eq!(book.sheets[0].cell(a1("A1")).value, CellValue::Number(5.0));
+    assert_eq!(book.sheets[0].cell(a1("A2")).value, CellValue::Number(6.0));
+}
+
+#[test]
+fn a_blank_workbook_saved_with_an_ods_name_is_an_ods_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = save_blank_as(dir.path(), "new.ods");
+    assert_eq!(read_part(&path, "mimetype").unwrap(), ODS_MIMETYPE);
+    assert!(read_part(&path, "META-INF/manifest.xml").is_some());
+    assert!(read_part(&path, "xl/workbook.xml").is_none());
+    assert_holds_five_and_six(&path);
+}
+
+#[test]
+fn a_blank_workbook_saved_with_an_ots_name_is_a_template() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = save_blank_as(dir.path(), "new.ots");
+    assert_eq!(
+        read_part(&path, "mimetype").unwrap(),
+        "application/vnd.oasis.opendocument.spreadsheet-template"
+    );
+    assert_holds_five_and_six(&path);
+}
+
+#[test]
+fn a_blank_workbook_saved_with_a_fods_name_is_a_flat_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = save_blank_as(dir.path(), "new.fods");
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with("<?xml"), "{text}");
+    assert!(text.contains(ODS_MIMETYPE), "{text}");
+    assert_holds_five_and_six(&path);
+}
+
+#[test]
+fn a_blank_workbook_can_replace_an_existing_file_with_an_ods_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("old.ods");
+    std::fs::write(&path, b"old").unwrap();
+    let mut app = blank_app();
+    enter_value(&mut app, "5");
+    app.set_dialog_directory(dir.path());
+    ctrl(&mut app, KeyCode::Char('s'));
+    type_text(&mut app, "old.ods");
+    press(&mut app, KeyCode::Enter);
+    press(&mut app, KeyCode::Char('y'));
+    app.finish_saving();
+    assert_eq!(read_part(&path, "mimetype").unwrap(), ODS_MIMETYPE);
+}
+
+#[test]
+fn an_ods_file_opens_through_the_dialog_and_saves_with_ctrl_s() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("real.ods");
+    let tables = r#"<table:table table:name="Data"><table:table-column table:number-columns-repeated="2"/><table:table-row><table:table-cell office:value-type="string"><text:p>hello</text:p></table:table-cell></table:table-row></table:table>"#;
+    std::fs::write(&path, ods_package(&ods_content(tables))).unwrap();
+
+    let mut app = blank_app();
+    app.set_dialog_directory(dir.path());
+    ctrl(&mut app, KeyCode::Char('o'));
+    type_text(&mut app, "real.ods");
+    press(&mut app, KeyCode::Enter);
+    while app.document().is_loading() {
+        app.absorb_background(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(app.document().current_sheet().name, "Data");
+    assert_eq!(
+        app.document().current_sheet().cell(a1("A1")).value,
+        CellValue::Text("hello".into())
+    );
+
+    press(&mut app, KeyCode::Right);
+    enter_value(&mut app, "=A1");
+    ctrl(&mut app, KeyCode::Char('s'));
+    app.finish_saving();
+    assert_eq!(app.status(), "Saved real.ods");
+
+    let content = read_part(&path, "content.xml").unwrap();
+    assert!(
+        content.contains(r#"table:formula="of:=[.A1]""#),
+        "{content}"
+    );
+}
