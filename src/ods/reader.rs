@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 use std::io::{BufRead, BufReader, Cursor};
+use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
 use quick_xml::Reader;
@@ -15,7 +16,8 @@ use crate::date;
 use crate::model::{Cell, CellValue, Sheet};
 use crate::workbook::WorkbookError;
 use crate::workbook::loading::{
-    CHUNK_CELLS, Counting, FIRST_CHUNK_CELLS, READ_BUFFER_BYTES, SheetChunk,
+    CHUNK_CELLS, Counting, FIRST_CHUNK_CELLS, LoadEvent, READ_BUFFER_BYTES, SheetChunk,
+    WorkbookLoad,
 };
 use crate::workbook::xml::{attr, local_name, plain_attr, push_text, xml_error};
 
@@ -23,18 +25,56 @@ const CONTENT_PART: &str = "content.xml";
 /// How many cells repeats may add to a sheet. A small file can ask for far more than fits in memory.
 const MAX_REPEATED_CELLS: u64 = 10_000_000;
 
+/// What can be learned from a workbook without keeping its cells.
+pub struct Plan {
+    pub sheet_names: Vec<String>,
+    /// The uncompressed size of the content.
+    pub total_bytes: u64,
+}
+
+pub fn read_plan(source: &[u8], layout: Layout) -> Result<Plan, WorkbookError> {
+    let progress = AtomicU64::new(0);
+    let sheet_names = with_content(source, layout, &progress, &mut read_sheet_names)?;
+    if sheet_names.is_empty() {
+        return Err(WorkbookError::Invalid("no worksheets".into()));
+    }
+    let total_bytes = match layout {
+        Layout::Package => ZipArchive::new(Cursor::new(source))?
+            .by_name(CONTENT_PART)?
+            .size(),
+        Layout::Flat => source.len() as u64,
+    };
+    Ok(Plan {
+        sheet_names,
+        total_bytes,
+    })
+}
+
 /// Reads all of a workbook at once.
 pub fn read(source: &[u8], layout: Layout) -> Result<Vec<Sheet>, WorkbookError> {
-    let progress = AtomicU64::new(0);
-    let names = with_content(source, layout, &progress, &mut read_sheet_names)?;
-    let mut sheets: Vec<Sheet> = names.iter().map(Sheet::new).collect();
-    with_content(source, layout, &progress, &mut |input| {
+    let plan = read_plan(source, layout)?;
+    let mut sheets: Vec<Sheet> = plan.sheet_names.iter().map(Sheet::new).collect();
+    with_content(source, layout, &AtomicU64::new(0), &mut |input| {
         parse_content(input, &mut |sheet, chunk| {
             chunk.apply_to(&mut sheets[sheet]);
             true
         })
     })?;
     Ok(sheets)
+}
+
+/// Reads a workbook on another thread. All its sheets are in one stream, so they come in file order.
+pub fn start_load(source: Arc<Vec<u8>>, layout: Layout, plan: &Plan) -> WorkbookLoad {
+    WorkbookLoad::start(plan.total_bytes, None, move |sender, read_bytes| {
+        let result = with_content(&source, layout, read_bytes, &mut |input| {
+            parse_content(input, &mut |sheet, chunk| {
+                sender.send(LoadEvent::Cells { sheet, chunk }).is_ok()
+            })
+        });
+        if let Err(error) = result {
+            let _ = sender.send(LoadEvent::Failed(error));
+        }
+    })
 }
 
 /// Runs `read` over the workbook's content XML, counting the bytes read.
@@ -52,6 +92,16 @@ fn with_content<T>(
                 READ_BUFFER_BYTES,
                 Counting {
                     inner: file,
+                    count: progress,
+                },
+            );
+            read(&mut input)
+        }
+        Layout::Flat => {
+            let mut input = BufReader::with_capacity(
+                READ_BUFFER_BYTES,
+                Counting {
+                    inner: source,
                     count: progress,
                 },
             );

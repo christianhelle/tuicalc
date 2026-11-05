@@ -97,6 +97,18 @@ pub fn ods_package_with(mimetype: &str, content: &str, extras: &[(&str, &str)]) 
     zip.finish().unwrap().into_inner()
 }
 
+/// A flat OpenDocument file holding the given tables.
+pub fn fods(tables: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.3" office:mimetype="{ODS_MIMETYPE}">
+ <office:body>
+  <office:spreadsheet>{tables}</office:spreadsheet>
+ </office:body>
+</office:document>"#
+    )
+}
+
 pub fn write_temp_as(bytes: &[u8], name: &str) -> TempXlsx {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(name);

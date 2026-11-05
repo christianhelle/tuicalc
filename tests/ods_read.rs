@@ -1,9 +1,9 @@
 mod common;
 
-use common::{TempXlsx, ods_content, ods_package, write_temp_as};
+use common::{TempXlsx, fods, ods_content, ods_package, ods_package_with, write_temp_as};
 use tuicalc::address::CellRef;
 use tuicalc::model::{Cell, CellValue};
-use tuicalc::workbook::Workbook;
+use tuicalc::workbook::{Arrival, Workbook};
 
 fn at(reference: &str) -> CellRef {
     CellRef::parse(reference).unwrap()
@@ -285,6 +285,105 @@ fn a_formula_keeps_its_cached_result() {
     assert_eq!(sheet.cell(at("B1")).value, CellValue::Text("a".into()));
     assert_eq!(sheet.cell(at("C1")).value, CellValue::Empty);
     assert_eq!(sheet.cell(at("C1")).formula.as_deref(), Some("NOW()"));
+}
+
+const TWO_SHEETS: &str = concat!(
+    r#"<table:table table:name="One"><table:table-row><table:table-cell office:value-type="float" office:value="1"/></table:table-row></table:table>"#,
+    r#"<table:table table:name="Two"><table:table-row><table:table-cell office:value-type="float" office:value="2"/></table:table-row></table:table>"#,
+);
+
+#[test]
+fn a_load_shows_the_sheets_at_once_and_delivers_their_cells_after() {
+    let file = ods_file(TWO_SHEETS);
+    let (mut book, load) = Workbook::open_loading(&file.path, 1).unwrap();
+    assert_eq!(book.sheets.len(), 2);
+    assert_eq!(book.sheets[1].name, "Two");
+    assert!(!book.date1904);
+    load.prefer(1);
+    loop {
+        match load.receive(&mut book) {
+            Arrival::Cells | Arrival::Nothing => {}
+            Arrival::Ended => break,
+            Arrival::Failed(error) => panic!("{error}"),
+        }
+    }
+    assert_eq!(book.sheets[0].cell(at("A1")).value, CellValue::Number(1.0));
+    assert_eq!(book.sheets[1].cell(at("A1")).value, CellValue::Number(2.0));
+    assert!((load.progress() - 1.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn broken_content_fails_at_opening() {
+    let file = ods_file(
+        r#"<table:table table:name="One"><table:table-row><table:table-cell></table:table-row></table:table>"#,
+    );
+    let opened = Workbook::open_loading(&file.path, 0);
+    assert!(opened.is_err(), "the sheet list needs the whole content");
+}
+
+#[test]
+fn templates_open_like_any_other_spreadsheet() {
+    let bytes = ods_package_with(
+        "application/vnd.oasis.opendocument.spreadsheet-template",
+        &ods_content(TWO_SHEETS),
+        &[],
+    );
+    let file = write_temp_as(&bytes, "book.ots");
+    let book = Workbook::open(&file.path).unwrap();
+    assert_eq!(book.sheets[1].cell(at("A1")).value, CellValue::Number(2.0));
+}
+
+#[test]
+fn flat_files_open_whatever_they_are_called() {
+    let file = write_temp_as(fods(TWO_SHEETS).as_bytes(), "book.fods");
+    let book = Workbook::open(&file.path).unwrap();
+    assert_eq!(book.sheets[1].name, "Two");
+    assert_eq!(book.sheets[1].cell(at("A1")).value, CellValue::Number(2.0));
+
+    let (mut book, load) = Workbook::open_loading(&file.path, 0).unwrap();
+    while !matches!(load.receive(&mut book), Arrival::Ended) {}
+    assert_eq!(book.sheets[0].cell(at("A1")).value, CellValue::Number(1.0));
+}
+
+#[test]
+fn other_opendocument_files_are_refused_by_name() {
+    let bytes = ods_package_with(
+        "application/vnd.oasis.opendocument.text",
+        "<office:document-content/>",
+        &[],
+    );
+    let file = write_temp_as(&bytes, "letter.odt");
+    let error = Workbook::open(&file.path).unwrap_err();
+    assert!(error.to_string().contains("not a spreadsheet"), "{error}");
+    assert!(Workbook::open_loading(&file.path, 0).is_err());
+}
+
+#[test]
+fn a_flat_file_of_another_kind_is_refused_by_name() {
+    let xml = r#"<?xml version="1.0"?><office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" office:mimetype="application/vnd.oasis.opendocument.text"/>"#;
+    let file = write_temp_as(xml.as_bytes(), "letter.fodt");
+    let error = Workbook::open(&file.path).unwrap_err();
+    assert!(error.to_string().contains("not a spreadsheet"), "{error}");
+}
+
+#[test]
+fn encrypted_files_are_refused_by_name() {
+    let manifest = r#"<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"><manifest:encryption-data manifest:checksum="x"/></manifest:file-entry></manifest:manifest>"#;
+    let bytes = ods_package_with(
+        common::ODS_MIMETYPE,
+        "not xml, as it is encrypted",
+        &[("META-INF/manifest.xml", manifest)],
+    );
+    let file = write_temp_as(&bytes, "secret.ods");
+    let error = Workbook::open(&file.path).unwrap_err();
+    assert!(error.to_string().contains("password"), "{error}");
+}
+
+#[test]
+fn a_spreadsheet_with_no_sheets_is_refused() {
+    let file = ods_file("");
+    let error = Workbook::open(&file.path).unwrap_err();
+    assert!(error.to_string().contains("no worksheets"), "{error}");
 }
 
 #[test]

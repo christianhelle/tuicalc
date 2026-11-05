@@ -107,6 +107,18 @@ impl Workbook {
     ) -> Result<(Self, WorkbookLoad), WorkbookError> {
         let path = path.as_ref().to_path_buf();
         let source = Arc::new(std::fs::read(&path)?);
+        if let Some(layout) = ods::detect(&source)? {
+            let plan = ods::reader::read_plan(&source, layout)?;
+            let load = ods::reader::start_load(Arc::clone(&source), layout, &plan);
+            let workbook = Self {
+                sheets: plan.sheet_names.iter().map(Sheet::new).collect(),
+                date1904: false,
+                path: Some(path),
+                source,
+                layout: Layout::Ods(layout),
+            };
+            return Ok((workbook, load));
+        }
         let plan = reader::read_plan(&source)?;
         let load = xlsx_loading::start(Arc::clone(&source), &plan, preferred_sheet);
         let workbook = Self {
