@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use crate::address::CellRef;
 use crate::changes::{History, Locked, Restored};
 use crate::model::{Cell, Sheet};
-use crate::xlsx::{Arrival, SavedPackage, Workbook, WorkbookLoad, WorkbookSave, XlsxError};
+use crate::xlsx::{Arrival, SavedPackage, Workbook, WorkbookError, WorkbookLoad, WorkbookSave};
 
 /// Why something that was asked of the document isn't happening.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,14 +34,14 @@ pub enum SaveError {
     Refused(Refusal),
     /// The workbook has never been saved, so it has no file to go to.
     NoFile,
-    Failed(XlsxError),
+    Failed(WorkbookError),
 }
 
 /// Why another workbook didn't start loading.
 #[derive(Debug)]
 pub enum OpenError {
     Refused(Refusal),
-    Failed(XlsxError),
+    Failed(WorkbookError),
 }
 
 impl fmt::Display for OpenError {
@@ -57,7 +57,7 @@ impl fmt::Display for OpenError {
 #[derive(Debug)]
 pub enum Outcome {
     Saved,
-    SaveFailed(XlsxError),
+    SaveFailed(WorkbookError),
     /// All the cells have arrived. `replaced` says whether another workbook gave way for this one.
     Loaded {
         kind: LoadKind,
@@ -67,7 +67,7 @@ pub enum Outcome {
     LoadFailed {
         kind: LoadKind,
         went_back: bool,
-        error: XlsxError,
+        error: WorkbookError,
     },
 }
 
@@ -231,7 +231,7 @@ impl Document {
     pub fn reload(&mut self) -> Result<(), OpenError> {
         self.ensure_changeable().map_err(OpenError::Refused)?;
         let path = self.workbook.path();
-        let path = path.ok_or(OpenError::Failed(XlsxError::NoFileName))?;
+        let path = path.ok_or(OpenError::Failed(WorkbookError::NoFileName))?;
         let (workbook, load) =
             Workbook::open_loading(path, self.place.sheet).map_err(OpenError::Failed)?;
         let (sheet, cursor, scroll) = (self.place.sheet, self.place.cursor, self.place.scroll);
@@ -361,7 +361,7 @@ impl Document {
                 self.work = Some(Work::Saving(save));
                 Ok(())
             }
-            Err(XlsxError::NoFileName) => Err(SaveError::NoFile),
+            Err(WorkbookError::NoFileName) => Err(SaveError::NoFile),
             Err(error) => Err(SaveError::Failed(error)),
         }
     }
@@ -402,7 +402,7 @@ impl Document {
         Some(self.end_save(result))
     }
 
-    fn end_save(&mut self, result: Result<SavedPackage, XlsxError>) -> Outcome {
+    fn end_save(&mut self, result: Result<SavedPackage, WorkbookError>) -> Outcome {
         self.work = None;
         match result {
             Ok(saved) => {

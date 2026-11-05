@@ -8,7 +8,7 @@ use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use zip::ZipArchive;
 
-use super::XlsxError;
+use super::WorkbookError;
 use super::xml::{attr, decode_excel_escapes, local_name, plain_attr, push_text, xml_error};
 use crate::address::CellRef;
 use crate::formula::translate;
@@ -62,7 +62,7 @@ const FIRST_CHUNK_CELLS: usize = 256;
 const CHUNK_CELLS: usize = 16_384;
 const READ_BUFFER_BYTES: usize = 64 * 1024;
 
-pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), XlsxError> {
+pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), WorkbookError> {
     let plan = read_plan(source)?;
     let progress = AtomicU64::new(0);
     let shared_strings =
@@ -86,7 +86,7 @@ pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), XlsxError> {
     Ok((sheets, plan.date1904, plan.layout))
 }
 
-pub fn read_plan(source: &[u8]) -> Result<Plan, XlsxError> {
+pub fn read_plan(source: &[u8]) -> Result<Plan, WorkbookError> {
     let mut archive = ZipArchive::new(Cursor::new(source))?;
     let workbook_part = find_workbook_part(&mut archive)?;
     let relationships = read_relationships(&mut archive, &workbook_part)?;
@@ -112,7 +112,7 @@ pub fn read_plan(source: &[u8]) -> Result<Plan, XlsxError> {
     let mut sheet_parts = Vec::new();
     for (name, relationship_id) in declared {
         let Some(relationship) = relationships.get(&relationship_id) else {
-            return Err(XlsxError::Invalid(format!(
+            return Err(WorkbookError::Invalid(format!(
                 "sheet {name} has no relationship"
             )));
         };
@@ -120,7 +120,7 @@ pub fn read_plan(source: &[u8]) -> Result<Plan, XlsxError> {
             continue;
         }
         let Ok(part) = archive.by_name(&relationship.target) else {
-            return Err(XlsxError::Invalid(format!(
+            return Err(WorkbookError::Invalid(format!(
                 "missing {}",
                 relationship.target
             )));
@@ -131,7 +131,7 @@ pub fn read_plan(source: &[u8]) -> Result<Plan, XlsxError> {
         sheet_parts.push(relationship.target.clone());
     }
     if sheet_names.is_empty() {
-        return Err(XlsxError::Invalid("no worksheets".into()));
+        return Err(WorkbookError::Invalid("no worksheets".into()));
     }
     Ok(Plan {
         sheet_names,
@@ -166,7 +166,7 @@ pub struct Relationship {
     pub target: String,
 }
 
-fn read_part(archive: &mut Archive<'_>, name: &str) -> Result<Option<String>, XlsxError> {
+fn read_part(archive: &mut Archive<'_>, name: &str) -> Result<Option<String>, WorkbookError> {
     let Ok(mut file) = archive.by_name(name) else {
         return Ok(None);
     };
@@ -175,14 +175,14 @@ fn read_part(archive: &mut Archive<'_>, name: &str) -> Result<Option<String>, Xl
     Ok(Some(content))
 }
 
-fn find_workbook_part(archive: &mut Archive<'_>) -> Result<String, XlsxError> {
+fn find_workbook_part(archive: &mut Archive<'_>) -> Result<String, WorkbookError> {
     let xml = read_part(archive, "_rels/.rels")?
-        .ok_or_else(|| XlsxError::Invalid("missing _rels/.rels".into()))?;
+        .ok_or_else(|| WorkbookError::Invalid("missing _rels/.rels".into()))?;
     parse_relationships(&xml, "")?
         .into_values()
         .find(|relationship| relationship.kind.ends_with(OFFICE_DOCUMENT))
         .map(|relationship| relationship.target)
-        .ok_or_else(|| XlsxError::Invalid("no workbook relationship".into()))
+        .ok_or_else(|| WorkbookError::Invalid("no workbook relationship".into()))
 }
 
 /// The path of the part holding `part`'s relationships.
@@ -196,7 +196,7 @@ pub fn relationships_part(part: &str) -> String {
 fn read_relationships(
     archive: &mut Archive<'_>,
     part: &str,
-) -> Result<HashMap<String, Relationship>, XlsxError> {
+) -> Result<HashMap<String, Relationship>, WorkbookError> {
     let directory = part.rsplit_once('/').map_or("", |(directory, _)| directory);
     match read_part(archive, &relationships_part(part))? {
         Some(xml) => parse_relationships(&xml, directory),
@@ -207,7 +207,7 @@ fn read_relationships(
 pub fn parse_relationships(
     xml: &str,
     base_directory: &str,
-) -> Result<HashMap<String, Relationship>, XlsxError> {
+) -> Result<HashMap<String, Relationship>, WorkbookError> {
     let mut reader = Reader::from_str(xml);
     let mut relationships = HashMap::new();
     loop {
@@ -255,9 +255,9 @@ fn resolve_target(base_directory: &str, target: &str) -> String {
 fn read_sheet_list(
     archive: &mut Archive<'_>,
     workbook_part: &str,
-) -> Result<(Vec<(String, String)>, bool), XlsxError> {
+) -> Result<(Vec<(String, String)>, bool), WorkbookError> {
     let xml = read_part(archive, workbook_part)?
-        .ok_or_else(|| XlsxError::Invalid(format!("missing {workbook_part}")))?;
+        .ok_or_else(|| WorkbookError::Invalid(format!("missing {workbook_part}")))?;
     let mut reader = Reader::from_str(&xml);
     let mut sheets = Vec::new();
     let mut date1904 = false;
@@ -283,7 +283,7 @@ fn read_sheet_list(
 }
 
 /// Whether each entry of `cellXfs` uses a date format.
-fn read_date_styles(xml: &str) -> Result<Vec<bool>, XlsxError> {
+fn read_date_styles(xml: &str) -> Result<Vec<bool>, WorkbookError> {
     let mut reader = Reader::from_str(xml);
     let mut custom_formats: HashMap<u32, String> = HashMap::new();
     let mut styles = Vec::new();
@@ -349,7 +349,7 @@ pub fn read_shared_strings(
     source: &[u8],
     part: Option<&str>,
     progress: &AtomicU64,
-) -> Result<Vec<String>, XlsxError> {
+) -> Result<Vec<String>, WorkbookError> {
     let Some(part) = part else {
         return Ok(Vec::new());
     };
@@ -365,7 +365,7 @@ pub fn read_shared_strings(
     parse_shared_strings(input)
 }
 
-fn parse_shared_strings(input: impl BufRead) -> Result<Vec<String>, XlsxError> {
+fn parse_shared_strings(input: impl BufRead) -> Result<Vec<String>, WorkbookError> {
     let mut reader = Reader::from_reader(input);
     let mut buffer = Vec::new();
     let mut strings = Vec::new();
@@ -521,7 +521,7 @@ pub fn read_sheet_cells(
     date_styles: &[bool],
     progress: &AtomicU64,
     sink: &mut dyn FnMut(SheetChunk) -> bool,
-) -> Result<(), XlsxError> {
+) -> Result<(), WorkbookError> {
     let mut archive = ZipArchive::new(Cursor::new(source))?;
     let file = archive.by_name(part)?;
     let input = BufReader::with_capacity(
@@ -539,7 +539,7 @@ fn parse_sheet(
     shared_strings: &[String],
     date_styles: &[bool],
     sink: &mut dyn FnMut(SheetChunk) -> bool,
-) -> Result<(), XlsxError> {
+) -> Result<(), WorkbookError> {
     let mut reader = Reader::from_reader(input);
     let mut buffer = Vec::new();
     let mut chunk = SheetChunk::default();

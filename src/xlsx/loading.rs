@@ -7,7 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 use super::reader::{self, Plan, SheetChunk};
-use super::{Workbook, XlsxError};
+use super::{Workbook, WorkbookError};
 
 /// More than this adds little, since one sheet is read by one thread and cells merge on another.
 const MAX_WORKERS: usize = 4;
@@ -16,7 +16,7 @@ const QUEUED_CHUNKS: usize = 16;
 
 enum LoadEvent {
     Cells { sheet: usize, chunk: SheetChunk },
-    Failed(XlsxError),
+    Failed(WorkbookError),
 }
 
 /// What came of waiting on a load.
@@ -28,7 +28,7 @@ pub enum Arrival {
     /// The load is over.
     Ended,
     /// Something went wrong further in. The load won't get any further.
-    Failed(XlsxError),
+    Failed(WorkbookError),
 }
 
 /// The sheets waiting to be read. Whichever one is being looked at goes first.

@@ -10,7 +10,7 @@ use quick_xml::events::{BytesStart, Event};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
-use super::XlsxError;
+use super::WorkbookError;
 use super::reader::{self, Layout};
 use super::xml::{attr, local_name, starts_with_excel_escape, xml_error};
 use crate::address::CellRef;
@@ -45,7 +45,7 @@ const BLANK_PARTS: [(&str, &str); 5] = [
     ),
 ];
 
-pub fn blank_package() -> Result<Vec<u8>, XlsxError> {
+pub fn blank_package() -> Result<Vec<u8>, WorkbookError> {
     let mut output = ZipWriter::new(Cursor::new(Vec::new()));
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     for (name, content) in BLANK_PARTS {
@@ -55,7 +55,7 @@ pub fn blank_package() -> Result<Vec<u8>, XlsxError> {
     Ok(output.finish()?.into_inner())
 }
 
-pub fn patch(source: &[u8], layout: &Layout, sheets: &[Sheet]) -> Result<Vec<u8>, XlsxError> {
+pub fn patch(source: &[u8], layout: &Layout, sheets: &[Sheet]) -> Result<Vec<u8>, WorkbookError> {
     let mut archive = ZipArchive::new(Cursor::new(source))?;
     let mut output = ZipWriter::new(Cursor::new(Vec::new()));
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
@@ -113,7 +113,7 @@ const CALC_CHAIN: &str = "/calcChain";
 fn find_calc_chain(
     archive: &mut ZipArchive<Cursor<&[u8]>>,
     rels_part: &str,
-) -> Result<Option<String>, XlsxError> {
+) -> Result<Option<String>, WorkbookError> {
     let Some(index) = archive.index_for_name(rels_part) else {
         return Ok(None);
     };
@@ -134,7 +134,7 @@ fn find_calc_chain(
 fn remove_elements(
     xml: &str,
     unwanted: impl Fn(&BytesStart<'_>) -> bool,
-) -> Result<String, XlsxError> {
+) -> Result<String, WorkbookError> {
     let mut out = String::with_capacity(xml.len());
     let mut copied_to = 0;
     let mut reader = Reader::from_str(xml);
@@ -172,7 +172,7 @@ const AFTER_CALC_PR: [&str; 9] = [
 ];
 
 /// Cached results are stale after an edit, so ask Excel to recalculate when it next opens.
-fn request_recalculation(xml: &str) -> Result<String, XlsxError> {
+fn request_recalculation(xml: &str) -> Result<String, WorkbookError> {
     let mut reader = Reader::from_str(xml);
     let mut depth = 0;
     let mut prefix = String::new();
@@ -225,7 +225,10 @@ fn set_full_calc(xml: &str, start: usize, end: usize, element: &BytesStart<'_>) 
     )
 }
 
-fn read_text(archive: &mut ZipArchive<Cursor<&[u8]>>, index: usize) -> Result<String, XlsxError> {
+fn read_text(
+    archive: &mut ZipArchive<Cursor<&[u8]>>,
+    index: usize,
+) -> Result<String, WorkbookError> {
     let mut content = String::new();
     std::io::Read::read_to_string(&mut archive.by_index(index)?, &mut content)?;
     Ok(content)
@@ -295,7 +298,7 @@ fn qualified_prefix(element: &BytesStart<'_>) -> String {
         .to_string()
 }
 
-fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, XlsxError> {
+fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, WorkbookError> {
     let pending: BTreeMap<CellRef, Cell> = sheet
         .dirty_cells()
         .map(|at| (*at, sheet.cell(*at)))

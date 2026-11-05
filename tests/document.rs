@@ -6,7 +6,7 @@ use common::*;
 use tuicalc::address::CellRef;
 use tuicalc::document::{Document, LoadKind, OpenError, Outcome, Refusal, SaveError};
 use tuicalc::model::{Cell, CellValue};
-use tuicalc::xlsx::{Workbook, XlsxError};
+use tuicalc::xlsx::{Workbook, WorkbookError};
 
 fn a1(text: &str) -> CellRef {
     CellRef::parse(text).unwrap()
@@ -165,7 +165,7 @@ fn a_failed_save_keeps_the_edits_unsaved() {
 
     assert!(matches!(
         outcome,
-        Some(Outcome::SaveFailed(XlsxError::ChangedOnDisk))
+        Some(Outcome::SaveFailed(WorkbookError::ChangedOnDisk))
     ));
     assert!(document.workbook().is_dirty());
     assert!(!document.is_saving());

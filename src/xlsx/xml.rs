@@ -5,10 +5,10 @@ use std::borrow::Cow;
 use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
 
-use super::XlsxError;
+use super::WorkbookError;
 
-pub fn xml_error(error: impl std::fmt::Display) -> XlsxError {
-    XlsxError::Xml(error.to_string())
+pub fn xml_error(error: impl std::fmt::Display) -> WorkbookError {
+    WorkbookError::Xml(error.to_string())
 }
 
 /// The value of the attribute with this local name, ignoring any namespace prefix.
@@ -41,7 +41,7 @@ pub fn local_name(element: &BytesStart<'_>) -> String {
 }
 
 /// Appends the text carried by a text-like event; other events are ignored.
-pub fn push_text(event: &Event<'_>, out: &mut String) -> Result<(), XlsxError> {
+pub fn push_text(event: &Event<'_>, out: &mut String) -> Result<(), WorkbookError> {
     match event {
         Event::Text(text) => out.push_str(&text.xml10_content()),
         Event::CData(data) => out.push_str(data),

@@ -17,7 +17,7 @@ use saving::{SaveJob, Target};
 pub use saving::{SavedPackage, WorkbookSave};
 
 #[derive(Debug)]
-pub enum XlsxError {
+pub enum WorkbookError {
     Io(std::io::Error),
     Zip(zip::result::ZipError),
     Xml(String),
@@ -29,7 +29,7 @@ pub enum XlsxError {
     NoFileName,
 }
 
-impl fmt::Display for XlsxError {
+impl fmt::Display for WorkbookError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(error) => write!(f, "{error}"),
@@ -42,15 +42,15 @@ impl fmt::Display for XlsxError {
     }
 }
 
-impl std::error::Error for XlsxError {}
+impl std::error::Error for WorkbookError {}
 
-impl From<std::io::Error> for XlsxError {
+impl From<std::io::Error> for WorkbookError {
     fn from(error: std::io::Error) -> Self {
         Self::Io(error)
     }
 }
 
-impl From<zip::result::ZipError> for XlsxError {
+impl From<zip::result::ZipError> for WorkbookError {
     fn from(error: zip::result::ZipError) -> Self {
         Self::Zip(error)
     }
@@ -69,7 +69,7 @@ pub struct Workbook {
 }
 
 impl Workbook {
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, XlsxError> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, WorkbookError> {
         let path = path.as_ref().to_path_buf();
         let source = std::fs::read(&path)?;
         let (sheets, date1904, layout) = reader::read(&source)?;
@@ -88,7 +88,7 @@ impl Workbook {
     pub fn open_loading(
         path: impl AsRef<Path>,
         preferred_sheet: usize,
-    ) -> Result<(Self, WorkbookLoad), XlsxError> {
+    ) -> Result<(Self, WorkbookLoad), WorkbookError> {
         let path = path.as_ref().to_path_buf();
         let source = Arc::new(std::fs::read(&path)?);
         let plan = reader::read_plan(&source)?;
@@ -104,7 +104,7 @@ impl Workbook {
     }
 
     /// An empty one-sheet workbook that isn't tied to a file yet.
-    pub fn blank() -> Result<Self, XlsxError> {
+    pub fn blank() -> Result<Self, WorkbookError> {
         let source = writer::blank_package()?;
         let (sheets, date1904, layout) = reader::read(&source)?;
         Ok(Self {
@@ -122,8 +122,8 @@ impl Workbook {
 
     /// Starts writing edits back to the file this workbook was opened from. The workbook mustn't
     /// change until the save has ended, and counts as unsaved until `finish_save` takes it in.
-    pub fn begin_save(&self) -> Result<WorkbookSave, XlsxError> {
-        let path = self.path.clone().ok_or(XlsxError::NoFileName)?;
+    pub fn begin_save(&self) -> Result<WorkbookSave, WorkbookError> {
+        let path = self.path.clone().ok_or(WorkbookError::NoFileName)?;
         Ok(self.begin_writing(path, Target::Own))
     }
 
@@ -155,21 +155,21 @@ impl Workbook {
     }
 
     /// Writes edits back to the file this workbook was opened from, and waits.
-    pub fn save(&mut self) -> Result<(), XlsxError> {
+    pub fn save(&mut self) -> Result<(), WorkbookError> {
         let saved = self.begin_save()?.wait()?;
         self.finish_save(saved);
         Ok(())
     }
 
     /// Writes the workbook to a new file, which it then belongs to, and waits.
-    pub fn save_as(&mut self, path: impl AsRef<Path>) -> Result<(), XlsxError> {
+    pub fn save_as(&mut self, path: impl AsRef<Path>) -> Result<(), WorkbookError> {
         let saved = self.begin_save_as(path).wait()?;
         self.finish_save(saved);
         Ok(())
     }
 
     /// Writes the workbook over an existing file, which it then belongs to, and waits.
-    pub fn save_over(&mut self, path: impl AsRef<Path>) -> Result<(), XlsxError> {
+    pub fn save_over(&mut self, path: impl AsRef<Path>) -> Result<(), WorkbookError> {
         let saved = self.begin_save_over(path).wait()?;
         self.finish_save(saved);
         Ok(())

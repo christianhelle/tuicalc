@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Duration;
 
 use super::reader::Layout;
-use super::{XlsxError, writer};
+use super::{WorkbookError, writer};
 use crate::model::Sheet;
 
 /// A package that has reached the disk, ready for its workbook to take in.
@@ -20,7 +20,7 @@ pub struct SavedPackage {
 
 /// A save in progress. Dropping it leaves the save to finish by itself.
 pub struct WorkbookSave {
-    result: Receiver<Result<SavedPackage, XlsxError>>,
+    result: Receiver<Result<SavedPackage, WorkbookError>>,
 }
 
 impl WorkbookSave {
@@ -36,12 +36,12 @@ impl WorkbookSave {
     }
 
     /// Waits for the outcome.
-    pub fn wait(&self) -> Result<SavedPackage, XlsxError> {
+    pub fn wait(&self) -> Result<SavedPackage, WorkbookError> {
         self.result.recv().unwrap_or_else(|_| Err(stopped()))
     }
 
     /// The outcome, if it arrives within `wait`.
-    pub fn result_within(&self, wait: Duration) -> Option<Result<SavedPackage, XlsxError>> {
+    pub fn result_within(&self, wait: Duration) -> Option<Result<SavedPackage, WorkbookError>> {
         match self.result.recv_timeout(wait) {
             Ok(outcome) => Some(outcome),
             Err(RecvTimeoutError::Timeout) => None,
@@ -50,8 +50,8 @@ impl WorkbookSave {
     }
 }
 
-fn stopped() -> XlsxError {
-    XlsxError::Io(std::io::Error::other("the save stopped unexpectedly"))
+fn stopped() -> WorkbookError {
+    WorkbookError::Io(std::io::Error::other("the save stopped unexpectedly"))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -74,14 +74,14 @@ pub(super) struct SaveJob {
 }
 
 impl SaveJob {
-    fn write(&self) -> Result<SavedPackage, XlsxError> {
+    fn write(&self) -> Result<SavedPackage, WorkbookError> {
         let dirty = self.sheets.iter().any(Sheet::is_dirty);
         if self.target == Target::Own {
             if !dirty {
                 return Ok(self.saved(Arc::clone(&self.source)));
             }
             if std::fs::read(&self.path)? != *self.source {
-                return Err(XlsxError::ChangedOnDisk);
+                return Err(WorkbookError::ChangedOnDisk);
             }
         }
         let bytes = if dirty {
@@ -105,7 +105,7 @@ impl SaveJob {
 }
 
 /// Creates `path`, refusing a file that already exists, and removes it if the write fails.
-fn create_file(path: &Path, bytes: &[u8]) -> Result<(), XlsxError> {
+fn create_file(path: &Path, bytes: &[u8]) -> Result<(), WorkbookError> {
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -119,7 +119,7 @@ fn create_file(path: &Path, bytes: &[u8]) -> Result<(), XlsxError> {
 }
 
 /// Replaces `path` atomically, so a failed save cannot leave a truncated workbook behind.
-fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), XlsxError> {
+fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), WorkbookError> {
     let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let directory = target
         .parent()
@@ -132,6 +132,6 @@ fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), XlsxError> {
     }
     temporary
         .persist(&target)
-        .map_err(|error| XlsxError::Io(error.error))?;
+        .map_err(|error| WorkbookError::Io(error.error))?;
     Ok(())
 }

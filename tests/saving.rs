@@ -9,7 +9,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tuicalc::address::CellRef;
 use tuicalc::app::{App, Message, Mode, NextStep};
 use tuicalc::model::{Cell, CellValue};
-use tuicalc::xlsx::{Workbook, XlsxError};
+use tuicalc::xlsx::{Workbook, WorkbookError};
 
 fn a1(text: &str) -> CellRef {
     CellRef::parse(text).unwrap()
@@ -63,7 +63,7 @@ fn a_file_changed_on_disk_fails_the_save_and_keeps_the_edits() {
 
     let result = book.begin_save().unwrap().wait();
 
-    assert!(matches!(result, Err(XlsxError::ChangedOnDisk)));
+    assert!(matches!(result, Err(WorkbookError::ChangedOnDisk)));
     assert!(book.is_dirty());
     assert_eq!(
         std::fs::read(&file.path).unwrap(),
@@ -75,7 +75,7 @@ fn a_file_changed_on_disk_fails_the_save_and_keeps_the_edits() {
 fn a_workbook_without_a_file_cannot_begin_a_plain_save() {
     let book = Workbook::blank().unwrap();
 
-    assert!(matches!(book.begin_save(), Err(XlsxError::NoFileName)));
+    assert!(matches!(book.begin_save(), Err(WorkbookError::NoFileName)));
 }
 
 #[test]
