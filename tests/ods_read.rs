@@ -171,6 +171,49 @@ fn a_tiny_file_cannot_ask_for_billions_of_cells() {
 }
 
 #[test]
+fn notes_drawings_and_sub_tables_stay_out_of_the_cells() {
+    let book = open(concat!(
+        r#"<table:table table:name="Sheet1">"#,
+        r#"<table:shapes><draw:frame><draw:text-box><text:p>a shape</text:p></draw:text-box></draw:frame></table:shapes>"#,
+        r#"<table:table-row>"#,
+        r#"<table:table-cell office:value-type="string"><office:annotation><dc:creator>Sam</dc:creator><text:p>a note</text:p></office:annotation><text:p>shown</text:p></table:table-cell>"#,
+        r#"<table:table-cell office:value-type="string"><text:p>before<office:annotation><text:p>inner note</text:p></office:annotation> after</text:p></table:table-cell>"#,
+        r#"<table:table-cell><draw:frame><draw:text-box><text:p>in a frame</text:p></draw:text-box></draw:frame></table:table-cell>"#,
+        r#"<table:table-cell table:is-sub-table="true"><table:table table:name="inner"><table:table-row><table:table-cell office:value-type="float" office:value="9"/></table:table-row></table:table></table:table-cell>"#,
+        r#"<table:table-cell office:value-type="float" office:value="5"/>"#,
+        r#"</table:table-row>"#,
+        r#"<table:table-row><table:table-cell office:value-type="float" office:value="6"/></table:table-row>"#,
+        r#"</table:table>"#,
+    ));
+    let sheet = &book.sheets[0];
+    assert_eq!(sheet.cell(at("A1")).value, CellValue::Text("shown".into()));
+    assert_eq!(
+        sheet.cell(at("B1")).value,
+        CellValue::Text("before after".into())
+    );
+    assert!(!sheet.has_cell(at("C1")));
+    assert!(!sheet.has_cell(at("D1")));
+    assert_eq!(sheet.cell(at("E1")).value, CellValue::Number(5.0));
+    assert_eq!(sheet.cell(at("A2")).value, CellValue::Number(6.0));
+    assert_eq!(book.sheets.len(), 1);
+}
+
+#[test]
+fn group_and_header_rows_count_as_rows() {
+    let book = open(concat!(
+        r#"<table:table table:name="Sheet1">"#,
+        r#"<table:table-header-rows><table:table-row><table:table-cell office:value-type="float" office:value="1"/></table:table-row></table:table-header-rows>"#,
+        r#"<table:table-row-group><table:table-rows><table:table-row><table:table-cell office:value-type="float" office:value="2"/></table:table-row></table:table-rows></table:table-row-group>"#,
+        r#"<table:table-row><table:table-cell office:value-type="float" office:value="3"/></table:table-row>"#,
+        r#"</table:table>"#,
+    ));
+    let sheet = &book.sheets[0];
+    assert_eq!(sheet.cell(at("A1")).value, CellValue::Number(1.0));
+    assert_eq!(sheet.cell(at("A2")).value, CellValue::Number(2.0));
+    assert_eq!(sheet.cell(at("A3")).value, CellValue::Number(3.0));
+}
+
+#[test]
 fn reads_sheet_names_and_a_number() {
     let book = open(
         r#"<table:table table:name="First"><table:table-row><table:table-cell office:value-type="float" office:value="1.5"><text:p>1.5</text:p></table:table-cell></table:table-row></table:table><table:table table:name="R&amp;D"/>"#,

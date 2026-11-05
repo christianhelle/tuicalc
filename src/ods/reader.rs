@@ -284,6 +284,21 @@ impl Row {
     }
 }
 
+/// Whether an element inside a sheet holds paragraphs that aren't its cell's text: everything in a
+/// cell but its paragraphs, and whatever else hangs off a sheet or sits in a line of text.
+fn holds_foreign_text(local: &str, in_cell: bool, in_paragraph: bool) -> bool {
+    if in_paragraph {
+        matches!(
+            local,
+            "annotation" | "note" | "frame" | "custom-shape" | "ruby-text"
+        )
+    } else if in_cell {
+        local != "p"
+    } else {
+        matches!(local, "shapes" | "forms")
+    }
+}
+
 /// Reads the sheets, handing their cells to `sink` in chunks along with the sheet's position. It
 /// stops early if `sink` returns false.
 fn parse_content(
@@ -301,6 +316,8 @@ fn parse_content(
     let mut row = Row::default();
     let mut draft = Draft::default();
     let mut budget = RepeatBudget(MAX_REPEATED_CELLS);
+    let mut in_cell = false;
+    let mut skipped = Vec::new();
     loop {
         buffer.clear();
         let event = reader.read_event_into(&mut buffer).map_err(xml_error)?;
@@ -308,7 +325,18 @@ fn parse_content(
             Event::Start(element) | Event::Empty(element) => {
                 let empty = matches!(event, Event::Empty(_));
                 let name = element.local_name();
-                match AsRef::<str>::as_ref(&name) {
+                let local = AsRef::<str>::as_ref(&name);
+                if !empty
+                    && sheet.is_some()
+                    && holds_foreign_text(local, in_cell, draft.in_paragraph)
+                {
+                    skipped.clear();
+                    reader
+                        .read_to_end_into(element.name(), &mut skipped)
+                        .map_err(xml_error)?;
+                    continue;
+                }
+                match local {
                     "spreadsheet" => in_spreadsheet = true,
                     "table" if in_spreadsheet && sheet.is_none() => {
                         if empty {
@@ -337,9 +365,11 @@ fn parse_content(
                         draft.start(element);
                         if empty {
                             row.finish_cell(&mut draft, &mut budget)?;
+                        } else {
+                            in_cell = true;
                         }
                     }
-                    "p" if sheet.is_some() => {
+                    "p" if in_cell => {
                         draft.start_paragraph();
                         if empty {
                             draft.end_paragraph();
@@ -358,6 +388,7 @@ fn parse_content(
                 "p" if draft.in_paragraph => draft.end_paragraph(),
                 "table-cell" | "covered-table-cell" if sheet.is_some() => {
                     row.finish_cell(&mut draft, &mut budget)?;
+                    in_cell = false;
                 }
                 "table-row" if sheet.is_some() => {
                     next_row = next_row.saturating_add(row.repeated);
