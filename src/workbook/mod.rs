@@ -1,6 +1,7 @@
 //! An open workbook and the file it belongs to.
 
 mod saving;
+pub(crate) mod xml;
 
 use std::fmt;
 use std::path::{Path, PathBuf};

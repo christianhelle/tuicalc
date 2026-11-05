@@ -10,11 +10,12 @@ use quick_xml::events::{BytesStart, Event};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
+use super::escapes::starts_with_excel_escape;
 use super::reader::{self, Layout};
-use super::xml::{attr, local_name, starts_with_excel_escape, xml_error};
 use crate::address::CellRef;
 use crate::model::{Cell, CellValue, Sheet};
 use crate::workbook::WorkbookError;
+use crate::workbook::xml::{attr, local_name, xml_error};
 
 /// The parts of a package holding one empty sheet: all a workbook needs to open anywhere.
 const BLANK_PARTS: [(&str, &str); 5] = [

@@ -8,11 +8,12 @@ use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use zip::ZipArchive;
 
-use super::xml::{attr, decode_excel_escapes, local_name, plain_attr, push_text, xml_error};
+use super::escapes::decode_excel_escapes;
 use crate::address::CellRef;
 use crate::formula::translate;
 use crate::model::{Cell, CellValue, Sheet};
 use crate::workbook::WorkbookError;
+use crate::workbook::xml::{attr, local_name, plain_attr, push_text, xml_error};
 
 const OFFICE_DOCUMENT: &str = "/officeDocument";
 const WORKSHEET: &str = "/worksheet";
