@@ -19,6 +19,8 @@ use crate::workbook::loading::{
 use crate::workbook::xml::{attr, local_name, plain_attr, push_text, xml_error};
 
 const CONTENT_PART: &str = "content.xml";
+/// How many cells repeats may add to a sheet. A small file can ask for far more than fits in memory.
+const MAX_REPEATED_CELLS: u64 = 10_000_000;
 
 /// Reads all of a workbook at once.
 pub fn read(source: &[u8], layout: Layout) -> Result<Vec<Sheet>, WorkbookError> {
@@ -241,6 +243,19 @@ fn repeat_count(element: &BytesStart<'_>, name: &str) -> u32 {
         .unwrap_or(1)
 }
 
+/// How many more cells repeats may add to the sheet being read.
+struct RepeatBudget(u64);
+
+impl RepeatBudget {
+    fn spend(&mut self, cells: u64) -> Result<(), WorkbookError> {
+        self.0 = self
+            .0
+            .checked_sub(cells)
+            .ok_or_else(|| WorkbookError::Invalid("a sheet repeats too many cells".into()))?;
+        Ok(())
+    }
+}
+
 /// The row being read.
 #[derive(Default)]
 struct Row {
@@ -251,15 +266,21 @@ struct Row {
 }
 
 impl Row {
-    fn finish_cell(&mut self, draft: &mut Draft) {
+    fn finish_cell(
+        &mut self,
+        draft: &mut Draft,
+        budget: &mut RepeatBudget,
+    ) -> Result<(), WorkbookError> {
         let cell = draft.take_cell();
         if cell != Cell::default() {
             let end = self.next_col.saturating_add(draft.repeated).min(MAX_COLS);
+            budget.spend(u64::from(end.saturating_sub(self.next_col)))?;
             for col in self.next_col..end {
                 self.cells.push((col, cell.clone()));
             }
         }
         self.next_col = self.next_col.saturating_add(draft.repeated);
+        Ok(())
     }
 }
 
@@ -279,6 +300,7 @@ fn parse_content(
     let mut next_row = 0_u32;
     let mut row = Row::default();
     let mut draft = Draft::default();
+    let mut budget = RepeatBudget(MAX_REPEATED_CELLS);
     loop {
         buffer.clear();
         let event = reader.read_event_into(&mut buffer).map_err(xml_error)?;
@@ -295,6 +317,7 @@ fn parse_content(
                             sheet = Some(next_sheet);
                             next_sheet += 1;
                             next_row = 0;
+                            budget = RepeatBudget(MAX_REPEATED_CELLS);
                             chunk_limit = FIRST_CHUNK_CELLS;
                         }
                     }
@@ -313,7 +336,7 @@ fn parse_content(
                     "table-cell" | "covered-table-cell" if sheet.is_some() => {
                         draft.start(element);
                         if empty {
-                            row.finish_cell(&mut draft);
+                            row.finish_cell(&mut draft, &mut budget)?;
                         }
                     }
                     "p" if sheet.is_some() => {
@@ -334,12 +357,14 @@ fn parse_content(
             Event::End(element) => match AsRef::<str>::as_ref(&element.local_name()) {
                 "p" if draft.in_paragraph => draft.end_paragraph(),
                 "table-cell" | "covered-table-cell" if sheet.is_some() => {
-                    row.finish_cell(&mut draft);
+                    row.finish_cell(&mut draft, &mut budget)?;
                 }
                 "table-row" if sheet.is_some() => {
                     next_row = next_row.saturating_add(row.repeated);
                     let end = row.at.saturating_add(row.repeated).min(MAX_ROWS);
                     let cells = std::mem::take(&mut row.cells);
+                    let rows = u64::from(end.saturating_sub(row.at));
+                    budget.spend(rows.saturating_mul(cells.len() as u64))?;
                     for at in row.at..end {
                         for (col, cell) in &cells {
                             chunk

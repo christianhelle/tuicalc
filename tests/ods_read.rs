@@ -119,6 +119,58 @@ fn a_calcext_value_type_never_replaces_the_office_one() {
 }
 
 #[test]
+fn repeated_cells_and_rows_fill_every_place_they_cover() {
+    let book = open(concat!(
+        r#"<table:table table:name="Sheet1">"#,
+        r#"<table:table-row table:number-rows-repeated="2"><table:table-cell table:number-columns-repeated="2"/><table:table-cell office:value-type="float" office:value="7" table:number-columns-repeated="2"/></table:table-row>"#,
+        r#"<table:table-row table:number-rows-repeated="3"/>"#,
+        r#"<table:table-row><table:covered-table-cell/><table:table-cell office:value-type="float" office:value="8"/></table:table-row>"#,
+        r#"</table:table>"#,
+    ));
+    let sheet = &book.sheets[0];
+    for reference in ["C1", "D1", "C2", "D2"] {
+        assert_eq!(sheet.cell(at(reference)).value, CellValue::Number(7.0));
+    }
+    assert!(!sheet.has_cell(at("B1")));
+    assert!(!sheet.has_cell(at("E1")));
+    assert!(!sheet.has_cell(at("C3")));
+    assert_eq!(sheet.cell(at("B6")).value, CellValue::Number(8.0));
+    assert_eq!(sheet.extent(), Some(at("D6")));
+}
+
+#[test]
+fn the_padding_spreadsheet_apps_add_to_fill_a_sheet_makes_no_cells() {
+    let book = open(concat!(
+        r#"<table:table table:name="Sheet1">"#,
+        r#"<table:table-row><table:table-cell office:value-type="float" office:value="1"/><table:table-cell table:style-name="ce1" table:number-columns-repeated="1048575"/></table:table-row>"#,
+        r#"<table:table-row table:number-rows-repeated="4294967295"><table:table-cell table:number-columns-repeated="4294967295"/></table:table-row>"#,
+        r#"</table:table>"#,
+    ));
+    assert_eq!(book.sheets[0].extent(), Some(at("A1")));
+    assert_eq!(book.sheets[0].cells().count(), 1);
+}
+
+#[test]
+fn filled_repeats_stop_at_the_edges_of_a_sheet() {
+    let book = open(concat!(
+        r#"<table:table table:name="Sheet1"><table:table-row table:number-rows-repeated="1048570"/>"#,
+        r#"<table:table-row table:number-rows-repeated="100"><table:table-cell office:value-type="float" office:value="1"/></table:table-row>"#,
+        r#"</table:table>"#,
+    ));
+    assert_eq!(book.sheets[0].cells().count(), 6);
+    assert_eq!(book.sheets[0].extent(), Some(at("A1048576")));
+}
+
+#[test]
+fn a_tiny_file_cannot_ask_for_billions_of_cells() {
+    let file = ods_file(concat!(
+        r#"<table:table table:name="Sheet1"><table:table-row table:number-rows-repeated="1048576"><table:table-cell office:value-type="float" office:value="1" table:number-columns-repeated="16384"/></table:table-row></table:table>"#,
+    ));
+    let error = Workbook::open(&file.path).unwrap_err();
+    assert!(error.to_string().contains("too many"), "{error}");
+}
+
+#[test]
 fn reads_sheet_names_and_a_number() {
     let book = open(
         r#"<table:table table:name="First"><table:table-row><table:table-cell office:value-type="float" office:value="1.5"><text:p>1.5</text:p></table:table-cell></table:table-row></table:table><table:table table:name="R&amp;D"/>"#,
