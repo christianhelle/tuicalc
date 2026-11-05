@@ -158,3 +158,38 @@ pub fn serial_from_duration(text: &str) -> Option<f64> {
     }
     Some(seconds / SECONDS_PER_DAY)
 }
+
+/// Writes a serial as an ISO 8601 date, with its time if it has one.
+pub fn iso_from_serial(serial: f64) -> String {
+    let total_seconds = (serial * SECONDS_PER_DAY).round() as i64;
+    let seconds = total_seconds.rem_euclid(86_400);
+    let (year, month, day) = serial_to_civil(total_seconds.div_euclid(86_400), false);
+    let date = format!("{year:04}-{month:02}-{day:02}");
+    if seconds == 0 {
+        date
+    } else {
+        format!(
+            "{date}T{:02}:{:02}:{:02}",
+            seconds / 3_600,
+            seconds / 60 % 60,
+            seconds % 60
+        )
+    }
+}
+
+fn hours_minutes_seconds(serial: f64) -> (i64, i64, i64) {
+    let seconds = (serial * SECONDS_PER_DAY).round() as i64;
+    (seconds / 3_600, seconds / 60 % 60, seconds % 60)
+}
+
+/// Writes a number of days as an ISO 8601 duration such as `PT36H00M00S`.
+pub fn duration_from_serial(serial: f64) -> String {
+    let (hours, minutes, seconds) = hours_minutes_seconds(serial);
+    format!("PT{hours:02}H{minutes:02}M{seconds:02}S")
+}
+
+/// Writes a number of days as hours, minutes and seconds, which can go past a day.
+pub fn clock_from_serial(serial: f64) -> String {
+    let (hours, minutes, seconds) = hours_minutes_seconds(serial);
+    format!("{hours:02}:{minutes:02}:{seconds:02}")
+}

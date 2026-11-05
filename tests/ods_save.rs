@@ -276,3 +276,143 @@ fn reading_back_finds_every_edit_in_place() {
     assert_eq!(sheet.cell(at("D3")).value, CellValue::Number(1.0));
     assert_eq!(sheet.cells().count(), 17);
 }
+
+/// What a cell in a sheet of its own is saved as, given what it held before.
+fn saved_cell(before: &str, cell: Cell) -> String {
+    let saved = saved_tables(
+        &sheet_of(&format!("<table:table-row>{before}</table:table-row>")),
+        &[("A1", cell)],
+    );
+    let prefix = format!("{ALL_COLUMNS}<table:table-row>");
+    let start = saved.find(&prefix).unwrap() + prefix.len();
+    let end = saved.find("</table:table-row>").unwrap();
+    saved[start..end].to_string()
+}
+
+const BLANK: &str = "<table:table-cell/>";
+
+fn text(content: &str) -> Cell {
+    Cell::value(CellValue::Text(content.into()))
+}
+
+#[test]
+fn text_is_escaped_and_keeps_its_spaces_lines_and_tabs() {
+    assert_eq!(
+        saved_cell(BLANK, text("a & <b>")),
+        r#"<table:table-cell office:value-type="string"><text:p>a &amp; &lt;b&gt;</text:p></table:table-cell>"#
+    );
+    assert_eq!(
+        saved_cell(BLANK, text(" a  b\tc \nd")),
+        r#"<table:table-cell office:value-type="string"><text:p><text:s/>a <text:s/>b<text:tab/>c<text:s/></text:p><text:p>d</text:p></table:table-cell>"#
+    );
+    assert_eq!(
+        saved_cell(BLANK, text("a    b")),
+        r#"<table:table-cell office:value-type="string"><text:p>a <text:s text:c="3"/>b</text:p></table:table-cell>"#
+    );
+}
+
+#[test]
+fn text_reads_back_the_same_whatever_is_in_it() {
+    let tables = sheet_of(&format!("<table:table-row>{BLANK}</table:table-row>"));
+    for content in [
+        "plain",
+        " leading",
+        "trailing ",
+        "  ",
+        "a   b",
+        "two\nlines",
+        "\nblank first",
+        "tab\there",
+        "",
+    ] {
+        let sheet = saved_sheet(&tables, &[("A1", text(content))]);
+        assert_eq!(sheet.cell(at("A1")).value, CellValue::Text(content.into()));
+    }
+}
+
+#[test]
+fn characters_xml_cannot_carry_are_dropped() {
+    assert_eq!(
+        saved_cell(BLANK, text("a\u{1}b\u{FFFF}c")),
+        r#"<table:table-cell office:value-type="string"><text:p>abc</text:p></table:table-cell>"#
+    );
+}
+
+#[test]
+fn booleans_and_errors_say_what_they_are() {
+    assert_eq!(
+        saved_cell(BLANK, Cell::value(CellValue::Bool(true))),
+        r#"<table:table-cell office:value-type="boolean" office:boolean-value="true"><text:p>TRUE</text:p></table:table-cell>"#
+    );
+    assert_eq!(
+        saved_cell(BLANK, Cell::value(CellValue::Error("#N/A".into()))),
+        r#"<table:table-cell office:value-type="string" office:string-value="" calcext:value-type="error"><text:p>#N/A</text:p></table:table-cell>"#
+    );
+}
+
+fn date(serial: f64) -> Cell {
+    Cell {
+        value: CellValue::Number(serial),
+        formula: None,
+        is_date: true,
+    }
+}
+
+#[test]
+fn dates_and_times_are_written_as_such() {
+    assert_eq!(
+        saved_cell(BLANK, date(45306.0)),
+        r#"<table:table-cell office:value-type="date" office:date-value="2024-01-15"><text:p>2024-01-15</text:p></table:table-cell>"#
+    );
+    assert_eq!(
+        saved_cell(BLANK, date(45306.75)),
+        r#"<table:table-cell office:value-type="date" office:date-value="2024-01-15T18:00:00"><text:p>2024-01-15 18:00:00</text:p></table:table-cell>"#
+    );
+    assert_eq!(
+        saved_cell(BLANK, date(0.25)),
+        r#"<table:table-cell office:value-type="time" office:time-value="PT06H00M00S"><text:p>06:00:00</text:p></table:table-cell>"#
+    );
+}
+
+#[test]
+fn a_time_of_more_than_a_day_stays_a_time() {
+    let before = r#"<table:table-cell office:value-type="time" office:time-value="PT36H00M00S"><text:p>36:00</text:p></table:table-cell>"#;
+    assert_eq!(
+        saved_cell(before, date(2.5)),
+        r#"<table:table-cell office:value-type="time" office:time-value="PT60H00M00S"><text:p>60:00:00</text:p></table:table-cell>"#
+    );
+}
+
+#[test]
+fn an_edit_keeps_the_style_merge_and_note_and_replaces_the_rest() {
+    let before = concat!(
+        r#"<table:table-cell table:style-name="ce1" table:number-columns-spanned="2" table:formula="of:=1" office:value-type="currency" office:currency="EUR" office:value="1" calcext:value-type="currency">"#,
+        r#"<office:annotation><text:p>a note</text:p></office:annotation><text:p>1,00 €</text:p></table:table-cell>"#,
+    );
+    assert_eq!(
+        saved_cell(before, number(2.0)),
+        concat!(
+            r#"<table:table-cell table:style-name="ce1" table:number-columns-spanned="2" office:value-type="float" office:value="2">"#,
+            r#"<office:annotation><text:p>a note</text:p></office:annotation><text:p>2</text:p></table:table-cell>"#,
+        )
+    );
+}
+
+#[test]
+fn clearing_a_cell_keeps_only_what_it_looks_like() {
+    let before = r#"<table:table-cell table:style-name="ce1" office:value-type="float" office:value="1"><text:p>1</text:p></table:table-cell>"#;
+    assert_eq!(
+        saved_cell(before, Cell::default()),
+        r#"<table:table-cell table:style-name="ce1"/>"#
+    );
+    assert_eq!(saved_cell(CELL_7, Cell::default()), BLANK);
+}
+
+#[test]
+fn attribute_values_stay_escaped_when_a_cell_is_rewritten() {
+    let before = r#"<table:table-cell table:style-name="a&amp;b" table:content-validation-name='say "hi"'/>"#;
+    assert_eq!(
+        saved_cell(before, number(1.0)),
+        r#"<table:table-cell table:style-name="a&amp;b" table:content-validation-name="say &quot;hi&quot;" office:value-type="float" office:value="1"><text:p>1</text:p></table:table-cell>"#
+    );
+}

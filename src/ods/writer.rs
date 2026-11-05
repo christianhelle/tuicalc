@@ -12,6 +12,7 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 use super::Layout;
 use super::reader::CONTENT_PART;
 use crate::address::CellRef;
+use crate::date;
 use crate::model::{Cell, CellValue, Sheet};
 use crate::workbook::WorkbookError;
 use crate::workbook::xml::{local_name, plain_attr, xml_error};
@@ -455,7 +456,7 @@ fn patch_row_cells(inner: &str, row_name: &str, edits: &[(u32, Cell)]) -> String
                         if *at > piece_at {
                             tag.write_repeated(&mut out, COLUMNS_REPEATED, at - piece_at);
                         }
-                        write_edited_cell(&mut out, &tag, cell, prefix);
+                        write_edited_cell(&mut out, &tag, cell);
                         piece_at = at + 1;
                     }
                     if past > piece_at {
@@ -486,7 +487,7 @@ fn patch_row_cells(inner: &str, row_name: &str, edits: &[(u32, Cell)]) -> String
             attributes: Vec::new(),
             inner: "",
         };
-        write_edited_cell(&mut out, &blank, cell, prefix);
+        write_edited_cell(&mut out, &blank, cell);
         col = at + 1;
     }
     out
@@ -504,30 +505,135 @@ const VALUE_ATTRIBUTES: [&str; 8] = [
     "formula",
 ];
 
-fn write_edited_cell(out: &mut String, tag: &Tag<'_>, cell: &Cell, _prefix: &str) {
+fn write_edited_cell(out: &mut String, tag: &Tag<'_>, cell: &Cell) {
     let office = "office";
-    let text = "text";
+    let mut was_time = false;
     out.push('<');
     out.push_str(&tag.name);
     for (key, value) in &tag.attributes {
         let local = local_of(key);
+        if local == "value-type" && !key.starts_with("calcext:") {
+            was_time = value == "time";
+        }
         if local != COLUMNS_REPEATED && !VALUE_ATTRIBUTES.contains(&local) {
             out.push_str(&format!(r#" {key}="{value}""#));
         }
     }
-    let paragraph = match &cell.value {
+    let mut paragraphs = String::new();
+    match &cell.value {
+        CellValue::Empty => {}
+        CellValue::Number(serial) if cell.is_date && (was_time || *serial < 1.0) => {
+            let duration = date::duration_from_serial(*serial);
+            out.push_str(&format!(
+                r#" {office}:value-type="time" {office}:time-value="{duration}""#
+            ));
+            write_paragraphs(&mut paragraphs, &date::clock_from_serial(*serial));
+        }
+        CellValue::Number(serial) if cell.is_date => {
+            let iso = date::iso_from_serial(*serial);
+            out.push_str(&format!(
+                r#" {office}:value-type="date" {office}:date-value="{iso}""#
+            ));
+            write_paragraphs(&mut paragraphs, &date::format_serial(*serial, false));
+        }
         CellValue::Number(number) => {
             out.push_str(&format!(
                 r#" {office}:value-type="float" {office}:value="{number}""#
             ));
-            Some(number.to_string())
+            write_paragraphs(&mut paragraphs, &number.to_string());
         }
-        _ => None,
-    };
-    match paragraph {
-        Some(content) => {
-            out.push_str(&format!("><{text}:p>{content}</{text}:p></{}>", tag.name));
+        CellValue::Bool(flag) => {
+            out.push_str(&format!(
+                r#" {office}:value-type="boolean" {office}:boolean-value="{flag}""#
+            ));
+            write_paragraphs(&mut paragraphs, if *flag { "TRUE" } else { "FALSE" });
         }
-        None => out.push_str("/>"),
+        CellValue::Error(text) => {
+            out.push_str(&format!(
+                r#" {office}:value-type="string" {office}:string-value="" calcext:value-type="error""#
+            ));
+            write_paragraphs(&mut paragraphs, text);
+        }
+        CellValue::Text(text) => {
+            out.push_str(&format!(r#" {office}:value-type="string""#));
+            write_paragraphs(&mut paragraphs, text);
+        }
+    }
+    let kept = kept_children(tag.inner);
+    if kept.is_empty() && paragraphs.is_empty() {
+        out.push_str("/>");
+        return;
+    }
+    out.push('>');
+    out.push_str(&kept);
+    out.push_str(&paragraphs);
+    out.push_str(&format!("</{}>", tag.name));
+}
+
+/// What's in a cell apart from its text, such as its note, as it was written.
+fn kept_children(inner: &str) -> String {
+    let mut kept = String::new();
+    let mut reader = Reader::from_str(inner);
+    loop {
+        let before = position(&reader);
+        match reader.read_event() {
+            Ok(Event::Start(element)) => {
+                let wanted = local_name(&element) != "p";
+                if reader.read_to_end(element.name()).is_err() {
+                    return kept;
+                }
+                if wanted {
+                    kept.push_str(&inner[before..position(&reader)]);
+                }
+            }
+            Ok(Event::Empty(element)) => {
+                if local_name(&element) != "p" {
+                    kept.push_str(&inner[before..position(&reader)]);
+                }
+            }
+            Ok(Event::Eof) | Err(_) => return kept,
+            Ok(_) => {}
+        }
+    }
+}
+
+/// Writes text as paragraphs, using elements for what XML whitespace would lose.
+fn write_paragraphs(out: &mut String, text: &str) {
+    let name = "text";
+    for line in text.split('\n') {
+        let mut content = String::with_capacity(line.len());
+        let mut chars = line.chars().peekable();
+        let mut at_start = true;
+        while let Some(c) = chars.next() {
+            match c {
+                ' ' => {
+                    let mut run = 1;
+                    while chars.next_if_eq(&' ').is_some() {
+                        run += 1;
+                    }
+                    if !at_start && chars.peek().is_some() {
+                        content.push(' ');
+                        run -= 1;
+                    }
+                    match run {
+                        0 => {}
+                        1 => content.push_str(&format!("<{name}:s/>")),
+                        _ => content.push_str(&format!(r#"<{name}:s {name}:c="{run}"/>"#)),
+                    }
+                }
+                '\t' => content.push_str(&format!("<{name}:tab/>")),
+                c if c < ' ' || c == '\u{FFFE}' || c == '\u{FFFF}' => {}
+                '&' => content.push_str("&amp;"),
+                '<' => content.push_str("&lt;"),
+                '>' => content.push_str("&gt;"),
+                c => content.push(c),
+            }
+            at_start = false;
+        }
+        if content.is_empty() {
+            out.push_str(&format!("<{name}:p/>"));
+        } else {
+            out.push_str(&format!("<{name}:p>{content}</{name}:p>"));
+        }
     }
 }
