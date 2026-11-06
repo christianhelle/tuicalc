@@ -44,11 +44,13 @@ pub fn translate(formula: &str, cols: i64, rows: i64) -> String {
     out
 }
 
-fn is_token_char(c: char) -> bool {
+/// Whether a character can be part of a reference, name or number.
+pub(crate) fn is_token_char(c: char) -> bool {
     c.is_alphanumeric() || matches!(c, '$' | '_' | '.' | '\\')
 }
 
-fn token_end(chars: &[char], start: usize) -> usize {
+/// Where the run of token characters starting at `start` ends.
+pub(crate) fn token_end(chars: &[char], start: usize) -> usize {
     let mut end = start;
     while end < chars.len() && is_token_char(chars[end]) {
         end += 1;
@@ -70,7 +72,7 @@ fn token_end(chars: &[char], start: usize) -> usize {
 }
 
 /// Copies a quoted string or sheet name, where a doubled quote is an escape.
-fn copy_quoted(chars: &[char], start: usize, quote: char, out: &mut String) -> usize {
+pub(crate) fn copy_quoted(chars: &[char], start: usize, quote: char, out: &mut String) -> usize {
     out.push(quote);
     let mut i = start + 1;
     while i < chars.len() {

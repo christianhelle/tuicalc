@@ -1,5 +1,7 @@
 //! Converts formulas between OpenFormula, as ODF stores them, and the Excel style the app works in.
 
+use crate::formula::{copy_quoted, is_token_char, token_end};
+
 const OPEN_FORMULA_PREFIXES: [&str; 3] = ["of:=", "oooc:=", "="];
 const EXCEL_PREFIX: &str = "msoxl:=";
 
@@ -72,25 +74,6 @@ fn convert_body(body: &str) -> String {
         }
     }
     out
-}
-
-/// Copies a quoted string or sheet name, where a doubled quote is an escape.
-fn copy_quoted(chars: &[char], start: usize, quote: char, out: &mut String) -> usize {
-    out.push(quote);
-    let mut i = start + 1;
-    while i < chars.len() {
-        out.push(chars[i]);
-        if chars[i] == quote {
-            if chars.get(i + 1) == Some(&quote) {
-                out.push(quote);
-                i += 2;
-                continue;
-            }
-            return i + 1;
-        }
-        i += 1;
-    }
-    i
 }
 
 /// The position of the `]` closing the reference opened at `start`, or the end of the text.
@@ -256,18 +239,6 @@ fn has_grammar_prefix(typed: &str) -> bool {
     typed.split_once(":=").is_some_and(|(name, _)| {
         !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric())
     })
-}
-
-fn is_token_char(c: char) -> bool {
-    c.is_alphanumeric() || matches!(c, '$' | '_' | '.' | '\\')
-}
-
-fn token_end(chars: &[char], start: usize) -> usize {
-    let mut end = start;
-    while end < chars.len() && is_token_char(chars[end]) {
-        end += 1;
-    }
-    end
 }
 
 /// Writes a sheet name the way a reference needs it, quoting one that would be misread.
