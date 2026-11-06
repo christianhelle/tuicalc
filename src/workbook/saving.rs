@@ -7,10 +7,9 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::thread;
 use std::time::Duration;
 
-use super::{Layout, WorkbookError};
+use super::WorkbookError;
+use super::format::{self, Layout};
 use crate::model::Sheet;
-use crate::ods;
-use crate::xlsx::writer;
 
 /// A package that has reached the disk, ready for its workbook to take in.
 #[derive(Debug)]
@@ -91,7 +90,7 @@ impl SaveJob {
         }
         let (source, layout) = self.package_for_path()?;
         let bytes = if dirty {
-            Arc::new(self.patched(&source, &layout)?)
+            Arc::new(layout.patch(&source, &self.sheets)?)
         } else {
             source
         };
@@ -102,38 +101,12 @@ impl SaveJob {
         Ok(self.saved(bytes, layout))
     }
 
-    /// What to write edits into, given the name of the file they're going to. A workbook with no
-    /// file takes the format its name asks for, and one with a file stays in its format.
+    /// What to write edits into. The file the workbook came from keeps its format whatever its name.
     fn package_for_path(&self) -> Result<(Arc<Vec<u8>>, Layout), WorkbookError> {
-        let kind = ods::Kind::of_path(&self.path);
-        let is_xlsx = self
-            .path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("xlsx"));
-        let same_format = match (&self.layout, kind) {
-            (Layout::Xlsx(_), kind) => kind.is_none(),
-            (Layout::Ods(layout), Some(kind)) => kind.layout() == *layout,
-            (Layout::Ods(_), None) => !is_xlsx,
-        };
-        if same_format || self.target == Target::Own {
+        if self.target == Target::Own {
             return Ok((Arc::clone(&self.source), self.layout.clone()));
         }
-        match kind {
-            Some(kind) if self.is_blank => {
-                let source = ods::writer::blank(kind)?;
-                Ok((Arc::new(source), Layout::Ods(kind.layout())))
-            }
-            _ => Err(WorkbookError::Invalid(
-                "can't save an opened workbook in another format".into(),
-            )),
-        }
-    }
-
-    fn patched(&self, source: &[u8], layout: &Layout) -> Result<Vec<u8>, WorkbookError> {
-        match layout {
-            Layout::Xlsx(layout) => writer::patch(source, layout, &self.sheets),
-            Layout::Ods(layout) => ods::writer::patch(source, *layout, &self.sheets),
-        }
+        format::package_for(&self.path, &self.source, &self.layout, !self.is_blank)
     }
 
     fn saved(&self, bytes: Arc<Vec<u8>>, layout: Layout) -> SavedPackage {

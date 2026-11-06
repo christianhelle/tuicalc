@@ -1,5 +1,6 @@
 //! An open workbook and the file it belongs to.
 
+mod format;
 pub(crate) mod loading;
 mod saving;
 pub(crate) mod xml;
@@ -10,7 +11,8 @@ use std::sync::Arc;
 
 use crate::model::Sheet;
 use crate::ods;
-use crate::xlsx::{loading as xlsx_loading, reader, writer};
+use crate::xlsx::reader;
+use format::Layout;
 use saving::{SaveJob, Target};
 
 pub use loading::{Arrival, WorkbookLoad};
@@ -54,13 +56,6 @@ impl From<zip::result::ZipError> for WorkbookError {
     fn from(error: zip::result::ZipError) -> Self {
         Self::Zip(error)
     }
-}
-
-/// Where the parts that saving needs live in the file, which also says what format it's in.
-#[derive(Debug, Clone)]
-pub(crate) enum Layout {
-    Xlsx(reader::Layout),
-    Ods(ods::Layout),
 }
 
 /// An open workbook, together with the package bytes it was loaded from.
@@ -107,33 +102,20 @@ impl Workbook {
     ) -> Result<(Self, WorkbookLoad), WorkbookError> {
         let path = path.as_ref().to_path_buf();
         let source = Arc::new(std::fs::read(&path)?);
-        if let Some(layout) = ods::detect(&source)? {
-            let plan = ods::reader::read_plan(&source, layout)?;
-            let load = ods::reader::start_load(Arc::clone(&source), layout, &plan);
-            let workbook = Self {
-                sheets: plan.sheet_names.iter().map(Sheet::new).collect(),
-                date1904: false,
-                path: Some(path),
-                source,
-                layout: Layout::Ods(layout),
-            };
-            return Ok((workbook, load));
-        }
-        let plan = reader::read_plan(&source)?;
-        let load = xlsx_loading::start(Arc::clone(&source), &plan, preferred_sheet);
+        let opening = format::open(Arc::clone(&source), preferred_sheet)?;
         let workbook = Self {
-            sheets: plan.sheet_names.iter().map(Sheet::new).collect(),
-            date1904: plan.date1904,
+            sheets: opening.sheet_names.iter().map(Sheet::new).collect(),
+            date1904: opening.date1904,
             path: Some(path),
             source,
-            layout: Layout::Xlsx(plan.layout),
+            layout: opening.layout,
         };
-        Ok((workbook, load))
+        Ok((workbook, opening.load))
     }
 
     /// An empty one-sheet workbook that isn't tied to a file yet.
     pub fn blank() -> Result<Self, WorkbookError> {
-        let source = writer::blank_package()?;
+        let source = format::blank()?;
         let (sheets, date1904, layout) = reader::read(&source)?;
         Ok(Self {
             sheets,
