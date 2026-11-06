@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Hybrid row numbers, as in vim: the cursor's row shows its number, left-aligned,
+  and every other row shows its distance from the cursor, for counts like `5j`.
+
 ### Changed
 
 - Opening a workbook all at once now reads it the same way the app does in the

@@ -83,7 +83,9 @@ current mode, and shows a command you haven't finished at its right edge.
 
 ### Normal mode
 
-Most motions take a count, such as `5j` or `3w`. A "word" is a run of filled cells in the row, and
+Most motions take a count, such as `5j` or `3w`. As with vim's hybrid line numbers, the cursor's
+row shows its number and every other row shows how far it is from the cursor, so the count for `j`
+or `k` can be read off the screen. A "word" is a run of filled cells in the row, and
 a "paragraph" is a run of filled cells in the column.
 
 | Key | Action |
