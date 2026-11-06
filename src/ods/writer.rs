@@ -20,7 +20,7 @@ use crate::address::CellRef;
 use crate::date;
 use crate::model::{Cell, CellValue, Sheet};
 use crate::workbook::WorkbookError;
-use crate::workbook::xml::{local_name, xml_error};
+use crate::workbook::xml::{Splice, local_name, position, xml_error};
 
 const ROWS_REPEATED: &str = "number-rows-repeated";
 const COLUMNS_REPEATED: &str = "number-columns-repeated";
@@ -102,10 +102,6 @@ pub fn patch(source: &[u8], layout: Layout, sheets: &[Sheet]) -> Result<Vec<u8>,
     }
 }
 
-fn position(reader: &Reader<&[u8]>) -> usize {
-    reader.buffer_position() as usize
-}
-
 /// An element's name and attributes as written, so it can be written again with changes.
 struct Tag<'a> {
     name: String,
@@ -174,11 +170,7 @@ fn local_of(key: &str) -> &str {
 
 /// Splices edited cells into the content XML, leaving all other bytes as they were.
 fn patch_content(xml: &str, sheets: &[Sheet]) -> Result<String, WorkbookError> {
-    let mut patch = ContentPatch {
-        xml,
-        out: String::with_capacity(xml.len()),
-        copied_to: 0,
-    };
+    let mut patch = Splice::new(xml, 0);
     let mut reader = Reader::from_str(xml);
     let mut in_spreadsheet = false;
     let mut next_sheet = 0;
@@ -267,8 +259,7 @@ fn patch_content(xml: &str, sheets: &[Sheet]) -> Result<String, WorkbookError> {
             _ => {}
         }
     }
-    patch.copy_until(xml.len(), xml.len());
-    Ok(patch.out)
+    Ok(patch.finish())
 }
 
 fn qualified_name(element: &BytesStart<'_>) -> String {
@@ -298,21 +289,6 @@ impl Prefixes {
             calcext: declared_prefix(root, CALCEXT_NAMESPACE),
             formula: declared_prefix(root, FORMULA_NAMESPACE),
         })
-    }
-}
-
-/// The output so far, and how far through the source it has got.
-struct ContentPatch<'a> {
-    xml: &'a str,
-    out: String,
-    copied_to: usize,
-}
-
-impl ContentPatch<'_> {
-    /// Copies source bytes up to `end`, then skips ahead to `resume`.
-    fn copy_until(&mut self, end: usize, resume: usize) {
-        self.out.push_str(&self.xml[self.copied_to..end]);
-        self.copied_to = resume;
     }
 }
 
@@ -352,7 +328,7 @@ impl TablePatch {
     }
 
     /// Adds column declarations for edits past the last one. They must come before any row.
-    fn declare_columns(&mut self, patch: &mut ContentPatch<'_>, prefix: &str) {
+    fn declare_columns(&mut self, patch: &mut Splice<'_>, prefix: &str) {
         if self.columns_declared {
             return;
         }
@@ -376,7 +352,7 @@ impl TablePatch {
     /// Replaces a row element covering edited rows with its pieces.
     fn patch_row(
         &mut self,
-        patch: &mut ContentPatch<'_>,
+        patch: &mut Splice<'_>,
         element: &BytesStart<'_>,
         inner: &str,
         start: usize,
@@ -441,7 +417,7 @@ impl TablePatch {
     /// tag starts in the source, if it has one.
     fn finish(
         &mut self,
-        patch: &mut ContentPatch<'_>,
+        patch: &mut Splice<'_>,
         table_end: Option<usize>,
         prefix: &str,
         prefixes: &Prefixes,
@@ -505,9 +481,8 @@ fn patch_row_cells(
     prefixes: &Prefixes,
 ) -> String {
     let prefix = prefix_of(row_name);
-    let mut out = String::with_capacity(inner.len() + edits.len() * 64);
+    let mut splice = Splice::new(inner, edits.len() * 64);
     let mut reader = Reader::from_str(inner);
-    let mut copied_to = 0;
     let mut col = 0_u32;
     let mut edits = edits.iter().peekable();
     loop {
@@ -538,19 +513,18 @@ fn patch_row_cells(
                 let repeated = repeat_count(element, COLUMNS_REPEATED);
                 let past = col.saturating_add(repeated);
                 if edits.peek().is_some_and(|(at, _)| *at < past) {
-                    out.push_str(&inner[copied_to..before]);
-                    copied_to = end;
+                    splice.copy_until(before, end);
                     let tag = Tag::new(element, cell_inner);
                     let mut piece_at = col;
                     while let Some((at, cell)) = edits.next_if(|(at, _)| *at < past) {
                         if *at > piece_at {
-                            tag.write_repeated(&mut out, COLUMNS_REPEATED, at - piece_at);
+                            tag.write_repeated(&mut splice.out, COLUMNS_REPEATED, at - piece_at);
                         }
-                        write_edited_cell(&mut out, &tag, cell, prefixes);
+                        write_edited_cell(&mut splice.out, &tag, cell, prefixes);
                         piece_at = at + 1;
                     }
                     if past > piece_at {
-                        tag.write_repeated(&mut out, COLUMNS_REPEATED, past - piece_at);
+                        tag.write_repeated(&mut splice.out, COLUMNS_REPEATED, past - piece_at);
                     }
                 }
                 col = past;
@@ -559,7 +533,7 @@ fn patch_row_cells(
             _ => {}
         }
     }
-    out.push_str(&inner[copied_to..]);
+    let mut out = splice.finish();
     let cell_name = qualified(prefix, "table-cell");
     let repeat = qualified(prefix, COLUMNS_REPEATED);
     for (at, cell) in edits {
