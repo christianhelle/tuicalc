@@ -592,13 +592,15 @@ fn draw_grid(buffer: &mut Buffer, area: Rect, app: &App, cols: u32, rows: u32) {
 }
 
 /// A row's header, as in vim's hybrid line numbers: the cursor's row by its number,
-/// left-aligned, and every other row by its distance from the cursor, for counts like `5j`.
+/// and every other row by its distance from the cursor, for counts like `5j`. All are
+/// right-aligned: the header is too wide for vim's left-aligned current line to read well.
 fn row_header(row: u32, cursor_row: u32, width: usize) -> String {
-    if row == cursor_row {
-        format!("{:<width$}", row + 1)
+    let number = if row == cursor_row {
+        row + 1
     } else {
-        format!("{:>width$}", row.abs_diff(cursor_row))
-    }
+        row.abs_diff(cursor_row)
+    };
+    format!("{number:>width$}")
 }
 
 /// Draws the line under the headers and the lines between columns.

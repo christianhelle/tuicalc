@@ -10,7 +10,7 @@ expression: shot(&mut app)
 ┃───────┼───────────┼───────────┼───────────┼───────────┼───────────┤          ┃
 ┃      2│Item       │Price      │Qty        │           │           │          ┃
 ┃      1│Apples     │       1.25│          4│           │           │          ┃
-┃3      │P┌ Unsaved changes ─────────────────────────────────────────┐         ┃
+┃      3│P┌ Unsaved changes ─────────────────────────────────────────┐         ┃
 ┃      1│ │book.xlsx has unsaved changes.                            │         ┃
 ┃      2│ │s save and quit   d discard and quit   Esc stay           │         ┃
 ┃      3│ └──────────────────────────────────────────────────────────┘         ┃

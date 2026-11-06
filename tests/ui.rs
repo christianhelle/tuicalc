@@ -126,7 +126,7 @@ fn draws_column_and_row_headers_with_aligned_values() {
     );
     assert_eq!(
         grid_line(&screen, 1),
-        "1      │           │           │           │"
+        "      1│           │           │           │"
     );
     assert_eq!(
         grid_line(&screen, 2),
@@ -602,7 +602,7 @@ fn row_numbers_count_away_from_the_cursor_row() {
 }
 
 #[test]
-fn the_cursor_rows_number_is_left_aligned() {
+fn the_cursor_rows_number_is_right_aligned_like_the_others() {
     let (_file, mut app) = app_with("");
     for key in ['2', '5', 'G'] {
         press(&mut app, KeyCode::Char(key));
@@ -611,7 +611,7 @@ fn the_cursor_rows_number_is_left_aligned() {
     let screen = render(&mut app, 50, 16);
     let cursor_line = (1..=8)
         .map(|row| grid_line(&screen, row))
-        .find(|line| line.starts_with("25 "))
+        .find(|line| line.starts_with("     25│"))
         .unwrap_or_else(|| panic!("{screen:#?}"));
 
     assert_eq!(row_label(cursor_line), "25");
@@ -1185,9 +1185,8 @@ fn column_and_row_headers_are_bold_but_the_cursor_is_not() {
     let number_y = cell_position(0, 0).1;
     assert_eq!(buffer[(letter_x, header_y())].symbol(), "A");
     assert!(is_bold(letter_x, header_y()), "a column letter");
-    // The cursor's row number is left-aligned.
-    assert_eq!(buffer[(1, number_y)].symbol(), "1");
-    assert!(is_bold(1, number_y), "a row number");
+    assert_eq!(buffer[(row_number_x(), number_y)].symbol(), "1");
+    assert!(is_bold(row_number_x(), number_y), "a row number");
     assert!(is_selector(&buffer[cell_position(0, 0)]));
     let (x, y) = cell_position(0, 0);
     assert!(!is_bold(x, y), "the cursor");
