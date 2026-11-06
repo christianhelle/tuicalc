@@ -24,7 +24,7 @@ This installs the latest release to `~/.local/bin`. To install somewhere else, o
 
 ```bash
 curl -fsSL https://christianhelle.com/tuicalc/install | INSTALL_DIR="$HOME/bin" bash
-curl -fsSL https://christianhelle.com/tuicalc/install | VERSION="0.1.0" bash
+curl -fsSL https://christianhelle.com/tuicalc/install | VERSION="0.1.1" bash
 ```
 
 ### Windows PowerShell
@@ -40,7 +40,7 @@ a release:
 ```powershell
 $install = irm https://christianhelle.com/tuicalc/install.ps1
 & ([scriptblock]::Create($install)) -InstallDir "$env:USERPROFILE\bin"
-& ([scriptblock]::Create($install)) -Version "0.1.0"
+& ([scriptblock]::Create($install)) -Version "0.1.1"
 ```
 
 ### Cargo
