@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Opening a workbook all at once now reads it the same way the app does in the
+  background, so the two can no longer behave differently. Telling formats
+  apart, loading them and saving edits into them each happen in one place, and
+  Excel and OpenDocument formulas are split into tokens by the same code.
+
 ## [0.1.1] - 2026-11-06
 
 ### Added
