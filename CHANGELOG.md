@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Hybrid row numbers, as in vim: the cursor's row shows its number, left-aligned,
-  and every other row shows its distance from the cursor, for counts like `5j`.
+- Hybrid row numbers, as in vim: the cursor's row shows its number and every
+  other row shows its distance from the cursor, for counts like `5j`.
 
 ### Changed
 
