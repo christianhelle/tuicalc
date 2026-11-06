@@ -8,7 +8,7 @@ expression: "render(&mut app, 90, 24).join(\"\\n\")"
 ┏ book.xlsx — Sheet1 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃       │     A     │     B     │     C     │     D     │     E     │     F     │        ┃
 ┃───────┼───────────┼───────────┼───────────┼───────────┼───────────┼───────────┤        ┃
-┃      1│           │           │           │           │           │           │        ┃
+┃1      │           │           │           │           │           │           │        ┃
 ┃      ┌ Keys ────────────────────────────────────────────────────────────────────┐      ┃
 ┃      │Esc                      Keep the text and stay                           │      ┃
 ┃      │Enter ↓ ↑                Keep the text and move down, up                  │      ┃
@@ -17,12 +17,12 @@ expression: "render(&mut app, 90, 24).join(\"\\n\")"
 ┃      │Ctrl-U Ctrl-W            Delete to the start, delete a word               │      ┃
 ┃      │← → Home End             Move the caret                                   │      ┃
 ┃      │Backspace Delete         Delete a character                               │      ┃
-┃     1│F1                       This help                                        │      ┃
+┃      │F1                       This help                                        │      ┃
 ┃     1│                         Press any key to close                           │      ┃
 ┃     1└──────────────────────────────────────────────────────────────────────────┘      ┃
+┃     12│           │           │           │           │           │           │        ┃
 ┃     13│           │           │           │           │           │           │        ┃
 ┃     14│           │           │           │           │           │           │        ┃
-┃     15│           │           │           │           │           │           │        ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
  Sheet1                                                                                   
  NORMAL

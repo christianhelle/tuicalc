@@ -8,7 +8,7 @@ expression: "render(&mut app, 90, 24).join(\"\\n\")"
 ┏ book.│w e b { }                Jump between runs of filled and empty cells      │━━━━━━┓
 ┃      │0 ^ $ {n}|               First, first filled, last filled, nth column     │      ┃
 ┃──────│gg G {n}G                First row, last used row, row n                  │      ┃
-┃      │H M L zz zt zb           Move on screen; place the cursor's row           │      ┃
+┃1     │H M L zz zt zb           Move on screen; place the cursor's row           │      ┃
 ┃      │Ctrl-D/U/F/B PgDn PgUp   Half page and page, with the view                │      ┃
 ┃      │Home End Ctrl-Home/End   Row edge, A1, last used cell                     │      ┃
 ┃      │gt gT {n}gt F6 Shift-F6  Next, previous, nth sheet                        │      ┃
@@ -17,7 +17,7 @@ expression: "render(&mut app, 90, 24).join(\"\\n\")"
 ┃      │s S C o O =              Replace, rows, to row end, below, above, formula │      ┃
 ┃      │d y c + motion, dd yy cc Delete, copy, change                             │      ┃
 ┃      │x X D Delete Backspace   Clear here, to the left, to row end              │      ┃
-┃     1│p P u Ctrl-Z Ctrl-R/Y    Paste after, before; undo; redo                  │      ┃
+┃      │p P u Ctrl-Z Ctrl-R/Y    Paste after, before; undo; redo                  │      ┃
 ┃     1│v Ctrl-V V               Select cells, select rows                        │      ┃
 ┃     1│/ n N                    Find in this sheet, next, previous               │      ┃
 ┃     1│Ctrl-G                   Go to a cell or row                              │      ┃
