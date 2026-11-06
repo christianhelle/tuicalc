@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use crate::address::CellRef;
 use crate::changes::{History, Locked, Restored};
 use crate::model::{Cell, Sheet};
+use crate::motion::{Motion, Spot};
 use crate::workbook::{Arrival, SavedPackage, Workbook, WorkbookError, WorkbookLoad, WorkbookSave};
 
 /// Why something that was asked of the document isn't happening.
@@ -136,6 +137,20 @@ impl Place {
             anchor: origin,
             sheet: 0,
             cursors: vec![origin; sheets],
+        }
+    }
+
+    /// Scrolls just enough to show the cursor in a view of `cols` by `rows` cells.
+    pub fn keep_cursor_in_view(&mut self, (cols, rows): (u32, u32)) {
+        if self.cursor.col < self.scroll.col {
+            self.scroll.col = self.cursor.col;
+        } else if self.cursor.col >= self.scroll.col + cols {
+            self.scroll.col = self.cursor.col + 1 - cols;
+        }
+        if self.cursor.row < self.scroll.row {
+            self.scroll.row = self.cursor.row;
+        } else if self.cursor.row >= self.scroll.row + rows {
+            self.scroll.row = self.cursor.row + 1 - rows;
         }
     }
 }
@@ -415,6 +430,18 @@ impl Document {
 
     pub fn workbook(&self) -> &Workbook {
         &self.workbook
+    }
+
+    /// Moves the cursor in a view `rows` tall, and the view along with it for the motions that
+    /// take it.
+    pub fn take_motion(&mut self, motion: Motion, count: Option<u32>, rows: u32) {
+        let spot = Spot {
+            cursor: self.place.cursor,
+            scroll: self.place.scroll,
+        };
+        let landed = motion.land(count, self.current_sheet(), spot, rows);
+        self.place.cursor = landed.cursor;
+        self.place.scroll = landed.scroll;
     }
 
     pub fn sheet_index(&self) -> usize {

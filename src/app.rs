@@ -14,7 +14,7 @@ use crate::help::{self, HelpTable};
 use crate::keys::is_ctrl;
 use crate::line_edit::LineEdit;
 use crate::model::{Cell, Sheet};
-use crate::motion::{Motion, Spot, last_filled_column, moved};
+use crate::motion::{Motion, last_filled_column, moved};
 use crate::status::Status;
 use crate::text::{cell_contains, edit_text, parse_input};
 use crate::workbook::{Workbook, WorkbookLoad};
@@ -364,19 +364,8 @@ impl App {
         self.doc.place.scroll
     }
 
-    /// Adjusts the scroll position just enough to show the cursor.
     fn scroll_to_cursor(&mut self) {
-        let (cols, rows) = self.viewport;
-        if self.doc.place.cursor.col < self.doc.place.scroll.col {
-            self.doc.place.scroll.col = self.doc.place.cursor.col;
-        } else if self.doc.place.cursor.col >= self.doc.place.scroll.col + cols {
-            self.doc.place.scroll.col = self.doc.place.cursor.col + 1 - cols;
-        }
-        if self.doc.place.cursor.row < self.doc.place.scroll.row {
-            self.doc.place.scroll.row = self.doc.place.cursor.row;
-        } else if self.doc.place.cursor.row >= self.doc.place.scroll.row + rows {
-            self.doc.place.scroll.row = self.doc.place.cursor.row + 1 - rows;
-        }
+        self.doc.place.keep_cursor_in_view(self.viewport);
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -525,15 +514,8 @@ impl App {
         }
     }
 
-    /// Moves the cursor, and the view for the motions that take it along.
     fn run_motion(&mut self, motion: Motion, count: Option<u32>) {
-        let spot = Spot {
-            cursor: self.doc.place.cursor,
-            scroll: self.doc.place.scroll,
-        };
-        let landed = motion.land(count, self.doc.current_sheet(), spot, self.viewport.1);
-        self.doc.place.cursor = landed.cursor;
-        self.doc.place.scroll = landed.scroll;
+        self.doc.take_motion(motion, count, self.viewport.1);
     }
 
     /// The last filled cell of the cursor's row, if it's not behind the cursor.

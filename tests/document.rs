@@ -424,3 +424,30 @@ fn no_other_workbook_loads_while_this_one_is_busy() {
         Err(OpenError::Refused(Refusal::StillOpening))
     ));
 }
+
+#[test]
+fn the_view_scrolls_just_enough_to_show_the_cursor() {
+    let mut document = Document::new(Workbook::blank().unwrap());
+    document.place.cursor = a1("Z100");
+    document.place.keep_cursor_in_view((10, 20));
+    assert_eq!(document.place.scroll, a1("Q81"));
+
+    document.place.cursor = a1("S90");
+    document.place.keep_cursor_in_view((10, 20));
+    assert_eq!(
+        document.place.scroll,
+        a1("Q81"),
+        "the cursor is already in view"
+    );
+
+    document.place.cursor = a1("A1");
+    document.place.keep_cursor_in_view((10, 20));
+    assert_eq!(document.place.scroll, a1("A1"));
+}
+
+#[test]
+fn a_motion_moves_the_cursor_on_the_sheet_on_show() {
+    let mut document = Document::new(Workbook::blank().unwrap());
+    document.take_motion(tuicalc::motion::Motion::Down, Some(5), 20);
+    assert_eq!(document.place.cursor, a1("A6"));
+}
