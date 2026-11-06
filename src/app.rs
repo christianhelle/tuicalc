@@ -15,6 +15,7 @@ use crate::keys::is_ctrl;
 use crate::line_edit::LineEdit;
 use crate::model::{Cell, Sheet};
 use crate::motion::{Motion, Spot, last_filled_column, moved};
+use crate::status::Status;
 use crate::text::{cell_contains, edit_text, parse_input};
 use crate::workbook::{Workbook, WorkbookLoad};
 
@@ -67,12 +68,6 @@ pub enum Click {
     Elsewhere,
 }
 
-/// A message for the user about background work.
-struct News {
-    message: String,
-    is_error: bool,
-}
-
 pub struct App {
     /// The workbook on show, and where the user is in it.
     doc: Document,
@@ -83,8 +78,7 @@ pub struct App {
     line: LineEdit,
     /// The cell as it was when editing began.
     original: Cell,
-    status: String,
-    status_is_error: bool,
+    status: Status,
     should_quit: bool,
     /// The part of a command typed so far.
     grammar: Grammar,
@@ -96,8 +90,6 @@ pub struct App {
     next_step: Option<NextStep>,
     /// Whether `next_step` has only been waiting for the user to finish what they're doing.
     next_step_due: bool,
-    /// A message about background work, kept until the user is back where it can be read.
-    news: Option<News>,
     /// The latest search, which `n` and `N` repeat.
     search_query: Option<String>,
     /// The mode to go back to when the help closes.
@@ -124,7 +116,6 @@ impl App {
             file_dialog: None,
             next_step: None,
             next_step_due: false,
-            news: None,
             search_query: None,
             help_from: Mode::Normal,
             load_failure: None,
@@ -133,8 +124,7 @@ impl App {
             mode: Mode::Normal,
             line: LineEdit::default(),
             original: Cell::default(),
-            status: String::new(),
-            status_is_error: false,
+            status: Status::default(),
             should_quit: false,
         }
     }
@@ -179,10 +169,7 @@ impl App {
                 if self.file_dialog.is_some() {
                     self.close_file_dialog();
                 }
-                self.announce(News {
-                    message: format!("Saved {}", self.file_name()),
-                    is_error: false,
-                });
+                self.announce(format!("Saved {}", self.file_name()), false);
                 if self.next_step == Some(NextStep::Quit) {
                     self.should_quit = true;
                 } else {
@@ -195,10 +182,7 @@ impl App {
                 Some(dialog) => dialog.set_message(format!("Save failed: {error}")),
                 None => {
                     self.next_step = None;
-                    self.announce(News {
-                        message: format!("Save failed: {error}"),
-                        is_error: true,
-                    });
+                    self.announce(format!("Save failed: {error}"), true);
                 }
             },
             Outcome::Loaded {
@@ -209,10 +193,7 @@ impl App {
                     LoadKind::Open => "Opened",
                     LoadKind::Reload => "Reloaded",
                 };
-                self.announce(News {
-                    message: format!("{verb} {}", self.file_name()),
-                    is_error: false,
-                });
+                self.announce(format!("{verb} {}", self.file_name()), false);
             }
             Outcome::LoadFailed {
                 kind,
@@ -236,13 +217,9 @@ impl App {
 
     /// Tells the user about background work now, or once they're back from a prompt or the help,
     /// whose own messages it would be taken for or hidden by.
-    fn announce(&mut self, news: News) {
-        if self.mode == Mode::Normal {
-            self.status = news.message;
-            self.status_is_error = news.is_error;
-        } else {
-            self.news = Some(news);
-        }
+    fn announce(&mut self, message: String, is_error: bool) {
+        let readable = self.mode == Mode::Normal;
+        self.status.announce(message, is_error, readable);
     }
 
     /// Takes the waiting step if it's due and the user isn't in the middle of something.
@@ -257,12 +234,7 @@ impl App {
 
     /// Catches up on what has been waiting for the user to finish what they were doing.
     fn catch_up(&mut self) {
-        if self.mode == Mode::Normal
-            && self.status.is_empty()
-            && let Some(news) = self.news.take()
-        {
-            self.announce(news);
-        }
+        self.status.catch_up(self.mode == Mode::Normal);
         self.take_due_step();
     }
 
@@ -279,7 +251,7 @@ impl App {
                 true
             }
             Err(refusal) => {
-                self.status = refusal.to_string();
+                self.status.say(refusal.to_string());
                 true
             }
         }
@@ -290,7 +262,7 @@ impl App {
         if self.doc.cancel_load() {
             self.mode = Mode::Normal;
             self.help_from = Mode::Normal;
-            self.status = "Stopped opening".into();
+            self.status.say("Stopped opening");
         } else {
             self.should_quit = true;
         }
@@ -336,10 +308,10 @@ impl App {
         if self.mode == Mode::GoTo {
             return Message::Hint;
         }
-        if !self.status.is_empty() {
+        if !self.status.text().is_empty() {
             return Message::Said {
-                text: self.status.clone(),
-                is_error: self.status_is_error,
+                text: self.status.text().to_string(),
+                is_error: self.status.is_error(),
             };
         }
         if self.mode != Mode::Normal {
@@ -362,17 +334,16 @@ impl App {
 
     /// The latest message for the user.
     pub fn status(&self) -> &str {
-        &self.status
+        self.status.text()
     }
 
     /// Whether the latest message reports something going wrong.
     pub fn status_is_error(&self) -> bool {
-        self.status_is_error
+        self.status.is_error()
     }
 
     fn report_error(&mut self, message: String) {
-        self.status = message;
-        self.status_is_error = true;
+        self.status.report_error(message);
     }
 
     pub fn should_quit(&self) -> bool {
@@ -414,7 +385,6 @@ impl App {
             return;
         }
         self.status.clear();
-        self.status_is_error = false;
         match self.mode {
             Mode::Normal => {
                 if let Some(command) = self.grammar.normal(key) {
@@ -472,7 +442,7 @@ impl App {
                     (self.doc.place.cursor.row + 1).saturating_sub(self.viewport.1);
             }
             Command::Reload if self.doc.workbook().path().is_none() => {
-                self.status = "Nothing to reload".into();
+                self.status.say("Nothing to reload");
             }
             Command::Reload => self.ask_before_losing_edits(NextStep::Reload),
             Command::Quit => self.ask_before_losing_edits(NextStep::Quit),
@@ -666,7 +636,7 @@ impl App {
         self.register = Some(register);
         self.doc.place.cursor = at;
         match operator {
-            Operator::Yank => self.status = format!("{yanked} cells yanked"),
+            Operator::Yank => self.status.say(format!("{yanked} cells yanked")),
             Operator::Change => self.begin_edit(""),
             Operator::Delete => {}
         }
@@ -675,7 +645,7 @@ impl App {
     /// `p`: writes the register at the cursor, or below it for whole rows. `P` puts rows here.
     fn paste(&mut self, before: bool) {
         let Some(register) = &self.register else {
-            self.status = "Nothing to paste".into();
+            self.status.say("Nothing to paste");
             return;
         };
         let paste = register.paste(self.current_sheet(), self.doc.place.cursor, before);
@@ -850,7 +820,7 @@ impl App {
     fn undo(&mut self) {
         match self.doc.undo() {
             Ok(true) => {}
-            Ok(false) => self.status = "Nothing to undo".into(),
+            Ok(false) => self.status.say("Nothing to undo"),
             Err(refusal) => {
                 self.refuse(Err(refusal));
             }
@@ -860,7 +830,7 @@ impl App {
     fn redo(&mut self) {
         match self.doc.redo() {
             Ok(true) => {}
-            Ok(false) => self.status = "Nothing to redo".into(),
+            Ok(false) => self.status.say("Nothing to redo"),
             Err(refusal) => {
                 self.refuse(Err(refusal));
             }
@@ -972,7 +942,7 @@ impl App {
     /// Moves to the next or previous cell holding the latest search, wrapping around the sheet.
     fn find_match(&mut self, forward: bool) {
         let Some(query) = self.search_query.clone() else {
-            self.status = "Nothing to search for".into();
+            self.status.say("Nothing to search for");
             return;
         };
         let needle = query.to_lowercase();
