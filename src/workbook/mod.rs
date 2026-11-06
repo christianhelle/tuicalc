@@ -10,8 +10,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::model::Sheet;
-use crate::ods;
-use crate::xlsx::reader;
 use format::Layout;
 use saving::{SaveJob, Target};
 
@@ -71,26 +69,10 @@ pub struct Workbook {
 }
 
 impl Workbook {
+    /// Opens a workbook and waits for all its cells.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, WorkbookError> {
-        let path = path.as_ref().to_path_buf();
-        let source = std::fs::read(&path)?;
-        if let Some(layout) = ods::detect(&source)? {
-            return Ok(Self {
-                sheets: ods::reader::read(&source, layout)?,
-                date1904: false,
-                path: Some(path),
-                source: Arc::new(source),
-                layout: Layout::Ods(layout),
-            });
-        }
-        let (sheets, date1904, layout) = reader::read(&source)?;
-        Ok(Self {
-            sheets,
-            date1904,
-            path: Some(path),
-            source: Arc::new(source),
-            layout: Layout::Xlsx(layout),
-        })
+        let (workbook, load) = Self::open_loading(path, 0)?;
+        workbook.with_all_of(load)
     }
 
     /// Opens a workbook whose sheets start out empty, with their cells on the way through the
@@ -101,29 +83,42 @@ impl Workbook {
         preferred_sheet: usize,
     ) -> Result<(Self, WorkbookLoad), WorkbookError> {
         let path = path.as_ref().to_path_buf();
-        let source = Arc::new(std::fs::read(&path)?);
+        let source = std::fs::read(&path)?;
+        Self::start_reading(source, Some(path), preferred_sheet)
+    }
+
+    /// An empty one-sheet workbook that isn't tied to a file yet.
+    pub fn blank() -> Result<Self, WorkbookError> {
+        let (workbook, load) = Self::start_reading(format::blank()?, None, 0)?;
+        workbook.with_all_of(load)
+    }
+
+    fn start_reading(
+        source: Vec<u8>,
+        path: Option<PathBuf>,
+        preferred_sheet: usize,
+    ) -> Result<(Self, WorkbookLoad), WorkbookError> {
+        let source = Arc::new(source);
         let opening = format::open(Arc::clone(&source), preferred_sheet)?;
         let workbook = Self {
             sheets: opening.sheet_names.iter().map(Sheet::new).collect(),
             date1904: opening.date1904,
-            path: Some(path),
+            path,
             source,
             layout: opening.layout,
         };
         Ok((workbook, opening.load))
     }
 
-    /// An empty one-sheet workbook that isn't tied to a file yet.
-    pub fn blank() -> Result<Self, WorkbookError> {
-        let source = format::blank()?;
-        let (sheets, date1904, layout) = reader::read(&source)?;
-        Ok(Self {
-            sheets,
-            date1904,
-            path: None,
-            source: Arc::new(source),
-            layout: Layout::Xlsx(layout),
-        })
+    /// This workbook once every cell of its load has arrived.
+    fn with_all_of(mut self, load: WorkbookLoad) -> Result<Self, WorkbookError> {
+        loop {
+            match load.receive(&mut self) {
+                Arrival::Cells | Arrival::Nothing => {}
+                Arrival::Ended => return Ok(self),
+                Arrival::Failed(error) => return Err(error),
+            }
+        }
     }
 
     pub fn is_dirty(&self) -> bool {

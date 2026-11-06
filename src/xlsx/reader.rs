@@ -11,7 +11,7 @@ use zip::ZipArchive;
 use super::escapes::decode_excel_escapes;
 use crate::address::CellRef;
 use crate::formula::translate;
-use crate::model::{Cell, CellValue, Sheet};
+use crate::model::{Cell, CellValue};
 use crate::workbook::WorkbookError;
 use crate::workbook::loading::{
     CHUNK_CELLS, Counting, FIRST_CHUNK_CELLS, READ_BUFFER_BYTES, SheetChunk,
@@ -41,30 +41,6 @@ pub struct Plan {
     pub date_styles: Vec<bool>,
     /// The uncompressed size of the shared strings and every sheet.
     pub total_bytes: u64,
-}
-
-pub fn read(source: &[u8]) -> Result<(Vec<Sheet>, bool, Layout), WorkbookError> {
-    let plan = read_plan(source)?;
-    let progress = AtomicU64::new(0);
-    let shared_strings =
-        read_shared_strings(source, plan.shared_strings_part.as_deref(), &progress)?;
-    let mut sheets = Vec::new();
-    for (name, part) in plan.sheet_names.iter().zip(&plan.layout.sheet_parts) {
-        let mut sheet = Sheet::new(name);
-        read_sheet_cells(
-            source,
-            part,
-            &shared_strings,
-            &plan.date_styles,
-            &progress,
-            &mut |chunk| {
-                chunk.apply_to(&mut sheet);
-                true
-            },
-        )?;
-        sheets.push(sheet);
-    }
-    Ok((sheets, plan.date1904, plan.layout))
 }
 
 pub fn read_plan(source: &[u8]) -> Result<Plan, WorkbookError> {

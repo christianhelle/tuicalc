@@ -13,7 +13,7 @@ use super::formula::to_excel_style;
 use super::{CALCEXT_NAMESPACE, Layout, declared_prefix, repeat_count};
 use crate::address::{CellRef, MAX_COLS, MAX_ROWS};
 use crate::date;
-use crate::model::{Cell, CellValue, Sheet};
+use crate::model::{Cell, CellValue};
 use crate::workbook::WorkbookError;
 use crate::workbook::loading::{
     CHUNK_CELLS, Counting, FIRST_CHUNK_CELLS, LoadEvent, READ_BUFFER_BYTES, SheetChunk,
@@ -48,19 +48,6 @@ pub fn read_plan(source: &[u8], layout: Layout) -> Result<Plan, WorkbookError> {
         sheet_names,
         total_bytes,
     })
-}
-
-/// Reads all of a workbook at once.
-pub fn read(source: &[u8], layout: Layout) -> Result<Vec<Sheet>, WorkbookError> {
-    let plan = read_plan(source, layout)?;
-    let mut sheets: Vec<Sheet> = plan.sheet_names.iter().map(Sheet::new).collect();
-    with_content(source, layout, &AtomicU64::new(0), &mut |input| {
-        parse_content(input, &mut |sheet, chunk| {
-            chunk.apply_to(&mut sheets[sheet]);
-            true
-        })
-    })?;
-    Ok(sheets)
 }
 
 /// Reads a workbook on another thread. All its sheets are in one stream, so they come in file order.
