@@ -15,7 +15,7 @@ use super::reader::{self, Layout};
 use crate::address::CellRef;
 use crate::model::{Cell, CellValue, Sheet};
 use crate::workbook::WorkbookError;
-use crate::workbook::xml::{attr, local_name, xml_error};
+use crate::workbook::xml::{Splice, attr, local_name, position, xml_error};
 
 /// The parts of a package holding one empty sheet: all a workbook needs to open anywhere.
 const BLANK_PARTS: [(&str, &str); 5] = [
@@ -136,27 +136,23 @@ fn remove_elements(
     xml: &str,
     unwanted: impl Fn(&BytesStart<'_>) -> bool,
 ) -> Result<String, WorkbookError> {
-    let mut out = String::with_capacity(xml.len());
-    let mut copied_to = 0;
+    let mut splice = Splice::new(xml, 0);
     let mut reader = Reader::from_str(xml);
     loop {
         let before = position(&reader);
         match reader.read_event().map_err(xml_error)? {
             Event::Empty(element) if unwanted(&element) => {
-                out.push_str(&xml[copied_to..before]);
-                copied_to = position(&reader);
+                splice.copy_until(before, position(&reader));
             }
             Event::Start(element) if unwanted(&element) => {
                 reader.read_to_end(element.name()).map_err(xml_error)?;
-                out.push_str(&xml[copied_to..before]);
-                copied_to = position(&reader);
+                splice.copy_until(before, position(&reader));
             }
             Event::Eof => break,
             _ => {}
         }
     }
-    out.push_str(&xml[copied_to..]);
-    Ok(out)
+    Ok(splice.finish())
 }
 
 /// Elements that follow `calcPr` in the workbook schema.
@@ -237,21 +233,13 @@ fn read_text(
 
 /// Splices pending cells into worksheet XML, leaving all other bytes as they were.
 struct SheetPatch<'a> {
-    xml: &'a str,
-    out: String,
-    copied_to: usize,
+    splice: Splice<'a>,
     pending: BTreeMap<CellRef, Cell>,
     /// The namespace prefix used by the worksheet, including its colon.
     prefix: String,
 }
 
 impl SheetPatch<'_> {
-    /// Copies source bytes up to `end`, then skips ahead to `resume`.
-    fn copy_until(&mut self, end: usize, resume: usize) {
-        self.out.push_str(&self.xml[self.copied_to..end]);
-        self.copied_to = resume;
-    }
-
     /// Removes and returns the pending cells accepted by `wanted`.
     fn take_pending(&mut self, wanted: impl Fn(CellRef) -> bool) -> Vec<(CellRef, Cell)> {
         let keys: Vec<CellRef> = self
@@ -267,7 +255,7 @@ impl SheetPatch<'_> {
 
     fn write_cells(&mut self, cells: &[(CellRef, Cell)]) {
         for (at, cell) in cells {
-            write_cell(&mut self.out, &self.prefix, *at, None, cell);
+            write_cell(&mut self.splice.out, &self.prefix, *at, None, cell);
         }
     }
 
@@ -282,10 +270,11 @@ impl SheetPatch<'_> {
                 .iter()
                 .position(|(at, _)| at.row != row)
                 .map_or(cells.len(), |offset| index + offset);
-            self.out
+            self.splice
+                .out
                 .push_str(&format!(r#"<{}row r="{}">"#, self.prefix, row + 1));
             self.write_cells(&cells[index..end]);
-            self.out.push_str(&format!("</{}row>", self.prefix));
+            self.splice.out.push_str(&format!("</{}row>", self.prefix));
             index = end;
         }
     }
@@ -305,9 +294,7 @@ fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, WorkbookError> {
         .map(|at| (*at, sheet.cell(*at)))
         .collect();
     let mut patch = SheetPatch {
-        xml,
-        out: String::with_capacity(xml.len() + pending.len() * 32),
-        copied_to: 0,
+        splice: Splice::new(xml, pending.len() * 32),
         pending,
         prefix: String::new(),
     };
@@ -329,11 +316,14 @@ fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, WorkbookError> {
                         in_sheet_data = true;
                         if empty {
                             let tag = xml[before..after].trim_end_matches("/>").trim_end();
-                            patch.copy_until(before, after);
-                            patch.out.push_str(tag);
-                            patch.out.push('>');
+                            patch.splice.copy_until(before, after);
+                            patch.splice.out.push_str(tag);
+                            patch.splice.out.push('>');
                             patch.write_rows_before(None);
-                            patch.out.push_str(&format!("</{}sheetData>", patch.prefix));
+                            patch
+                                .splice
+                                .out
+                                .push_str(&format!("</{}sheetData>", patch.prefix));
                         }
                     }
                     "row" if in_sheet_data => {
@@ -343,18 +333,21 @@ fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, WorkbookError> {
                             .unwrap_or(if row_seen { row + 1 } else { 0 });
                         row_seen = true;
                         next_col = 0;
-                        patch.copy_until(before, before);
+                        patch.splice.copy_until(before, before);
                         patch.write_rows_before(Some(row));
                         if empty {
                             let this_row = row;
                             let cells = patch.take_pending(|at| at.row == this_row);
                             if !cells.is_empty() {
                                 let tag = xml[before..after].trim_end_matches("/>").trim_end();
-                                patch.copy_until(before, after);
-                                patch.out.push_str(tag);
-                                patch.out.push('>');
+                                patch.splice.copy_until(before, after);
+                                patch.splice.out.push_str(tag);
+                                patch.splice.out.push('>');
                                 patch.write_cells(&cells);
-                                patch.out.push_str(&format!("</{}row>", patch.prefix));
+                                patch
+                                    .splice
+                                    .out
+                                    .push_str(&format!("</{}row>", patch.prefix));
                             }
                         }
                     }
@@ -363,7 +356,7 @@ fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, WorkbookError> {
                             .and_then(|r| CellRef::parse(&r))
                             .unwrap_or(CellRef { col: next_col, row });
                         next_col = at.col + 1;
-                        patch.copy_until(before, before);
+                        patch.splice.copy_until(before, before);
                         let earlier = patch.take_pending(|p| p.row == at.row && p.col < at.col);
                         patch.write_cells(&earlier);
                         let style = attr(element, "s");
@@ -378,8 +371,14 @@ fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, WorkbookError> {
                                 inner.contains(r#"t="shared""#) || inner.contains("t='shared'");
                         }
                         if let Some(cell) = edit.or_else(|| shared.then(|| sheet.cell(at))) {
-                            patch.copy_until(before, end);
-                            write_cell(&mut patch.out, &patch.prefix, at, style.as_deref(), &cell);
+                            patch.splice.copy_until(before, end);
+                            write_cell(
+                                &mut patch.splice.out,
+                                &patch.prefix,
+                                at,
+                                style.as_deref(),
+                                &cell,
+                            );
                         }
                     }
                     _ => {}
@@ -387,13 +386,13 @@ fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, WorkbookError> {
             }
             Event::End(element) => match AsRef::<str>::as_ref(&element.local_name()) {
                 "row" if in_sheet_data => {
-                    patch.copy_until(before, before);
+                    patch.splice.copy_until(before, before);
                     let this_row = row;
                     let cells = patch.take_pending(|at| at.row == this_row);
                     patch.write_cells(&cells);
                 }
                 "sheetData" => {
-                    patch.copy_until(before, before);
+                    patch.splice.copy_until(before, before);
                     patch.write_rows_before(None);
                     in_sheet_data = false;
                 }
@@ -403,12 +402,7 @@ fn patch_sheet(xml: &str, sheet: &Sheet) -> Result<String, WorkbookError> {
             _ => {}
         }
     }
-    patch.copy_until(xml.len(), xml.len());
-    Ok(patch.out)
-}
-
-fn position(reader: &Reader<&[u8]>) -> usize {
-    reader.buffer_position() as usize
+    Ok(patch.splice.finish())
 }
 
 fn write_cell(out: &mut String, prefix: &str, at: CellRef, style: Option<&str>, cell: &Cell) {

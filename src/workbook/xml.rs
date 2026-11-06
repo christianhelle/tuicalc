@@ -2,8 +2,8 @@
 
 use std::borrow::Cow;
 
-use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
+use quick_xml::{Reader, XmlVersion};
 
 use super::WorkbookError;
 
@@ -58,4 +58,58 @@ pub fn push_text(event: &Event<'_>, out: &mut String) -> Result<(), WorkbookErro
         _ => {}
     }
     Ok(())
+}
+
+/// How far a reader has got through its source, as a byte offset.
+pub fn position(reader: &Reader<&[u8]>) -> usize {
+    reader.buffer_position() as usize
+}
+
+/// Copies source XML through to `out`, leaving out or replacing the spans that change, so that
+/// every other byte stays as it was.
+pub struct Splice<'a> {
+    source: &'a str,
+    pub out: String,
+    copied_to: usize,
+}
+
+impl<'a> Splice<'a> {
+    pub fn new(source: &'a str, extra: usize) -> Self {
+        Self {
+            source,
+            out: String::with_capacity(source.len() + extra),
+            copied_to: 0,
+        }
+    }
+
+    /// Copies source bytes up to `end`, then skips ahead to `resume`.
+    pub fn copy_until(&mut self, end: usize, resume: usize) {
+        self.out.push_str(&self.source[self.copied_to..end]);
+        self.copied_to = resume;
+    }
+
+    /// The output, with the rest of the source copied through.
+    pub fn finish(mut self) -> String {
+        let end = self.source.len();
+        self.copy_until(end, end);
+        self.out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Splice;
+
+    #[test]
+    fn a_splice_keeps_what_it_is_not_told_to_skip() {
+        let mut splice = Splice::new("<a><b/><c/></a>", 0);
+        splice.copy_until(3, 7);
+        splice.out.push_str("<x/>");
+        assert_eq!(splice.finish(), "<a><x/><c/></a>");
+    }
+
+    #[test]
+    fn an_untouched_splice_copies_everything() {
+        assert_eq!(Splice::new("<a/>", 0).finish(), "<a/>");
+    }
 }
