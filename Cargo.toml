@@ -6,7 +6,6 @@ rust-version = "1.89"
 description = "A terminal spreadsheet editor for Excel and OpenDocument workbooks, with vim-style keys"
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/christianhelle/tuicalc"
 repository = "https://github.com/christianhelle/tuicalc"
 keywords = ["spreadsheet", "excel", "xlsx", "ods", "tui"]
 categories = ["command-line-utilities"]
