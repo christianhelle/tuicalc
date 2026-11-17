@@ -23,5 +23,8 @@ tempfile = "3.27.0"
 unicode-width = "0.2.3"
 zip = { version = "9.2.1", default-features = false, features = ["deflate"] }
 
+[build-dependencies]
+winresource = { version = "0.1.34", default-features = false }
+
 [dev-dependencies]
 insta = "1.49.0"
