@@ -473,6 +473,8 @@ fn draw_tabs(buffer: &mut Buffer, area: Rect, app: &App) {
 }
 
 const NORMAL_HINTS: &str = " ? help · i edit · v select · / find · gt sheet · Ctrl-S save · q quit";
+/// Leads the normal hints on a cell holding a link, so it survives a narrow terminal.
+const LINK_HINT: &str = " gx open link ·";
 const VISUAL_HINTS: &str = " d delete · y copy · c change · o other corner · Esc back · ? help";
 const INSERT_HINTS: &str = " Esc done · Enter next · Ctrl-C cancel · F1 help";
 
@@ -493,6 +495,9 @@ fn draw_status(buffer: &mut Buffer, area: Rect, app: &App) {
         },
     };
     let (message, message_style) = match app.message() {
+        Message::Hint if app.mode() == Mode::Normal && app.cursor_link().is_some() => {
+            (format!("{LINK_HINT}{hint}"), Style::default())
+        }
         Message::Hint => (hint.to_string(), Style::default()),
         Message::Search => (
             format!(" /{}", search_window(area, app).text),

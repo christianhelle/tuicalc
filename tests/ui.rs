@@ -1344,3 +1344,25 @@ fn drawing_leaves_the_app_as_it_was() {
         "the size came from fitting, not drawing"
     );
 }
+
+#[test]
+fn the_status_line_offers_gx_on_a_cell_with_a_link() {
+    let (_file, mut app) = app_with(
+        r#"<row r="1"><c r="A1" t="inlineStr"><is><t>see www.example.com</t></is></c><c r="B1" t="inlineStr"><is><t>plain</t></is></c></row>"#,
+    );
+
+    let screen = render(&mut app, 80, 14);
+    assert!(
+        status_line(&screen).starts_with(" NORMAL  gx open link · ? help · "),
+        "{}",
+        status_line(&screen)
+    );
+
+    press(&mut app, KeyCode::Char('l'));
+    let screen = render(&mut app, 80, 14);
+    assert!(
+        status_line(&screen).starts_with(" NORMAL  ? help · "),
+        "{}",
+        status_line(&screen)
+    );
+}
