@@ -38,7 +38,7 @@ pub const NORMAL_HELP: HelpTable = &[
     ("p P u Ctrl-Z Ctrl-R/Y", "Paste after, before; undo; redo"),
     ("v Ctrl-V V", "Select cells, select rows"),
     ("/ n N", "Find in this sheet, next, previous"),
-    ("Ctrl-G", "Go to a cell or row"),
+    ("Ctrl-G gx", "Go to a cell or row; open the cell's link"),
     ("Ctrl-S Ctrl-O F5", "Save, open a file, reload from disk"),
     ("q Ctrl-Q Ctrl-C", "Quit, asking about unsaved changes"),
     (
