@@ -46,3 +46,25 @@ fn trim_trailing_punctuation(url: &str) -> &str {
     }
     url
 }
+
+/// Opens a link in the default browser, without waiting for it.
+pub fn open_in_browser(url: &str) -> std::io::Result<()> {
+    use std::process::{Command, Stdio};
+    // rundll32 takes the link as one argument, unlike `cmd /c start`, which splits it at `&`.
+    let mut command = if cfg!(windows) {
+        let mut command = Command::new("rundll32");
+        command.arg("url.dll,FileProtocolHandler");
+        command
+    } else if cfg!(target_os = "macos") {
+        Command::new("open")
+    } else {
+        Command::new("xdg-open")
+    };
+    command
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(drop)
+}
