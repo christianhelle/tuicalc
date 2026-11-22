@@ -111,6 +111,7 @@ a "paragraph" is a run of filled cells in the column.
 | `v` `Ctrl-V` `V` | Select cells or whole rows |
 | `/` `n` `N` | Find text in this sheet, then the next or previous match, ignoring case |
 | `Ctrl-G` | Go to a cell such as `C7`, or a row such as `25` |
+| `gx` | Open the first link in the cell, such as `https://…` or `www.…`, in the default browser |
 | `Ctrl-S` | Save |
 | `Ctrl-O` | Choose a workbook to open |
 | `F5` | Reload the workbook from disk |
