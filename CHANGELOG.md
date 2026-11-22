@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-22
+
 ### Added
 
 - `gx` opens the first link in the cursor's cell, such as `https://…` or
@@ -116,6 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cells in array formulas and data tables, which Excel only changes as a whole,
   are read-only and say why.
 
-[Unreleased]: https://github.com/christianhelle/tuicalc/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/christianhelle/tuicalc/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/christianhelle/tuicalc/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/christianhelle/tuicalc/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/christianhelle/tuicalc/releases/tag/v0.1.0
