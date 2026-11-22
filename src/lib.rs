@@ -16,5 +16,6 @@ mod ods;
 pub mod status;
 pub mod text;
 pub mod ui;
+pub mod url;
 pub mod workbook;
 mod xlsx;
