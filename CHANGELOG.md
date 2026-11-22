@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `gx` opens the first link in the cursor's cell, such as `https://…` or
+  `www.…`, in the default browser, as in vim.
 - An app icon, embedded in the Windows executable.
 - Hybrid row numbers, as in vim: the cursor's row shows its number and every
   other row shows its distance from the cursor, for counts like `5j`.
