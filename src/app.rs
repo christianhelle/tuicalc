@@ -344,6 +344,14 @@ impl App {
         Message::Hint
     }
 
+    /// The first link in the cursor's cell, which `gx` opens.
+    pub fn cursor_link(&self) -> Option<String> {
+        match &self.current_sheet().cell(self.doc.place.cursor).value {
+            CellValue::Text(text) => url::find_url(text),
+            _ => None,
+        }
+    }
+
     /// The latest message for the user.
     pub fn status(&self) -> &str {
         self.status.text()
@@ -529,11 +537,7 @@ impl App {
 
     /// Opens the first link in the cursor's cell in the default browser.
     fn open_url(&mut self) {
-        let found = match self.current_sheet().cell(self.doc.place.cursor).value {
-            CellValue::Text(text) => url::find_url(&text),
-            _ => None,
-        };
-        let Some(link) = found else {
+        let Some(link) = self.cursor_link() else {
             self.report_error("No link in this cell".to_string());
             return;
         };
