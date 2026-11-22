@@ -13,11 +13,15 @@ use crate::file_dialog::{DialogAction, DialogKind, FileDialog};
 use crate::help::{self, HelpTable};
 use crate::keys::is_ctrl;
 use crate::line_edit::LineEdit;
-use crate::model::{Cell, Sheet};
+use crate::model::{Cell, CellValue, Sheet};
 use crate::motion::{Motion, last_filled_column, moved};
 use crate::status::Status;
 use crate::text::{cell_contains, edit_text, parse_input};
+use crate::url;
 use crate::workbook::{Workbook, WorkbookLoad};
+
+/// What hands a link to a browser.
+pub type UrlOpener = Box<dyn FnMut(&str) -> std::io::Result<()>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -96,6 +100,8 @@ pub struct App {
     help_from: Mode,
     /// Why the workbook the app opened with couldn't be read, once it has given up.
     load_failure: Option<String>,
+    /// What `gx` hands links to: the default browser, unless a test swaps it out.
+    url_opener: UrlOpener,
 }
 
 impl App {
@@ -119,6 +125,7 @@ impl App {
             search_query: None,
             help_from: Mode::Normal,
             load_failure: None,
+            url_opener: Box::new(url::open_in_browser),
             dialog_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             viewport: (10, 20),
             mode: Mode::Normal,
@@ -127,6 +134,11 @@ impl App {
             status: Status::default(),
             should_quit: false,
         }
+    }
+
+    /// Sends the links `gx` opens somewhere other than the default browser.
+    pub fn set_url_opener(&mut self, opener: UrlOpener) {
+        self.url_opener = opener;
     }
 
     /// The workbook on show, and what's going on with it.
@@ -506,11 +518,28 @@ impl App {
                 self.edit_existing();
             }
             Command::BeginFormula => self.begin_edit("="),
+            Command::OpenUrl => self.open_url(),
             Command::CancelLoad => {
                 if self.doc.is_loading() {
                     self.cancel_load();
                 }
             }
+        }
+    }
+
+    /// Opens the first link in the cursor's cell in the default browser.
+    fn open_url(&mut self) {
+        let found = match self.current_sheet().cell(self.doc.place.cursor).value {
+            CellValue::Text(text) => url::find_url(&text),
+            _ => None,
+        };
+        let Some(link) = found else {
+            self.report_error("No link in this cell".to_string());
+            return;
+        };
+        match (self.url_opener)(&link) {
+            Ok(()) => self.status.say(format!("Opened {link}")),
+            Err(error) => self.report_error(format!("Couldn't open {link}: {error}")),
         }
     }
 

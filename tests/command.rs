@@ -196,11 +196,12 @@ fn two_key_commands_finish_on_their_second_key() {
         ("zz", Command::ScrollCursorToMiddle),
         ("zt", Command::ScrollCursorToTop),
         ("zb", Command::ScrollCursorToBottom),
+        ("gx", Command::OpenUrl),
     ];
     for (keys, command) in cases {
         assert_eq!(normal(keys), Some(command), "{keys}");
     }
-    assert_eq!(normal("gx"), None);
+    assert_eq!(normal("gq"), None);
     assert_eq!(normal("Zx"), None);
 }
 
@@ -340,6 +341,7 @@ fn while_selecting_motions_extend_and_operators_act_at_once() {
     assert_eq!(visual("?"), Some(Command::OpenHelp));
     assert_eq!(visual("zz"), Some(Command::ScrollCursorToMiddle));
     assert_eq!(visual("gt"), None, "sheets stay put during a selection");
+    assert_eq!(visual("gx"), None);
     assert_eq!(visual("q"), None);
     assert_eq!(visual("ZZ"), None);
 }

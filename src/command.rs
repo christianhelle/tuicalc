@@ -91,6 +91,8 @@ pub enum Command {
     EditAbove,
     BeginFormula,
     CancelLoad,
+    /// Open the link in the cursor's cell in the default browser.
+    OpenUrl,
 }
 
 /// The part of a command typed so far.
@@ -169,7 +171,7 @@ impl Grammar {
         let count = self.count.take();
         if let Some(prefix) = self.prefix.take() {
             return match prefix_command(prefix, key, count) {
-                Some(Command::SwitchSheet(_) | Command::GoToSheet(_)) => None,
+                Some(Command::SwitchSheet(_) | Command::GoToSheet(_) | Command::OpenUrl) => None,
                 command => command,
             };
         }
@@ -297,6 +299,7 @@ fn prefix_command(prefix: char, key: KeyEvent, count: Option<u32>) -> Option<Com
             None => Command::SwitchSheet(1),
         }),
         ('g', KeyCode::Char('T')) => Some(Command::SwitchSheet(-1)),
+        ('g', KeyCode::Char('x')) => Some(Command::OpenUrl),
         ('Z', KeyCode::Char('Z')) => Some(Command::SaveIfEditedAndQuit),
         ('Z', KeyCode::Char('Q')) => Some(Command::QuitWithoutAsking),
         ('z', KeyCode::Char('z')) => Some(Command::ScrollCursorToMiddle),

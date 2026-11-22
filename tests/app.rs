@@ -1,6 +1,8 @@
 mod common;
 
+use std::cell::RefCell;
 use std::path::Path;
+use std::rc::Rc;
 
 use common::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -2592,4 +2594,52 @@ fn an_ods_file_opens_through_the_dialog_and_saves_with_ctrl_s() {
         content.contains(r#"table:formula="of:=[.A1]""#),
         "{content}"
     );
+}
+
+fn app_opening_urls_into(opened: &Rc<RefCell<Vec<String>>>) -> (TempXlsx, App) {
+    let (file, mut app) = app_with("");
+    let opened = Rc::clone(opened);
+    app.set_url_opener(Box::new(move |url: &str| {
+        opened.borrow_mut().push(url.to_string());
+        Ok(())
+    }));
+    (file, app)
+}
+
+#[test]
+fn gx_opens_the_link_in_the_cell() {
+    let opened = Rc::new(RefCell::new(Vec::new()));
+    let (_file, mut app) = app_opening_urls_into(&opened);
+    type_text(&mut app, "isee https://example.com/a?b=1&c=2 now");
+    press(&mut app, KeyCode::Esc);
+    type_text(&mut app, "gx");
+    assert_eq!(*opened.borrow(), ["https://example.com/a?b=1&c=2"]);
+    assert_eq!(app.status(), "Opened https://example.com/a?b=1&c=2");
+    assert!(!app.status_is_error());
+}
+
+#[test]
+fn gx_says_so_when_the_cell_has_no_link() {
+    let opened = Rc::new(RefCell::new(Vec::new()));
+    let (_file, mut app) = app_opening_urls_into(&opened);
+    type_text(&mut app, "i42");
+    press(&mut app, KeyCode::Esc);
+    type_text(&mut app, "gx");
+    assert!(opened.borrow().is_empty());
+    assert_eq!(app.status(), "No link in this cell");
+    assert!(app.status_is_error());
+}
+
+#[test]
+fn gx_reports_a_browser_that_would_not_start() {
+    let (_file, mut app) = app_with("");
+    app.set_url_opener(Box::new(|_: &str| Err(std::io::Error::other("no browser"))));
+    type_text(&mut app, "iwww.example.com");
+    press(&mut app, KeyCode::Esc);
+    type_text(&mut app, "gx");
+    assert_eq!(
+        app.status(),
+        "Couldn't open https://www.example.com: no browser"
+    );
+    assert!(app.status_is_error());
 }
